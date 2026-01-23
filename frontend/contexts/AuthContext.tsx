@@ -33,8 +33,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    checkExistingSession();
+    initAuth();
   }, []);
+
+  const initAuth = async () => {
+    // Check for session_id in URL (web OAuth callback)
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const sessionId = urlParams.get('session_id') || hashParams.get('session_id');
+      
+      if (sessionId) {
+        await handleAuthCallback(`${window.location.origin}?session_id=${sessionId}`);
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+      }
+    }
+    
+    // Check for existing session
+    await checkExistingSession();
+  };
 
   const checkExistingSession = async () => {
     try {
