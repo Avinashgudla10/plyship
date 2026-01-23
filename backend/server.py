@@ -261,9 +261,8 @@ async def create_session(request: Request, response: Response):
     # Call Emergent Auth API
     async with httpx.AsyncClient() as http_client:
         try:
-            # Updated endpoint based on Emergent Auth integration
             auth_response = await http_client.get(
-                "https://demobackend.emergentagent.com/auth/v1/oauth/session-data",
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
                 headers={"X-Session-ID": session_id},
                 timeout=10.0
             )
