@@ -137,6 +137,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSessionToken(session_token);
         setUser(userData);
         console.log('Login successful!');
+        
+        // Navigate to main app
+        if (typeof router !== 'undefined') {
+          router.replace('/(tabs)');
+        }
       } else {
         console.log('No session_id found in URL');
       }
