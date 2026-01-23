@@ -261,13 +261,18 @@ async def create_session(request: Request, response: Response):
     # Call Emergent Auth API
     async with httpx.AsyncClient() as http_client:
         try:
+            # Updated endpoint based on Emergent Auth integration
             auth_response = await http_client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                "https://demobackend.emergentagent.com/auth/v1/oauth/session-data",
                 headers={"X-Session-ID": session_id},
                 timeout=10.0
             )
             auth_response.raise_for_status()
             user_data = auth_response.json()
+            logger.info(f"Auth successful for email: {user_data.get('email')}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Auth API HTTP error: {e.response.status_code} - {e.response.text}")
+            raise HTTPException(status_code=401, detail=f"Auth failed: {e.response.status_code}")
         except Exception as e:
             logger.error(f"Auth API error: {e}")
             raise HTTPException(status_code=401, detail="Invalid session")
