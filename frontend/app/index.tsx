@@ -19,13 +19,20 @@ export default function Index() {
     if (!isLoading && user) {
       try {
         const hasSeenWelcome = await AsyncStorage.getItem('has_seen_welcome');
+        console.log('Has seen welcome:', hasSeenWelcome);
+        console.log('User:', user);
+        
+        // Check if user has completed profile setup by checking if they have a profile
+        // For now, we'll use the has_seen_welcome flag, but you can clear it to test
         
         if (!hasSeenWelcome) {
           // First time user - show role selection
+          console.log('Showing role selection modal');
           setShowRoleSelection(true);
           setCheckingFirstTime(false);
         } else {
           // Returning user - go to main app
+          console.log('Returning user, going to tabs');
           router.replace('/(tabs)');
         }
       } catch (error) {
@@ -33,6 +40,7 @@ export default function Index() {
         router.replace('/(tabs)');
       }
     } else if (!isLoading && !user) {
+      console.log('No user, going to login');
       router.replace('/(auth)/login');
     }
   };
