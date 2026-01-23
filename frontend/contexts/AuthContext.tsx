@@ -107,28 +107,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const handleAuthCallback = async (url: string) => {
     try {
+      console.log('Auth callback URL:', url);
       const parsed = Linking.parse(url);
       let sessionId = parsed.queryParams?.session_id as string;
       
       if (!sessionId && url.includes('#session_id=')) {
         sessionId = url.split('#session_id=')[1].split('&')[0];
       }
+      
+      if (!sessionId && url.includes('?session_id=')) {
+        sessionId = url.split('?session_id=')[1].split('&')[0];
+      }
+
+      console.log('Extracted session_id:', sessionId);
 
       if (sessionId) {
+        console.log('Calling session endpoint...');
         const response = await axios.post(
           `${API_URL}/api/auth/session`,
           {},
           { headers: { 'X-Session-ID': sessionId } }
         );
 
+        console.log('Session response:', response.data);
         const { session_token, ...userData } = response.data;
         
         await AsyncStorage.setItem('session_token', session_token);
         setSessionToken(session_token);
         setUser(userData);
+        console.log('Login successful!');
+      } else {
+        console.log('No session_id found in URL');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Auth callback error:', error);
+      console.error('Error response:', error?.response?.data);
     }
   };
 
