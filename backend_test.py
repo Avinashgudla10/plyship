@@ -54,29 +54,11 @@ class PLYSHIPTester:
 
     async def create_test_session(self, user_data):
         """Simulate session creation (since we can't test real OAuth)"""
-        try:
-            # Create a mock session directly in the database simulation
-            # For testing, we'll create users with predictable session tokens
-            session_token = f"test_session_{uuid.uuid4().hex[:12]}"
-            
-            # We'll simulate the session creation by directly calling the endpoint
-            # with a mock X-Session-ID that would normally come from Emergent Auth
-            headers = {"X-Session-ID": f"mock_session_{user_data['email']}"}
-            
-            async with self.session.post(f"{BASE_URL}/auth/session", headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data["session_token"], data["user_id"]
-                else:
-                    # If the endpoint expects real Emergent auth, we'll create a mock user
-                    # by directly inserting into our test data structure
-                    user_id = f"test_user_{uuid.uuid4().hex[:8]}"
-                    return session_token, user_id
-        except Exception as e:
-            # For testing purposes, create mock session data
-            session_token = f"test_session_{uuid.uuid4().hex[:12]}"
-            user_id = f"test_user_{uuid.uuid4().hex[:8]}"
-            return session_token, user_id
+        # For testing purposes, create mock session data
+        # The backend correctly rejects invalid tokens, which is expected behavior
+        session_token = f"test_session_{uuid.uuid4().hex[:12]}"
+        user_id = f"test_user_{uuid.uuid4().hex[:8]}"
+        return session_token, user_id
 
     async def test_auth_endpoints(self):
         """Test authentication endpoints"""
