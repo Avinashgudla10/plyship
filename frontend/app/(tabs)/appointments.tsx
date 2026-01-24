@@ -170,7 +170,7 @@ export default function AppointmentsScreen() {
   );
 }
 
-const AppointmentCard = ({ appointment, userId, onApprove, onConfirmMeeting }: any) => {
+const AppointmentCard = ({ appointment, userId, onApprove, onReject, onConfirmMeeting }: any) => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return '#F39C12';
