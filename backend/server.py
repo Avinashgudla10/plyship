@@ -1228,30 +1228,209 @@ async def get_user_ratings(user_id: str):
 
 # ============= Admin Routes (Simplified for now) =============
 
-@api_router.get("/admin/disputes")
-async def get_disputes():
-    """Get all confirmation disputes"""
-    # Find confirmations where only one party confirmed
-    all_confirmations = await db.meeting_confirmations.find(
-        {"resolved": False},
-        {"_id": 0}
-    ).to_list(1000)
+@api_router.get("/admin/stats/users")
+async def get_user_stats():
+    """Get user statistics"""
+    total = await db.users.count_documents({})
+    seekers = await db.seeker_profiles.count_documents({})
+    companies = await db.company_profiles.count_documents({})
+    return {"total": total, "seekers": seekers, "companies": companies}
+
+@api_router.get("/admin/stats/matches")
+async def get_match_stats():
+    """Get match statistics"""
+    total = await db.matches.count_documents({"matched": True})
+    return {"total": total}
+
+@api_router.get("/admin/stats/appointments")
+async def get_appointment_stats():
+    """Get appointment statistics"""
+    total = await db.appointments.count_documents({})
+    return {"total": total}
+
+@api_router.get("/admin/stats/transactions")
+async def get_transaction_stats():
+    """Get transaction statistics"""
+    total = await db.transactions.count_documents({})
+    pipeline = [
+        {"$group": {"_id": None, "sum": {"$sum": "$amount"}}}
+    ]
+    result = await db.transactions.aggregate(pipeline).to_list(1)
+    sum_amount = result[0]["sum"] if result else 0
+    return {"total": total, "sum": sum_amount}
+
+@api_router.get("/admin/users")
+async def get_all_users():
+    """Get all users for admin"""
+    users = await db.users.find({}, {"_id": 0}).to_list(1000)
+    return users
+
+@api_router.get("/admin/users/{user_id}")
+async def get_user_by_id(user_id: str):
+    """Get user details"""
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@api_router.put("/admin/users/{user_id}/ban")
+async def ban_user(user_id: str):
+    """Ban a user"""
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"banned": True}}
+    )
+    return {"message": "User banned"}
+
+@api_router.delete("/admin/users/{user_id}")
+async def delete_user_admin(user_id: str):
+    """Delete a user"""
+    await db.users.delete_one({"user_id": user_id})
+    await db.seeker_profiles.delete_one({"user_id": user_id})
+    await db.company_profiles.delete_one({"user_id": user_id})
+    await db.wallets.delete_one({"user_id": user_id})
+    return {"message": "User deleted"}
+
+@api_router.get("/admin/appointments")
+async def get_all_appointments():
+    """Get all appointments with user details"""
+    appointments = await db.appointments.find({}, {"_id": 0}).to_list(1000)
     
-    disputes = []
-    for conf in all_confirmations:
-        if conf["seeker_confirmed"] != conf["company_confirmed"]:
-            appointment = await db.appointments.find_one(
-                {"appointment_id": conf["appointment_id"]},
-                {"_id": 0}
+    result = []
+    for appt in appointments:
+        seeker = await db.users.find_one({"user_id": appt["seeker_id"]}, {"_id": 0})
+        company = await db.users.find_one({"user_id": appt["company_id"]}, {"_id": 0})
+        
+        result.append({
+            **appt,
+            "seeker_name": seeker["name"] if seeker else None,
+            "company_name": company["name"] if company else None
+        })
+    
+    return result
+
+@api_router.put("/admin/appointments/{appointment_id}/cancel")
+async def cancel_appointment_admin(appointment_id: str):
+    """Cancel an appointment"""
+    await db.appointments.update_one(
+        {"appointment_id": appointment_id},
+        {"$set": {"status": "cancelled"}}
+    )
+    return {"message": "Appointment cancelled"}
+
+@api_router.get("/admin/transactions")
+async def get_all_transactions():
+    """Get all transactions"""
+    transactions = await db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return transactions
+
+@api_router.put("/admin/disputes/{appointment_id}/resolve")
+async def resolve_dispute_admin(appointment_id: str, request: Request):
+    """Resolve a dispute"""
+    body = await request.json()
+    action = body.get("action")
+    
+    if action == "approve":
+        # Mark both as confirmed and process payment
+        await db.meeting_confirmations.update_one(
+            {"appointment_id": appointment_id},
+            {"$set": {
+                "seeker_confirmed": True,
+                "company_confirmed": True,
+                "transaction_completed": True,
+                "resolved": True,
+                "admin_notified": False
+            }}
+        )
+        
+        # Process payment
+        appointment = await db.appointments.find_one({"appointment_id": appointment_id}, {"_id": 0})
+        if appointment:
+            now = datetime.now(timezone.utc)
+            transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
+            
+            await db.wallets.update_one(
+                {"user_id": appointment["company_id"]},
+                {"$inc": {"balance": -500}, "$set": {"updated_at": now}}
             )
             
-            if appointment:
-                disputes.append({
-                    "appointment": appointment,
-                    "confirmation": conf
-                })
+            await db.wallets.update_one(
+                {"user_id": appointment["seeker_id"]},
+                {"$inc": {"balance": 500}, "$set": {"updated_at": now}}
+            )
+            
+            transaction = {
+                "transaction_id": transaction_id,
+                "from_user_id": appointment["company_id"],
+                "to_user_id": appointment["seeker_id"],
+                "amount": 500,
+                "type": "meeting_reward",
+                "status": "completed",
+                "appointment_id": appointment_id,
+                "created_at": now
+            }
+            await db.transactions.insert_one(transaction)
+    else:
+        # Just mark as resolved without payment
+        await db.meeting_confirmations.update_one(
+            {"appointment_id": appointment_id},
+            {"$set": {"resolved": True, "admin_notified": False}}
+        )
     
-    return disputes
+    return {"message": "Dispute resolved"}
+
+@api_router.get("/admin/analytics")
+async def get_analytics():
+    """Get analytics data"""
+    # Match rate
+    total_likes = await db.matches.count_documents({})
+    total_matched = await db.matches.count_documents({"matched": True})
+    match_rate = round((total_matched / total_likes * 100) if total_likes > 0 else 0, 1)
+    
+    # Confirmation rate
+    total_approved = await db.appointments.count_documents({"status": "approved"})
+    total_confirmed = await db.meeting_confirmations.count_documents({"transaction_completed": True})
+    confirm_rate = round((total_confirmed / total_approved * 100) if total_approved > 0 else 0, 1)
+    
+    # Average transaction
+    pipeline = [
+        {"$group": {"_id": None, "avg": {"$avg": "$amount"}, "sum": {"$sum": "$amount"}}}
+    ]
+    result = await db.transactions.aggregate(pipeline).to_list(1)
+    avg_transaction = round(result[0]["avg"]) if result else 0
+    revenue = result[0]["sum"] if result else 0
+    
+    return {
+        "matchRate": match_rate,
+        "confirmRate": confirm_rate,
+        "avgTransaction": avg_transaction,
+        "revenue": revenue
+    }
+
+@api_router.get("/admin/recent-activity")
+async def get_recent_activity():
+    """Get recent activity"""
+    activities = []
+    
+    # Recent matches
+    matches = await db.matches.find({"matched": True}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
+    for match in matches:
+        activities.append({
+            "title": "New match created",
+            "created_at": match["created_at"]
+        })
+    
+    # Recent appointments
+    appointments = await db.appointments.find({}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
+    for appt in appointments:
+        activities.append({
+            "title": f"Appointment {appt['status']}",
+            "created_at": appt["created_at"]
+        })
+    
+    # Sort by date
+    activities.sort(key=lambda x: x["created_at"], reverse=True)
+    return activities[:10]
 
 # Include router in main app
 app.include_router(api_router)
