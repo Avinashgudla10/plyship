@@ -1433,6 +1433,31 @@ async def get_recent_activity():
     activities.sort(key=lambda x: x["created_at"], reverse=True)
     return activities[:10]
 
+@api_router.get("/admin/disputes")
+async def get_disputes():
+    """Get all confirmation disputes"""
+    # Find confirmations where only one party confirmed
+    all_confirmations = await db.meeting_confirmations.find(
+        {"resolved": False},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    disputes = []
+    for conf in all_confirmations:
+        if conf["seeker_confirmed"] != conf["company_confirmed"]:
+            appointment = await db.appointments.find_one(
+                {"appointment_id": conf["appointment_id"]},
+                {"_id": 0}
+            )
+            
+            if appointment:
+                disputes.append({
+                    "appointment": appointment,
+                    "confirmation": conf
+                })
+    
+    return disputes
+
 # Include router in main app
 app.include_router(api_router)
 
@@ -1443,6 +1468,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount admin panel
+admin_path = ROOT_DIR.parent / "admin"
+if admin_path.exists():
+    app.mount("/admin", StaticFiles(directory=str(admin_path), html=True), name="admin")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
