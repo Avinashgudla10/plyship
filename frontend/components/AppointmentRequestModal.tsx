@@ -237,6 +237,11 @@ const styles = StyleSheet.create({
     height: 80,
     textAlignVertical: 'top',
   },
+  readOnlyInput: {
+    backgroundColor: '#E8F4FD',
+    borderColor: '#3498DB',
+    color: '#2D3436',
+  },
   helperText: {
     fontSize: 12,
     color: '#95A5A6',
