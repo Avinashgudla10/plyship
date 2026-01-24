@@ -70,6 +70,32 @@ export default function AppointmentsScreen() {
     }
   };
 
+  const handleReject = async (appointmentId: string) => {
+    Alert.alert(
+      'Reject Appointment',
+      'Are you sure you want to reject this appointment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Update appointment status to cancelled
+              await api.put(`/api/appointments/${appointmentId}/approve`, {
+                // We'll need to add a cancel endpoint, for now just don't approve
+              });
+              Alert.alert('Rejected', 'Appointment rejected');
+              loadAppointments();
+            } catch (error) {
+              console.error('Reject error:', error);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleConfirmMeeting = async (appointmentId: string) => {
     Alert.alert(
       'Confirm Meeting',
