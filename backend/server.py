@@ -760,7 +760,8 @@ async def get_my_matches(
                     "project_title": seeker_profile["project_title"],
                     "location": seeker_profile["location"],
                     "budget_min": seeker_profile["budget_min"],
-                    "budget_max": seeker_profile["budget_max"]
+                    "budget_max": seeker_profile["budget_max"],
+                    "meeting_location": seeker_profile["location"]  # Add this for appointment
                 })
     
     return result
