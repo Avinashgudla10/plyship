@@ -598,13 +598,14 @@ async def get_potential_matches(
         # Get all seeker profiles
         seekers = await db.seeker_profiles.find({}, {"_id": 0}).to_list(100)
         
-        # Get already liked/matched
+        # Get already matched (both parties liked)
         existing_matches = await db.matches.find(
             {"company_id": user.user_id},
             {"_id": 0}
         ).to_list(1000)
         
-        existing_seeker_ids = {m["seeker_id"] for m in existing_matches}
+        # Only exclude if BOTH have liked (matched = True) OR if company already liked
+        existing_seeker_ids = {m["seeker_id"] for m in existing_matches if m.get("matched") or m.get("company_liked")}
         
         for seeker in seekers:
             if seeker["user_id"] not in existing_seeker_ids:
@@ -613,11 +614,22 @@ async def get_potential_matches(
                 # Get seeker user info
                 seeker_user = await db.users.find_one({"user_id": seeker["user_id"]}, {"_id": 0})
                 
+                # Check if seeker already liked this company
+                existing_match = next((m for m in existing_matches if m["seeker_id"] == seeker["user_id"]), None)
+                has_liked_you = existing_match and existing_match.get("seeker_liked", False)
+                
                 matches.append({
                     "user_id": seeker["user_id"],
                     "name": seeker_user["name"] if seeker_user else "Unknown",
                     "picture": seeker_user.get("picture") if seeker_user else None,
                     "project_title": seeker["project_title"],
+                    "location": seeker["location"],
+                    "budget_min": seeker["budget_min"],
+                    "budget_max": seeker["budget_max"],
+                    "photos": seeker["photos"][:3],
+                    "match_score": score,
+                    "has_liked_you": has_liked_you  # New field to highlight
+                })
                     "location": seeker["location"],
                     "budget_min": seeker["budget_min"],
                     "budget_max": seeker["budget_max"],
