@@ -287,6 +287,7 @@ const MatchedCard = ({ match, role }: any) => {
           user_id: match.user_id,
           name: match.name,
         }}
+        meetingLocation={match.meeting_location || ''}
         onSuccess={() => {
           // Optionally refresh the appointments list
         }}
