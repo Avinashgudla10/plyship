@@ -74,9 +74,11 @@ async function handleLogin(e) {
 }
 
 function handleLogout() {
-    localStorage.removeItem('admin_token');
-    authToken = null;
-    showLogin();
+    if (confirm('Are you sure you want to logout?')) {
+        localStorage.removeItem('admin_token');
+        authToken = null;
+        location.reload(); // Refresh to show login screen
+    }
 }
 
 function switchView(viewName) {
