@@ -103,10 +103,7 @@ export default function MatchesScreen() {
   };
 
   const handleSetupProfile = () => {
-    const route = user?.active_role === 'seeker' 
-      ? '/profile/seeker-setup' 
-      : '/profile/company-setup';
-    router.push(route);
+    router.push('/profile/role-selection');
   };
 
   if (loading) {
