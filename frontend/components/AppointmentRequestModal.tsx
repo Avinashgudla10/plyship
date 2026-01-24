@@ -21,6 +21,7 @@ interface AppointmentRequestModalProps {
     user_id: string;
     name: string;
   };
+  meetingLocation: string;
   onSuccess: () => void;
 }
 
@@ -28,11 +29,12 @@ export default function AppointmentRequestModal({
   visible,
   onClose,
   targetUser,
+  meetingLocation,
   onSuccess,
 }: AppointmentRequestModalProps) {
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
-  const [location, setLocation] = useState('');
+  const [location, setLocation] = useState(meetingLocation);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
