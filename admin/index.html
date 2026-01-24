@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PLYSHIP Admin Panel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen active">
+        <div class="login-container">
+            <div class="logo">
+                <h1>🏠 PLYSHIP</h1>
+                <p>Admin Panel</p>
+            </div>
+            <form id="loginForm" class="login-form">
+                <input type="text" id="adminUsername" placeholder="Username" required>
+                <input type="password" id="adminPassword" placeholder="Password" required>
+                <button type="submit" class="btn-primary">Login</button>
+                <p class="hint">Default: admin / admin123</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboardScreen" class="screen">
+        <nav class="sidebar">
+            <div class="logo-small">
+                <h2>PLYSHIP</h2>
+                <p>Admin</p>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item active" data-screen="dashboard">
+                    <span class="icon">📊</span>
+                    <span>Dashboard</span>
+                </li>
+                <li class="nav-item" data-screen="users">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </li>
+                <li class="nav-item" data-screen="appointments">
+                    <span class="icon">📅</span>
+                    <span>Appointments</span>
+                </li>
+                <li class="nav-item" data-screen="transactions">
+                    <span class="icon">💰</span>
+                    <span>Transactions</span>
+                </li>
+                <li class="nav-item" data-screen="disputes">
+                    <span class="icon">⚠️</span>
+                    <span>Disputes</span>
+                </li>
+                <li class="nav-item" data-screen="analytics">
+                    <span class="icon">📈</span>
+                    <span>Analytics</span>
+                </li>
+            </ul>
+            <button id="logoutBtn" class="logout-btn">Logout</button>
+        </nav>
+
+        <main class="main-content">
+            <header class="header">
+                <h1 id="pageTitle">Dashboard</h1>
+                <div class="header-actions">
+                    <button id="refreshBtn" class="btn-icon">🔄</button>
+                    <div class="admin-info">
+                        <span id="adminName">Admin</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <div id="dashboardView" class="view active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-info">
+                            <h3 id="totalUsers">0</h3>
+                            <p>Total Users</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🏠</div>
+                        <div class="stat-info">
+                            <h3 id="totalSeekers">0</h3>
+                            <p>Seekers</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🏢</div>
+                        <div class="stat-info">
+                            <h3 id="totalCompanies">0</h3>
+                            <p>Companies</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">❤️</div>
+                        <div class="stat-info">
+                            <h3 id="totalMatches">0</h3>
+                            <p>Matches</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📅</div>
+                        <div class="stat-info">
+                            <h3 id="totalAppointments">0</h3>
+                            <p>Appointments</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-info">
+                            <h3 id="totalTransactions">0</h3>
+                            <p>Transactions</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⚠️</div>
+                        <div class="stat-info">
+                            <h3 id="totalDisputes">0</h3>
+                            <p>Disputes</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💵</div>
+                        <div class="stat-info">
+                            <h3 id="totalWalletBalance">₹0</h3>
+                            <p>Total Wallet Balance</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="charts-section">
+                    <div class="chart-card">
+                        <h3>Recent Activity</h3>
+                        <div id="recentActivity" class="activity-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users View -->
+            <div id="usersView" class="view">
+                <div class="view-header">
+                    <div class="search-bar">
+                        <input type="text" id="userSearch" placeholder="Search users...">
+                    </div>
+                    <div class="filters">
+                        <select id="userRoleFilter">
+                            <option value="all">All Roles</option>
+                            <option value="seeker">Seekers</option>
+                            <option value="company">Companies</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>User ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Joined</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Appointments View -->
+            <div id="appointmentsView" class="view">
+                <div class="view-header">
+                    <div class="search-bar">
+                        <input type="text" id="appointmentSearch" placeholder="Search appointments...">
+                    </div>
+                    <div class="filters">
+                        <select id="appointmentStatusFilter">
+                            <option value="all">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="approved">Approved</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Seeker</th>
+                                <th>Company</th>
+                                <th>Date</th>
+                                <th>Location</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="appointmentsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Transactions View -->
+            <div id="transactionsView" class="view">
+                <div class="view-header">
+                    <div class="search-bar">
+                        <input type="text" id="transactionSearch" placeholder="Search transactions...">
+                    </div>
+                    <div class="filters">
+                        <select id="transactionTypeFilter">
+                            <option value="all">All Types</option>
+                            <option value="meeting_reward">Meeting Reward</option>
+                            <option value="topup">Top Up</option>
+                            <option value="withdrawal">Withdrawal</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Transaction ID</th>
+                                <th>From</th>
+                                <th>To</th>
+                                <th>Amount</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactionsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Disputes View -->
+            <div id="disputesView" class="view">
+                <div class="disputes-container">
+                    <div id="disputesList" class="disputes-list">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics View -->
+            <div id="analyticsView" class="view">
+                <div class="analytics-grid">
+                    <div class="analytics-card">
+                        <h3>Match Rate</h3>
+                        <div class="big-stat" id="matchRate">0%</div>
+                        <p>Successful matches from likes</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Meeting Confirmation Rate</h3>
+                        <div class="big-stat" id="confirmRate">0%</div>
+                        <p>Meetings confirmed by both parties</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Average Transaction Value</h3>
+                        <div class="big-stat" id="avgTransaction">₹0</div>
+                        <p>Per transaction</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Revenue Generated</h3>
+                        <div class="big-stat" id="revenue">₹0</div>
+                        <p>From confirmed meetings</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- User Detail Modal -->
+    <div id="userDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="modalUserName">User Details</h2>
+            <div id="modalUserContent"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
