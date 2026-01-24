@@ -271,13 +271,27 @@ const MatchedCard = ({ match, role }: any) => {
           ) : (
             <Text style={styles.matchedSubtitle}>{match.project_title}</Text>
           )}
+          {match.has_active_appointment && (
+            <View style={styles.appointmentStatusBadge}>
+              <Ionicons name="calendar-outline" size={12} color="#F39C12" />
+              <Text style={styles.appointmentStatusText}>
+                {match.active_appointment_status === 'pending' ? 'Appointment Pending' : 'Meeting Scheduled'}
+              </Text>
+            </View>
+          )}
         </View>
-        <TouchableOpacity
-          style={styles.appointmentButton}
-          onPress={() => setShowAppointmentModal(true)}
-        >
-          <Ionicons name="calendar" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
+        {!match.has_active_appointment ? (
+          <TouchableOpacity
+            style={styles.appointmentButton}
+            onPress={() => setShowAppointmentModal(true)}
+          >
+            <Ionicons name="calendar" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.disabledButton}>
+            <Ionicons name="time" size={20} color="#95A5A6" />
+          </View>
+        )}
       </View>
 
       <AppointmentRequestModal
