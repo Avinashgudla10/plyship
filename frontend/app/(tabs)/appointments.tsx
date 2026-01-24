@@ -192,9 +192,15 @@ const AppointmentCard = ({ appointment, userId, onApprove, onReject, onConfirmMe
     });
   };
 
+  const isMeetingDatePassed = () => {
+    const meetingDate = new Date(appointment.date);
+    const now = new Date();
+    return now > meetingDate;
+  };
+
   const isRequester = appointment.requested_by === userId;
   const needsApproval = appointment.status === 'pending' && !isRequester;
-  const canConfirm = appointment.status === 'approved';
+  const canConfirm = appointment.status === 'approved' && isMeetingDatePassed();
 
   return (
     <View style={styles.card}>
