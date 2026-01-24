@@ -733,6 +733,13 @@ async def get_my_matches(
             company_user = await db.users.find_one({"user_id": match["company_id"]}, {"_id": 0})
             company_profile = await db.company_profiles.find_one({"user_id": match["company_id"]}, {"_id": 0})
             
+            # Check for active appointments
+            active_appointment = await db.appointments.find_one({
+                "seeker_id": user.user_id,
+                "company_id": match["company_id"],
+                "status": {"$in": ["pending", "approved"]}
+            }, {"_id": 0})
+            
             if company_user and company_profile:
                 result.append({
                     "match_id": match["match_id"],
@@ -742,7 +749,9 @@ async def get_my_matches(
                     "company_name": company_profile["company_name"],
                     "description": company_profile["description"],
                     "portfolio": company_profile["portfolio"][:3],
-                    "meeting_location": meeting_location  # Add this for appointment
+                    "meeting_location": meeting_location,
+                    "has_active_appointment": bool(active_appointment),
+                    "active_appointment_status": active_appointment["status"] if active_appointment else None
                 })
     
     else:  # company
@@ -756,6 +765,13 @@ async def get_my_matches(
             seeker_user = await db.users.find_one({"user_id": match["seeker_id"]}, {"_id": 0})
             seeker_profile = await db.seeker_profiles.find_one({"user_id": match["seeker_id"]}, {"_id": 0})
             
+            # Check for active appointments
+            active_appointment = await db.appointments.find_one({
+                "seeker_id": match["seeker_id"],
+                "company_id": user.user_id,
+                "status": {"$in": ["pending", "approved"]}
+            }, {"_id": 0})
+            
             if seeker_user and seeker_profile:
                 result.append({
                     "match_id": match["match_id"],
@@ -766,7 +782,9 @@ async def get_my_matches(
                     "location": seeker_profile["location"],
                     "budget_min": seeker_profile["budget_min"],
                     "budget_max": seeker_profile["budget_max"],
-                    "meeting_location": seeker_profile["location"]  # Add this for appointment
+                    "meeting_location": seeker_profile["location"],
+                    "has_active_appointment": bool(active_appointment),
+                    "active_appointment_status": active_appointment["status"] if active_appointment else None
                 })
     
     return result
