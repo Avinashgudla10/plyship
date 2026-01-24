@@ -200,6 +200,13 @@ export default function MatchesScreen() {
 
 const MatchCard = ({ match, onLike, onPass, role }: any) => (
   <View style={styles.card}>
+    {match.has_liked_you && (
+      <View style={styles.likedYouBadge}>
+        <Ionicons name="heart" size={16} color="#FFFFFF" />
+        <Text style={styles.likedYouText}>Liked You!</Text>
+      </View>
+    )}
+    
     <View style={styles.cardHeader}>
       <Image
         source={{ uri: match.picture || 'https://via.placeholder.com/100' }}
