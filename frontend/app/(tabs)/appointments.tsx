@@ -157,6 +157,7 @@ export default function AppointmentsScreen() {
             appointment={item}
             userId={user?.user_id}
             onApprove={() => handleApprove(item.appointment_id)}
+            onReject={() => handleReject(item.appointment_id)}
             onConfirmMeeting={() => handleConfirmMeeting(item.appointment_id)}
           />
         )}
