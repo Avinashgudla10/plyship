@@ -462,6 +462,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderRadius: 12,
   },
+  appointmentButton: {
+    backgroundColor: '#FF6B6B',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   matchedAvatar: {
     width: 50,
     height: 50,
