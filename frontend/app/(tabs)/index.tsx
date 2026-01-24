@@ -254,27 +254,43 @@ const MatchCard = ({ match, onLike, onPass, role }: any) => (
 );
 
 const MatchedCard = ({ match, role }: any) => {
-  const router = useRouter();
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
 
   return (
-    <TouchableOpacity
-      style={styles.matchedCard}
-      onPress={() => router.push(`/match/${match.user_id}`)}
-    >
-      <Image
-        source={{ uri: match.picture || 'https://via.placeholder.com/60' }}
-        style={styles.matchedAvatar}
-      />
-      <View style={styles.matchedInfo}>
-        <Text style={styles.matchedName}>{match.name}</Text>
-        {role === 'seeker' ? (
-          <Text style={styles.matchedSubtitle}>{match.company_name}</Text>
-        ) : (
-          <Text style={styles.matchedSubtitle}>{match.project_title}</Text>
-        )}
+    <>
+      <View style={styles.matchedCard}>
+        <Image
+          source={{ uri: match.picture || 'https://via.placeholder.com/60' }}
+          style={styles.matchedAvatar}
+        />
+        <View style={styles.matchedInfo}>
+          <Text style={styles.matchedName}>{match.name}</Text>
+          {role === 'seeker' ? (
+            <Text style={styles.matchedSubtitle}>{match.company_name}</Text>
+          ) : (
+            <Text style={styles.matchedSubtitle}>{match.project_title}</Text>
+          )}
+        </View>
+        <TouchableOpacity
+          style={styles.appointmentButton}
+          onPress={() => setShowAppointmentModal(true)}
+        >
+          <Ionicons name="calendar" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
       </View>
-      <Ionicons name="chevron-forward" size={24} color="#95A5A6" />
-    </TouchableOpacity>
+
+      <AppointmentRequestModal
+        visible={showAppointmentModal}
+        onClose={() => setShowAppointmentModal(false)}
+        targetUser={{
+          user_id: match.user_id,
+          name: match.name,
+        }}
+        onSuccess={() => {
+          // Optionally refresh the appointments list
+        }}
+      />
+    </>
   );
 };
 
