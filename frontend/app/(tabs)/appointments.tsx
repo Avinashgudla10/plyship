@@ -262,6 +262,15 @@ const AppointmentCard = ({ appointment, userId, onApprove, onReject, onConfirmMe
           <Text style={styles.confirmButtonText}>Confirm Meeting Happened</Text>
         </TouchableOpacity>
       )}
+
+      {appointment.status === 'approved' && !isMeetingDatePassed() && (
+        <View style={styles.waitingMessage}>
+          <Ionicons name="time-outline" size={20} color="#3498DB" />
+          <Text style={styles.waitingText}>
+            You can confirm the meeting after {formatDate(appointment.date)}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
