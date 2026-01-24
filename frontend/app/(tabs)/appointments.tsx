@@ -239,9 +239,16 @@ const AppointmentCard = ({ appointment, userId, onApprove, onReject, onConfirmMe
       )}
 
       {needsApproval && (
-        <TouchableOpacity style={styles.approveButton} onPress={onApprove}>
-          <Text style={styles.approveButtonText}>Approve Appointment</Text>
-        </TouchableOpacity>
+        <View style={styles.actionButtons}>
+          <TouchableOpacity style={styles.rejectButton} onPress={onReject}>
+            <Ionicons name="close-circle" size={20} color="#FFFFFF" />
+            <Text style={styles.rejectButtonText}>Reject</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.approveButton} onPress={onApprove}>
+            <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+            <Text style={styles.approveButtonText}>Approve</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {canConfirm && (
