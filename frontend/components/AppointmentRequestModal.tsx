@@ -128,17 +128,21 @@ export default function AppointmentRequestModal({
 
             <View style={styles.formGroup}>
               <Text style={styles.label}>
-                <Ionicons name="location" size={16} /> Location *
+                <Ionicons name="location" size={16} /> Meeting Location *
               </Text>
               <TextInput
-                style={[styles.input, styles.textArea]}
+                style={[styles.input, styles.textArea, styles.readOnlyInput]}
                 value={location}
                 onChangeText={setLocation}
-                placeholder="Enter meeting location"
+                placeholder="Seeker's home location"
                 placeholderTextColor="#95A5A6"
                 multiline
                 numberOfLines={3}
+                editable={false}
               />
+              <Text style={styles.helperText}>
+                This is the seeker's home location from their profile
+              </Text>
             </View>
 
             <View style={styles.infoBox}>
