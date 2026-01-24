@@ -563,13 +563,14 @@ async def get_potential_matches(
         # Get all company profiles
         companies = await db.company_profiles.find({}, {"_id": 0}).to_list(100)
         
-        # Get already liked/matched
+        # Get already matched (both parties liked)
         existing_matches = await db.matches.find(
             {"seeker_id": user.user_id},
             {"_id": 0}
         ).to_list(1000)
         
-        existing_company_ids = {m["company_id"] for m in existing_matches}
+        # Only exclude if BOTH have liked (matched = True) OR if seeker already liked
+        existing_company_ids = {m["company_id"] for m in existing_matches if m.get("matched") or m.get("seeker_liked")}
         
         for company in companies:
             if company["user_id"] not in existing_company_ids:
@@ -577,6 +578,10 @@ async def get_potential_matches(
                 
                 # Get company user info
                 company_user = await db.users.find_one({"user_id": company["user_id"]}, {"_id": 0})
+                
+                # Check if company already liked this seeker
+                existing_match = next((m for m in existing_matches if m["company_id"] == company["user_id"]), None)
+                has_liked_you = existing_match and existing_match.get("company_liked", False)
                 
                 matches.append({
                     "user_id": company["user_id"],
@@ -586,7 +591,8 @@ async def get_potential_matches(
                     "description": company["description"],
                     "portfolio": company["portfolio"][:3],  # First 3 images
                     "experience_years": company["experience_years"],
-                    "match_score": score
+                    "match_score": score,
+                    "has_liked_you": has_liked_you  # New field to highlight
                 })
     
     else:  # company
