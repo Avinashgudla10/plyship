@@ -36,10 +36,7 @@ export default function ProfileScreen() {
   };
 
   const handleEditProfile = () => {
-    const route = user?.active_role === 'seeker'
-      ? '/profile/seeker-setup'
-      : '/profile/company-setup';
-    router.push(route);
+    router.push('/profile/role-selection');
   };
 
   const handleLogout = () => {
