@@ -724,6 +724,10 @@ async def get_my_matches(
             "matched": True
         }, {"_id": 0}).to_list(100)
         
+        # Get seeker's location for meeting
+        seeker_profile = await db.seeker_profiles.find_one({"user_id": user.user_id}, {"_id": 0})
+        meeting_location = seeker_profile.get("location", "") if seeker_profile else ""
+        
         result = []
         for match in matches:
             company_user = await db.users.find_one({"user_id": match["company_id"]}, {"_id": 0})
@@ -737,7 +741,8 @@ async def get_my_matches(
                     "picture": company_user.get("picture"),
                     "company_name": company_profile["company_name"],
                     "description": company_profile["description"],
-                    "portfolio": company_profile["portfolio"][:3]
+                    "portfolio": company_profile["portfolio"][:3],
+                    "meeting_location": meeting_location  # Add this for appointment
                 })
     
     else:  # company
