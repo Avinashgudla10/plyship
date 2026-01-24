@@ -636,12 +636,6 @@ async def get_potential_matches(
                     "match_score": score,
                     "has_liked_you": has_liked_you  # New field to highlight
                 })
-                    "location": seeker["location"],
-                    "budget_min": seeker["budget_min"],
-                    "budget_max": seeker["budget_max"],
-                    "photos": seeker["photos"][:3],
-                    "match_score": score
-                })
     
     # Sort by match score
     matches.sort(key=lambda x: x["match_score"], reverse=True)
