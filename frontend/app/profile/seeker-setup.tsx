@@ -87,7 +87,10 @@ export default function SeekerSetupScreen() {
       });
 
       Alert.alert('Success', 'Profile saved successfully!', [
-        { text: 'OK', onPress: () => router.back() }
+        { text: 'OK', onPress: () => {
+          // Navigate to matches tab
+          router.replace('/(tabs)');
+        }}
       ]);
     } catch (error) {
       console.error('Save error:', error);
