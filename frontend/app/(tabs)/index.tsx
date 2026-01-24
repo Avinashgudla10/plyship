@@ -14,6 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
 import { useRouter } from 'expo-router';
+import AppointmentRequestModal from '../../components/AppointmentRequestModal';
 
 const { width } = Dimensions.get('window');
 
