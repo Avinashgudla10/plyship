@@ -424,4 +424,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  waitingMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F4FD',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  waitingText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#2D3436',
+    lineHeight: 18,
+  },
 });
