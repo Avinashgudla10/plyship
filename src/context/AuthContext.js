@@ -665,7 +665,7 @@ export const AuthProvider = ({ children }) => {
 
     // ============ MEETING FUNCTIONS ============
 
-    // Schedule a meeting with a match
+    // Schedule a meeting with a match (creates a request that needs acceptance)
     const scheduleMeeting = useCallback(async (targetUserId, scheduledAt, notes = '') => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
@@ -677,14 +677,15 @@ export const AuthProvider = ({ children }) => {
             const companyId = isCompany ? user.id : targetUserId;
             const seekerId = isCompany ? targetUserId : user.id;
 
-            // Create meeting document
+            // Create meeting document with PENDING_ACCEPTANCE status
             const meetingData = {
                 companyId,
                 seekerId,
                 requestedBy: user.id,
+                acceptedBy: null,
                 scheduledAt,
                 notes,
-                status: 'SCHEDULED',
+                status: 'PENDING_ACCEPTANCE',  // Needs other party to accept
                 companyConfirmed: false,
                 seekerConfirmed: false,
                 paymentStatus: 'PENDING',
@@ -693,7 +694,7 @@ export const AuthProvider = ({ children }) => {
             };
 
             const meetingRef = await addDoc(collection(db, 'meetings'), meetingData);
-            console.log('📅 Meeting scheduled:', meetingRef.id);
+            console.log('📅 Meeting requested:', meetingRef.id);
 
             return { success: true, meetingId: meetingRef.id };
         } catch (error) {
@@ -729,6 +730,192 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             console.error('❌ Error getting meetings:', error);
             return [];
+        }
+    }, [user]);
+
+    // Accept a meeting request (other party accepts)
+    const acceptMeeting = useCallback(async (meetingId) => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+
+            if (!meetingSnap.exists()) {
+                return { success: false, error: 'Meeting not found' };
+            }
+
+            const meeting = meetingSnap.data();
+
+            // Check if user is part of this meeting
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+
+            // Check if meeting is pending acceptance
+            if (meeting.status !== 'PENDING_ACCEPTANCE') {
+                return { success: false, error: 'Meeting already accepted or cancelled' };
+            }
+
+            // Check that the acceptor is not the requester
+            if (meeting.requestedBy === user.id) {
+                return { success: false, error: 'Cannot accept your own request' };
+            }
+
+            // Update meeting to SCHEDULED
+            await updateDoc(meetingRef, {
+                status: 'SCHEDULED',
+                acceptedBy: user.id,
+                acceptedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+
+            console.log('✅ Meeting accepted:', meetingId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error accepting meeting:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
+    // Decline a meeting request
+    const declineMeeting = useCallback(async (meetingId, reason = '') => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+
+            if (!meetingSnap.exists()) {
+                return { success: false, error: 'Meeting not found' };
+            }
+
+            const meeting = meetingSnap.data();
+
+            // Check if user is part of this meeting
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+
+            // Update meeting to DECLINED
+            await updateDoc(meetingRef, {
+                status: 'DECLINED',
+                declinedBy: user.id,
+                declineReason: reason,
+                declinedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+
+            console.log('❌ Meeting declined:', meetingId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error declining meeting:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
+    // Cancel a scheduled meeting
+    const cancelMeeting = useCallback(async (meetingId, reason = '') => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+
+            if (!meetingSnap.exists()) {
+                return { success: false, error: 'Meeting not found' };
+            }
+
+            const meeting = meetingSnap.data();
+
+            // Check if user is part of this meeting
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+
+            // Can cancel PENDING_ACCEPTANCE or SCHEDULED meetings
+            if (!['PENDING_ACCEPTANCE', 'SCHEDULED'].includes(meeting.status)) {
+                return { success: false, error: 'Cannot cancel this meeting' };
+            }
+
+            await updateDoc(meetingRef, {
+                status: 'CANCELLED',
+                cancelledBy: user.id,
+                cancelReason: reason,
+                cancelledAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+
+            console.log('🚫 Meeting cancelled:', meetingId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error cancelling meeting:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
+    // Reschedule a cancelled meeting
+    const rescheduleMeeting = useCallback(async (meetingId, newScheduledAt, notes = '') => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+
+            if (!meetingSnap.exists()) {
+                return { success: false, error: 'Meeting not found' };
+            }
+
+            const meeting = meetingSnap.data();
+
+            // Check if user is part of this meeting
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+
+            // Can only reschedule cancelled or declined meetings
+            if (!['CANCELLED', 'DECLINED'].includes(meeting.status)) {
+                return { success: false, error: 'Can only reschedule cancelled meetings' };
+            }
+
+            // Create a new meeting request linked to the original
+            const meetingData = {
+                companyId: meeting.companyId,
+                seekerId: meeting.seekerId,
+                requestedBy: user.id,
+                acceptedBy: null,
+                scheduledAt: newScheduledAt,
+                notes: notes || meeting.notes,
+                status: 'PENDING_ACCEPTANCE',
+                companyConfirmed: false,
+                seekerConfirmed: false,
+                paymentStatus: 'PENDING',
+                rescheduledFrom: meetingId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            };
+
+            const newMeetingRef = await addDoc(collection(db, 'meetings'), meetingData);
+
+            // Mark original as rescheduled
+            await updateDoc(meetingRef, {
+                rescheduledTo: newMeetingRef.id,
+                updatedAt: new Date().toISOString(),
+            });
+
+            console.log('🔄 Meeting rescheduled:', meetingId, '->', newMeetingRef.id);
+            return { success: true, newMeetingId: newMeetingRef.id };
+        } catch (error) {
+            console.error('❌ Error rescheduling meeting:', error);
+            return { success: false, error: error.message };
         }
     }, [user]);
 
@@ -1162,6 +1349,10 @@ export const AuthProvider = ({ children }) => {
             addTransaction,
             scheduleMeeting,
             getMeetings,
+            acceptMeeting,
+            declineMeeting,
+            cancelMeeting,
+            rescheduleMeeting,
             confirmMeeting,
             createProject,
             getProjects,
