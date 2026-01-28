@@ -188,7 +188,7 @@ export function ChatView({ chat, onBack }) {
     // Generate chat ID
     const chatId = user && otherUserId ? getChatId(user.id, otherUserId) : null;
 
-    // Fetch meetings between these two users
+    // Fetch meetings between these two users (with polling for real-time updates)
     useEffect(() => {
         const fetchMeetings = async () => {
             if (!user || !otherUserId) return;
@@ -200,7 +200,14 @@ export function ChatView({ chat, onBack }) {
             );
             setMeetings(relevantMeetings);
         };
+
+        // Fetch immediately
         fetchMeetings();
+
+        // Poll every 5 seconds to catch new meeting requests
+        const interval = setInterval(fetchMeetings, 5000);
+
+        return () => clearInterval(interval);
     }, [user, otherUserId, getMeetings]);
 
     // Get the most relevant meeting (pending or upcoming)
