@@ -1,0 +1,777 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '../../context/AuthContext';
+import { motion, AnimatePresence } from 'framer-motion';
+import { AvatarUpload, PortfolioUpload } from '../../components/ImageUpload';
+import {
+    User, MapPin, Wallet, Palette, Building2, Briefcase,
+    ArrowRight, ArrowLeft, Check, Leaf, Camera, Image, Star
+} from 'lucide-react';
+
+// ============ SEEKER FORM DATA ============
+const SEEKER_STEPS = [
+    { id: 'basic', title: 'About You', icon: User },
+    { id: 'location', title: 'Location', icon: MapPin },
+    { id: 'preferences', title: 'Preferences', icon: Palette },
+    { id: 'budget', title: 'Budget & Timeline', icon: Wallet },
+];
+
+const STYLES = [
+    { id: 'modern', label: 'Modern', emoji: '🏢' },
+    { id: 'minimalist', label: 'Minimalist', emoji: '⬜' },
+    { id: 'traditional', label: 'Traditional', emoji: '🏛️' },
+    { id: 'contemporary', label: 'Contemporary', emoji: '✨' },
+    { id: 'industrial', label: 'Industrial', emoji: '🏭' },
+    { id: 'scandinavian', label: 'Scandinavian', emoji: '🪵' },
+];
+
+const ROOM_TYPES = [
+    { id: 'living', label: 'Living Room', emoji: '🛋️' },
+    { id: 'bedroom', label: 'Bedroom', emoji: '🛏️' },
+    { id: 'kitchen', label: 'Kitchen', emoji: '🍳' },
+    { id: 'bathroom', label: 'Bathroom', emoji: '🚿' },
+    { id: 'office', label: 'Home Office', emoji: '💼' },
+    { id: 'full', label: 'Full Home', emoji: '🏠' },
+];
+
+const BUDGET_RANGES = [
+    { id: '3-5', label: '₹3L - ₹5L', description: 'Budget Friendly' },
+    { id: '5-10', label: '₹5L - ₹10L', description: 'Mid Range' },
+    { id: '10-20', label: '₹10L - ₹20L', description: 'Premium' },
+    { id: '20+', label: '₹20L+', description: 'Luxury' },
+];
+
+const TIMELINES = [
+    { id: 'immediate', label: 'Immediately', description: 'Ready to start' },
+    { id: '1-3months', label: '1-3 Months', description: 'Soon' },
+    { id: '3-6months', label: '3-6 Months', description: 'Planning ahead' },
+    { id: 'exploring', label: 'Just Exploring', description: 'No rush' },
+];
+
+// ============ COMPANY FORM DATA ============
+const COMPANY_STEPS = [
+    { id: 'company', title: 'Company Info', icon: Building2 },
+    { id: 'services', title: 'Services', icon: Briefcase },
+    { id: 'portfolio', title: 'Portfolio', icon: Image },
+    { id: 'pricing', title: 'Pricing & Areas', icon: Wallet },
+];
+
+const SERVICES = [
+    { id: 'residential', label: 'Residential', emoji: '🏠' },
+    { id: 'commercial', label: 'Commercial', emoji: '🏢' },
+    { id: 'modular', label: 'Modular Kitchen', emoji: '🍳' },
+    { id: 'renovation', label: 'Renovation', emoji: '🔨' },
+    { id: 'consultation', label: 'Consultation', emoji: '💬' },
+    { id: 'turnkey', label: 'Turnkey Projects', emoji: '🔑' },
+];
+
+const SPECIALIZATIONS = [
+    { id: 'modern', label: 'Modern Design' },
+    { id: 'traditional', label: 'Traditional' },
+    { id: 'minimalist', label: 'Minimalist' },
+    { id: 'luxury', label: 'Luxury' },
+    { id: 'budget', label: 'Budget Friendly' },
+    { id: 'smart-home', label: 'Smart Home' },
+    { id: 'eco-friendly', label: 'Eco Friendly' },
+    { id: 'vastu', label: 'Vastu Compliant' },
+];
+
+const COMPANY_BUDGET_RANGES = [
+    { id: '3-5', label: '₹3L - ₹5L', description: 'Budget Projects' },
+    { id: '5-10', label: '₹5L - ₹10L', description: 'Standard Projects' },
+    { id: '10-25', label: '₹10L - ₹25L', description: 'Premium Projects' },
+    { id: '25+', label: '₹25L+', description: 'Luxury Projects' },
+];
+
+export default function ProfileSetup() {
+    const router = useRouter();
+    const { user, loading, completeProfile } = useAuth();
+    const [currentStep, setCurrentStep] = useState(0);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const isCompany = user?.role === 'COMPANY';
+    const STEPS = isCompany ? COMPANY_STEPS : SEEKER_STEPS;
+
+    // Seeker form data
+    const [seekerData, setSeekerData] = useState({
+        name: user?.name || '',
+        phone: '',
+        avatar: null,
+        city: '',
+        locality: '',
+        propertyType: '',
+        styles: [],
+        rooms: [],
+        budget: '',
+        timeline: '',
+    });
+
+    // Company form data
+    const [companyData, setCompanyData] = useState({
+        companyName: '',
+        tagline: '',
+        avatar: null,
+        phone: '',
+        email: user?.email || '',
+        yearsInBusiness: '',
+        city: '',
+        serviceAreas: [],
+        services: [],
+        specializations: [],
+        portfolioImages: [],
+        portfolioDescription: '',
+        projectsCompleted: '',
+        minBudget: '',
+        maxBudget: '',
+    });
+
+    useEffect(() => {
+        // Only redirect after loading is complete and we know the user state
+        if (!loading && (!user || !user.role)) {
+            console.log('⚠️ Profile setup: No user or role, redirecting to login');
+            router.push('/login');
+        }
+    }, [user, loading, router]);
+
+    const handleNext = async () => {
+        if (currentStep < STEPS.length - 1) {
+            setCurrentStep(prev => prev + 1);
+        } else {
+            // Complete profile and save to Firestore
+            if (isSubmitting) return; // Prevent double submission
+
+            setIsSubmitting(true);
+            const profileData = isCompany ? companyData : seekerData;
+            console.log('📝 Saving profile to Firebase:', profileData);
+            console.log('👤 User ID:', user?.id, 'Role:', user?.role);
+
+            try {
+                const result = await completeProfile(profileData);
+
+                if (result && result.success) {
+                    console.log('✅ Profile saved to Firebase, navigating to home');
+                    // Use replace so back button doesn't go through onboarding flow
+                    router.replace('/');
+                } else {
+                    console.error('❌ Failed to save profile:', result?.error);
+                    alert('Failed to save profile: ' + (result?.error || 'Unknown error'));
+                    setIsSubmitting(false);
+                }
+            } catch (error) {
+                console.error('❌ Exception saving profile:', error);
+                alert('Error saving profile: ' + error.message);
+                setIsSubmitting(false);
+            }
+        }
+    };
+
+    const handleBack = () => {
+        if (currentStep > 0) {
+            setCurrentStep(prev => prev - 1);
+        }
+    };
+
+    const toggleSelection = (field, value, isCompanyField = false) => {
+        const setter = isCompanyField ? setCompanyData : setSeekerData;
+        setter(prev => ({
+            ...prev,
+            [field]: prev[field].includes(value)
+                ? prev[field].filter(v => v !== value)
+                : [...prev[field], value]
+        }));
+    };
+
+    const progress = ((currentStep + 1) / STEPS.length) * 100;
+
+    // Show nothing while loading or if user/role is missing
+    if (loading || !user || !user.role) return null;
+
+    return (
+        <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(180deg, #ECFDF5 0%, #FFFFFF 100%)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+        }}>
+            {/* Header */}
+            <div style={{
+                padding: '20px 24px',
+                background: 'white',
+                borderBottom: '1px solid var(--border-light)',
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 16,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            background: 'var(--gradient-primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}>
+                            <Leaf size={18} color="white" />
+                        </div>
+                        <div>
+                            <span style={{
+                                fontFamily: 'var(--font-display)',
+                                fontSize: 18,
+                                fontWeight: 800,
+                                color: 'var(--primary-hover)',
+                            }}>
+                                PLYSHIP
+                            </span>
+                            <span style={{
+                                fontSize: 12,
+                                color: 'var(--text-muted)',
+                                marginLeft: 8,
+                                padding: '2px 8px',
+                                background: 'var(--pastel-green)',
+                                borderRadius: 8,
+                            }}>
+                                {isCompany ? 'Company' : 'Seeker'}
+                            </span>
+                        </div>
+                    </div>
+                    <span style={{
+                        fontSize: 14,
+                        color: 'var(--text-muted)',
+                        fontWeight: 500,
+                    }}>
+                        Step {currentStep + 1} of {STEPS.length}
+                    </span>
+                </div>
+
+                {/* Progress Bar */}
+                <div style={{
+                    height: 4,
+                    background: 'var(--border)',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                }}>
+                    <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress}%` }}
+                        transition={{ duration: 0.3 }}
+                        style={{
+                            height: '100%',
+                            background: 'var(--gradient-primary)',
+                            borderRadius: 2,
+                        }}
+                    />
+                </div>
+            </div>
+
+            {/* Content */}
+            <div style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '24px',
+            }}>
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={`${isCompany ? 'company' : 'seeker'}-${currentStep}`}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        {/* ============ SEEKER STEPS ============ */}
+                        {!isCompany && currentStep === 0 && (
+                            <SeekerBasicInfo data={seekerData} setData={setSeekerData} />
+                        )}
+                        {!isCompany && currentStep === 1 && (
+                            <SeekerLocation data={seekerData} setData={setSeekerData} />
+                        )}
+                        {!isCompany && currentStep === 2 && (
+                            <SeekerPreferences data={seekerData} toggleSelection={(f, v) => toggleSelection(f, v, false)} />
+                        )}
+                        {!isCompany && currentStep === 3 && (
+                            <SeekerBudget data={seekerData} setData={setSeekerData} />
+                        )}
+
+                        {/* ============ COMPANY STEPS ============ */}
+                        {isCompany && currentStep === 0 && (
+                            <CompanyBasicInfo data={companyData} setData={setCompanyData} />
+                        )}
+                        {isCompany && currentStep === 1 && (
+                            <CompanyServices data={companyData} toggleSelection={(f, v) => toggleSelection(f, v, true)} />
+                        )}
+                        {isCompany && currentStep === 2 && (
+                            <CompanyPortfolio data={companyData} setData={setCompanyData} />
+                        )}
+                        {isCompany && currentStep === 3 && (
+                            <CompanyPricing data={companyData} setData={setCompanyData} toggleSelection={(f, v) => toggleSelection(f, v, true)} />
+                        )}
+                    </motion.div>
+                </AnimatePresence>
+            </div>
+
+            {/* Footer Navigation */}
+            <div style={{
+                padding: '16px 24px 32px',
+                background: 'white',
+                borderTop: '1px solid var(--border-light)',
+                display: 'flex',
+                gap: 12,
+            }}>
+                {currentStep > 0 && (
+                    <motion.button
+                        onClick={handleBack}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        style={{
+                            flex: 0.4,
+                            padding: '18px',
+                            borderRadius: 16,
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-secondary)',
+                            fontSize: 16,
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        <ArrowLeft size={20} />
+                        Back
+                    </motion.button>
+                )}
+                <motion.button
+                    type="button"
+                    onClick={() => {
+                        console.log('🔘 Button clicked! Step:', currentStep, 'Total steps:', STEPS.length);
+                        handleNext();
+                    }}
+                    disabled={isSubmitting}
+                    whileHover={{ scale: isSubmitting ? 1 : 1.02 }}
+                    whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
+                    style={{
+                        flex: 1,
+                        padding: '18px',
+                        borderRadius: 16,
+                        background: isSubmitting ? 'var(--primary-muted)' : 'var(--gradient-primary)',
+                        border: 'none',
+                        color: 'white',
+                        fontSize: 16,
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 10,
+                        boxShadow: 'var(--shadow-glow-soft)',
+                        cursor: isSubmitting ? 'wait' : 'pointer',
+                        opacity: isSubmitting ? 0.7 : 1,
+                    }}
+                >
+                    {isSubmitting ? 'Saving...' : (currentStep === STEPS.length - 1 ? 'Complete Setup' : 'Continue')}
+                    {!isSubmitting && (currentStep === STEPS.length - 1 ? <Check size={20} /> : <ArrowRight size={20} />)}
+                </motion.button>
+            </div>
+        </div>
+    );
+}
+
+// ============ SEEKER FORM COMPONENTS ============
+
+function SeekerBasicInfo({ data, setData }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Let&apos;s get to know you
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                Tell us a bit about yourself
+            </p>
+
+            <div style={{ marginBottom: 32 }}>
+                <AvatarUpload
+                    image={data.avatar}
+                    onImageChange={(img) => setData({ ...data, avatar: img })}
+                    isCompany={false}
+                />
+                <p style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                    Tap to upload your photo
+                </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <InputField label="Full Name" value={data.name} onChange={(v) => setData({ ...data, name: v })} placeholder="Your name" />
+                <InputField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} placeholder="+91 98765 43210" type="tel" />
+
+                <div>
+                    <label style={labelStyle}>Property Type</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                        {['1 BHK', '2 BHK', '3 BHK', '4+ BHK', 'Villa', 'Office'].map((type) => (
+                            <SelectButton key={type} selected={data.propertyType === type} onClick={() => setData({ ...data, propertyType: type })}>
+                                {type}
+                            </SelectButton>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function SeekerLocation({ data, setData }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Where&apos;s your property?
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                We&apos;ll find companies near you
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Bangalore" />
+                <InputField label="Locality / Area" value={data.locality} onChange={(v) => setData({ ...data, locality: v })} placeholder="e.g., Indiranagar" />
+
+                <div>
+                    <label style={labelStyle}>Popular Cities</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        {['Bangalore', 'Mumbai', 'Delhi', 'Hyderabad', 'Chennai', 'Pune'].map((city) => (
+                            <PillButton key={city} selected={data.city === city} onClick={() => setData({ ...data, city })}>
+                                {city}
+                            </PillButton>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function SeekerPreferences({ data, toggleSelection }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                What&apos;s your style?
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                Select all that you like
+            </p>
+
+            <div style={{ marginBottom: 32 }}>
+                <label style={labelStyle}>Design Styles</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                    {STYLES.map((style) => (
+                        <EmojiButton key={style.id} item={style} selected={data.styles.includes(style.id)} onClick={() => toggleSelection('styles', style.id)} />
+                    ))}
+                </div>
+            </div>
+
+            <div>
+                <label style={labelStyle}>Rooms to Design</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                    {ROOM_TYPES.map((room) => (
+                        <EmojiButton key={room.id} item={room} selected={data.rooms.includes(room.id)} onClick={() => toggleSelection('rooms', room.id)} />
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function SeekerBudget({ data, setData }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Budget & Timeline
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                Help us match you with the right companies
+            </p>
+
+            <div style={{ marginBottom: 32 }}>
+                <label style={labelStyle}>Your Budget</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {BUDGET_RANGES.map((budget) => (
+                        <RadioCard key={budget.id} item={budget} selected={data.budget === budget.id} onClick={() => setData({ ...data, budget: budget.id })} />
+                    ))}
+                </div>
+            </div>
+
+            <div>
+                <label style={labelStyle}>When do you want to start?</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                    {TIMELINES.map((tl) => (
+                        <SelectCard key={tl.id} item={tl} selected={data.timeline === tl.id} onClick={() => setData({ ...data, timeline: tl.id })} />
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ============ COMPANY FORM COMPONENTS ============
+
+function CompanyBasicInfo({ data, setData }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Tell us about your company
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                This information will be shown to potential clients
+            </p>
+
+            <div style={{ marginBottom: 32 }}>
+                <AvatarUpload
+                    image={data.avatar}
+                    onImageChange={(img) => setData({ ...data, avatar: img })}
+                    isCompany={true}
+                />
+                <p style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                    Tap to upload company logo
+                </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <InputField label="Company Name" value={data.companyName} onChange={(v) => setData({ ...data, companyName: v })} placeholder="Your company name" />
+                <InputField label="Tagline" value={data.tagline} onChange={(v) => setData({ ...data, tagline: v })} placeholder="e.g., Modern designs for modern living" />
+                <InputField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} placeholder="+91 98765 43210" type="tel" />
+                <InputField label="Years in Business" value={data.yearsInBusiness} onChange={(v) => setData({ ...data, yearsInBusiness: v })} placeholder="e.g., 5" type="number" />
+            </div>
+        </div>
+    );
+}
+
+function CompanyServices({ data, toggleSelection }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                What services do you offer?
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                Select all that apply
+            </p>
+
+            <div style={{ marginBottom: 32 }}>
+                <label style={labelStyle}>Services</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                    {SERVICES.map((service) => (
+                        <EmojiButton key={service.id} item={service} selected={data.services.includes(service.id)} onClick={() => toggleSelection('services', service.id)} />
+                    ))}
+                </div>
+            </div>
+
+            <div>
+                <label style={labelStyle}>Specializations</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {SPECIALIZATIONS.map((spec) => (
+                        <PillButton key={spec.id} selected={data.specializations.includes(spec.id)} onClick={() => toggleSelection('specializations', spec.id)}>
+                            {spec.label}
+                        </PillButton>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function CompanyPortfolio({ data, setData }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Showcase your work
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                Add portfolio images and describe your work
+            </p>
+
+            {/* Portfolio Image Upload */}
+            <div style={{ marginBottom: 24 }}>
+                <label style={labelStyle}>Portfolio Images (up to 6)</label>
+                <PortfolioUpload
+                    images={data.portfolioImages || []}
+                    onImagesChange={(imgs) => setData({ ...data, portfolioImages: imgs })}
+                    maxImages={6}
+                />
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                    Upload photos of your completed projects
+                </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                    <label style={labelStyle}>About Your Work</label>
+                    <textarea
+                        value={data.portfolioDescription}
+                        onChange={(e) => setData({ ...data, portfolioDescription: e.target.value })}
+                        placeholder="Describe your design philosophy and notable projects..."
+                        style={{
+                            width: '100%', padding: '16px 20px', borderRadius: 14,
+                            border: '1px solid var(--border)', background: 'white',
+                            fontSize: 16, fontWeight: 500, color: 'var(--text-primary)',
+                            outline: 'none', minHeight: 120, resize: 'vertical', fontFamily: 'inherit'
+                        }}
+                    />
+                </div>
+                <InputField label="Projects Completed" value={data.projectsCompleted} onChange={(v) => setData({ ...data, projectsCompleted: v })} placeholder="e.g., 150" type="number" />
+            </div>
+        </div>
+    );
+}
+
+function CompanyPricing({ data, setData, toggleSelection }) {
+    return (
+        <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Pricing & Service Areas
+            </h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
+                Set your budget range and locations you serve
+            </p>
+
+            <div style={{ marginBottom: 32 }}>
+                <label style={labelStyle}>Budget Range You Work With</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {COMPANY_BUDGET_RANGES.map((budget) => (
+                        <RadioCard key={budget.id} item={budget} selected={data.minBudget === budget.id} onClick={() => setData({ ...data, minBudget: budget.id })} />
+                    ))}
+                </div>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Bangalore" />
+            </div>
+
+            <div>
+                <label style={labelStyle}>Service Areas</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {['Indiranagar', 'Koramangala', 'HSR Layout', 'Whitefield', 'Jayanagar', 'Electronic City', 'Marathahalli', 'Bannerghatta'].map((area) => (
+                        <PillButton key={area} selected={data.serviceAreas.includes(area)} onClick={() => toggleSelection('serviceAreas', area)}>
+                            {area}
+                        </PillButton>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ============ REUSABLE UI COMPONENTS ============
+
+const labelStyle = {
+    fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
+    textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12, display: 'block',
+};
+
+function InputField({ label, value, onChange, placeholder, type = 'text' }) {
+    return (
+        <div>
+            <label style={labelStyle}>{label}</label>
+            <input
+                type={type}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
+                style={{
+                    width: '100%', padding: '16px 20px', borderRadius: 14,
+                    border: '1px solid var(--border)', background: 'white',
+                    fontSize: 16, fontWeight: 500, color: 'var(--text-primary)', outline: 'none',
+                }}
+            />
+        </div>
+    );
+}
+
+function SelectButton({ children, selected, onClick }) {
+    return (
+        <button onClick={onClick} style={{
+            padding: '14px 16px', borderRadius: 12,
+            border: selected ? '2px solid var(--primary)' : '1px solid var(--border)',
+            background: selected ? 'var(--pastel-green)' : 'white',
+            fontSize: 14, fontWeight: 600,
+            color: selected ? 'var(--primary-hover)' : 'var(--text-secondary)',
+            cursor: 'pointer', transition: 'all 0.2s',
+        }}>
+            {children}
+        </button>
+    );
+}
+
+function PillButton({ children, selected, onClick }) {
+    return (
+        <button onClick={onClick} style={{
+            padding: '10px 18px', borderRadius: 20,
+            border: selected ? '2px solid var(--primary)' : '1px solid var(--border)',
+            background: selected ? 'var(--pastel-green)' : 'white',
+            fontSize: 14, fontWeight: 500,
+            color: selected ? 'var(--primary-hover)' : 'var(--text-secondary)',
+            cursor: 'pointer',
+        }}>
+            {children}
+        </button>
+    );
+}
+
+function EmojiButton({ item, selected, onClick }) {
+    return (
+        <button onClick={onClick} style={{
+            padding: '16px', borderRadius: 16,
+            border: selected ? '2px solid var(--primary)' : '1px solid var(--border)',
+            background: selected ? 'var(--pastel-green)' : 'white',
+            display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', transition: 'all 0.2s',
+        }}>
+            <span style={{ fontSize: 24 }}>{item.emoji}</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: selected ? 'var(--primary-hover)' : 'var(--text-secondary)' }}>
+                {item.label}
+            </span>
+            {selected && <Check size={18} color="var(--primary)" style={{ marginLeft: 'auto' }} />}
+        </button>
+    );
+}
+
+function RadioCard({ item, selected, onClick }) {
+    return (
+        <button onClick={onClick} style={{
+            padding: '18px 20px', borderRadius: 16,
+            border: selected ? '2px solid var(--primary)' : '1px solid var(--border)',
+            background: selected ? 'var(--pastel-green)' : 'white',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: 'all 0.2s',
+        }}>
+            <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: selected ? 'var(--primary-hover)' : 'var(--text-primary)' }}>
+                    {item.label}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {item.description}
+                </div>
+            </div>
+            {selected && <Check size={22} color="var(--primary)" />}
+        </button>
+    );
+}
+
+function SelectCard({ item, selected, onClick }) {
+    return (
+        <button onClick={onClick} style={{
+            padding: '16px', borderRadius: 16,
+            border: selected ? '2px solid var(--primary)' : '1px solid var(--border)',
+            background: selected ? 'var(--pastel-green)' : 'white',
+            textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s',
+        }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: selected ? 'var(--primary-hover)' : 'var(--text-primary)', marginBottom: 4 }}>
+                {item.label}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {item.description}
+            </div>
+        </button>
+    );
+}

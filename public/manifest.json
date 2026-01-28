@@ -1,0 +1,21 @@
+{
+    "name": "PLYSHIP",
+    "short_name": "PLYSHIP",
+    "description": "Connect interior seekers with companies",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#22C55E",
+    "icons": [
+        {
+            "src": "/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}
