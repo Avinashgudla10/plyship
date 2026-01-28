@@ -193,11 +193,16 @@ export function ChatView({ chat, onBack }) {
         const fetchMeetings = async () => {
             if (!user || !otherUserId) return;
             const allMeetings = await getMeetings();
+            console.log('📋 All meetings for user:', allMeetings);
+            console.log('🎯 Looking for otherUserId:', otherUserId);
             // Filter to only meetings with this match
-            const relevantMeetings = allMeetings.filter(m =>
-                (m.companyId === otherUserId || m.seekerId === otherUserId) &&
-                !m.rescheduledTo
-            );
+            const relevantMeetings = allMeetings.filter(m => {
+                const matchesCompany = m.companyId === otherUserId;
+                const matchesSeeker = m.seekerId === otherUserId;
+                console.log(`Meeting ${m.id}: companyId=${m.companyId}, seekerId=${m.seekerId}, matches=${matchesCompany || matchesSeeker}`);
+                return (matchesCompany || matchesSeeker) && !m.rescheduledTo;
+            });
+            console.log('✅ Relevant meetings:', relevantMeetings);
             setMeetings(relevantMeetings);
         };
 
@@ -209,6 +214,7 @@ export function ChatView({ chat, onBack }) {
 
         return () => clearInterval(interval);
     }, [user, otherUserId, getMeetings]);
+
 
     // Get the most relevant meeting (pending or upcoming)
     const activeMeeting = meetings.find(m =>

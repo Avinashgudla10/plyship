@@ -677,6 +677,12 @@ export const AuthProvider = ({ children }) => {
             const companyId = isCompany ? user.id : targetUserId;
             const seekerId = isCompany ? targetUserId : user.id;
 
+            console.log('📅 Scheduling meeting:');
+            console.log('  - Current user:', user.id, '(role:', user.role, ')');
+            console.log('  - Target user:', targetUserId);
+            console.log('  - companyId:', companyId);
+            console.log('  - seekerId:', seekerId);
+
             // Create meeting document with PENDING_ACCEPTANCE status
             const meetingData = {
                 companyId,
@@ -694,7 +700,7 @@ export const AuthProvider = ({ children }) => {
             };
 
             const meetingRef = await addDoc(collection(db, 'meetings'), meetingData);
-            console.log('📅 Meeting requested:', meetingRef.id);
+            console.log('✅ Meeting created:', meetingRef.id, meetingData);
 
             return { success: true, meetingId: meetingRef.id };
         } catch (error) {
@@ -702,6 +708,7 @@ export const AuthProvider = ({ children }) => {
             return { success: false, error: error.message };
         }
     }, [user]);
+
 
     // Get all meetings for current user
     const getMeetings = useCallback(async () => {
