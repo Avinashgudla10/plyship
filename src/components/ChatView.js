@@ -208,6 +208,9 @@ export function ChatView({ chat, onBack }) {
         ['PENDING_ACCEPTANCE', 'SCHEDULED'].includes(m.status)
     );
 
+    // Check if there's a confirmed meeting with this user
+    const hasConfirmedMeeting = meetings.some(m => m.status === 'CONFIRMED');
+
     // Subscribe to real-time messages
     useEffect(() => {
         if (!chatId) return;
@@ -325,8 +328,8 @@ export function ChatView({ chat, onBack }) {
                     </span>
                 </motion.button>
 
-                {/* Start Project Button - only for seekers */}
-                {isSeeker && (
+                {/* Start Project Button - only shows after meeting completion */}
+                {hasConfirmedMeeting && (
                     <motion.button
                         onClick={() => setShowProjectModal(true)}
                         whileTap={{ scale: 0.9 }}
