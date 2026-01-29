@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Send, ArrowLeft, Briefcase, User, Phone, Video, Home, Calendar, Clock, Check, X } from 'lucide-react';
+import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToMessages } from '../lib/firebase';
 import { StartProjectModal } from './ProjectsView';
@@ -166,12 +166,13 @@ export function ChatListView({ chats = [], onChatSelect }) {
 
 // Individual chat view
 export function ChatView({ chat, onBack }) {
-    const { user, sendMessage, getChatId, getMeetings, acceptMeeting, declineMeeting } = useAuth();
+    const { user, sendMessage, getChatId, getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting } = useAuth();
     const [message, setMessage] = useState('');
     const [messages, setMessages] = useState([]);
     const [sending, setSending] = useState(false);
     const [showProjectModal, setShowProjectModal] = useState(false);
     const [showMeetingModal, setShowMeetingModal] = useState(false);
+    const [showRescheduleModal, setShowRescheduleModal] = useState(false);
     const [meetings, setMeetings] = useState([]);
     const [actionLoading, setActionLoading] = useState(null);
     const messagesEndRef = useRef(null);
@@ -364,112 +365,230 @@ export function ChatView({ chat, onBack }) {
             </div>
 
             {/* Meeting Banner - show if there's an active meeting */}
-            {activeMeeting && (
-                <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    style={{
-                        padding: 12,
-                        background: activeMeeting.status === 'PENDING_ACCEPTANCE' ? '#EFF6FF' : '#FEF3C7',
-                        borderBottom: '1px solid var(--border-light)',
-                    }}
-                >
-                    {activeMeeting.status === 'PENDING_ACCEPTANCE' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Clock size={16} color="#3B82F6" />
-                            <div style={{ flex: 1 }}>
-                                <p style={{ fontSize: 13, fontWeight: 600, color: '#1E40AF' }}>
-                                    {activeMeeting.requestedBy === user?.id
-                                        ? 'Meeting request sent'
-                                        : 'Meeting request received'}
-                                </p>
-                                <p style={{ fontSize: 11, color: '#3B82F6' }}>
-                                    {new Date(activeMeeting.scheduledAt).toLocaleDateString('en-IN', {
-                                        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                                    })}
-                                </p>
-                            </div>
-                            {activeMeeting.requestedBy !== user?.id && (
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                    <motion.button
-                                        onClick={async () => {
-                                            setActionLoading('accept');
-                                            const result = await acceptMeeting(activeMeeting.id);
-                                            if (result.success) {
-                                                const updated = await getMeetings();
-                                                setMeetings(updated.filter(m =>
-                                                    (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
-                                                ));
-                                            }
-                                            setActionLoading(null);
-                                        }}
-                                        disabled={actionLoading}
-                                        whileTap={{ scale: 0.95 }}
-                                        style={{
-                                            padding: '6px 12px',
-                                            borderRadius: 8,
-                                            background: '#22C55E',
-                                            border: 'none',
-                                            color: 'white',
-                                            fontSize: 12,
-                                            fontWeight: 600,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        <Check size={14} />
-                                        Accept
-                                    </motion.button>
-                                    <motion.button
-                                        onClick={async () => {
-                                            setActionLoading('decline');
-                                            const result = await declineMeeting(activeMeeting.id);
-                                            if (result.success) {
-                                                const updated = await getMeetings();
-                                                setMeetings(updated.filter(m =>
-                                                    (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
-                                                ));
-                                            }
-                                            setActionLoading(null);
-                                        }}
-                                        disabled={actionLoading}
-                                        whileTap={{ scale: 0.95 }}
-                                        style={{
-                                            padding: '6px 12px',
-                                            borderRadius: 8,
-                                            background: '#FEE2E2',
-                                            border: 'none',
-                                            color: '#EF4444',
-                                            fontSize: 12,
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        <X size={14} />
-                                    </motion.button>
+            {activeMeeting && (() => {
+                const meetingTime = new Date(activeMeeting.scheduledAt);
+                const now = new Date();
+                const isExpired = meetingTime < now;
+                const isCompanyUser = user?.role === 'COMPANY';
+                const hasUserConfirmed = isCompanyUser ? activeMeeting.companyConfirmed : activeMeeting.seekerConfirmed;
+
+                // Helper to refresh meetings
+                const refreshMeetings = async () => {
+                    const updated = await getMeetings();
+                    setMeetings(updated.filter(m =>
+                        (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
+                    ));
+                };
+
+                // PENDING_ACCEPTANCE + EXPIRED = Show expired message with reschedule
+                if (activeMeeting.status === 'PENDING_ACCEPTANCE' && isExpired) {
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            style={{ padding: 12, background: '#FEE2E2', borderBottom: '1px solid var(--border-light)' }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <AlertCircle size={16} color="#DC2626" />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#DC2626' }}>Meeting Request Expired</p>
+                                    <p style={{ fontSize: 11, color: '#B91C1C' }}>
+                                        The scheduled time has passed. Please reschedule.
+                                    </p>
                                 </div>
-                            )}
-                        </div>
-                    )}
-                    {activeMeeting.status === 'SCHEDULED' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Calendar size={16} color="#D97706" />
-                            <div style={{ flex: 1 }}>
-                                <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
-                                    Meeting Scheduled
-                                </p>
-                                <p style={{ fontSize: 11, color: '#D97706' }}>
-                                    {new Date(activeMeeting.scheduledAt).toLocaleDateString('en-IN', {
-                                        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                                    })}
-                                </p>
+                                <motion.button
+                                    onClick={() => setShowRescheduleModal(true)}
+                                    whileTap={{ scale: 0.95 }}
+                                    style={{
+                                        padding: '6px 12px', borderRadius: 8, background: '#3B82F6',
+                                        border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
+                                        display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                    }}
+                                >
+                                    <RefreshCw size={14} />
+                                    Reschedule
+                                </motion.button>
                             </div>
-                        </div>
-                    )}
-                </motion.div>
-            )}
+                        </motion.div>
+                    );
+                }
+
+                // PENDING_ACCEPTANCE + NOT EXPIRED = Show accept/decline
+                if (activeMeeting.status === 'PENDING_ACCEPTANCE' && !isExpired) {
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            style={{ padding: 12, background: '#EFF6FF', borderBottom: '1px solid var(--border-light)' }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <Clock size={16} color="#3B82F6" />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#1E40AF' }}>
+                                        {activeMeeting.requestedBy === user?.id ? 'Meeting request sent' : 'Meeting request received'}
+                                    </p>
+                                    <p style={{ fontSize: 11, color: '#3B82F6' }}>
+                                        {meetingTime.toLocaleDateString('en-IN', {
+                                            weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                                        })}
+                                    </p>
+                                </div>
+                                {activeMeeting.requestedBy !== user?.id && (
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <motion.button
+                                            onClick={async () => {
+                                                setActionLoading('accept');
+                                                const result = await acceptMeeting(activeMeeting.id);
+                                                if (result.success) {
+                                                    await refreshMeetings();
+                                                } else if (result.expired) {
+                                                    alert('This meeting has expired. Please reschedule.');
+                                                    await refreshMeetings();
+                                                }
+                                                setActionLoading(null);
+                                            }}
+                                            disabled={actionLoading}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#22C55E',
+                                                border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
+                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <Check size={14} />
+                                            Accept
+                                        </motion.button>
+                                        <motion.button
+                                            onClick={async () => {
+                                                setActionLoading('decline');
+                                                await declineMeeting(activeMeeting.id);
+                                                await refreshMeetings();
+                                                setActionLoading(null);
+                                            }}
+                                            disabled={actionLoading}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
+                                                border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <X size={14} />
+                                        </motion.button>
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    );
+                }
+
+                // SCHEDULED + EXPIRED = Show "Did you meet?" confirmation
+                if (activeMeeting.status === 'SCHEDULED' && isExpired) {
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            style={{ padding: 12, background: '#FEF3C7', borderBottom: '1px solid var(--border-light)' }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <Calendar size={16} color="#D97706" />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
+                                        {hasUserConfirmed ? 'Waiting for other party to confirm' : 'Did you meet?'}
+                                    </p>
+                                    <p style={{ fontSize: 11, color: '#D97706' }}>
+                                        {meetingTime.toLocaleDateString('en-IN', {
+                                            weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                                        })}
+                                    </p>
+                                </div>
+                                {!hasUserConfirmed && (
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <motion.button
+                                            onClick={async () => {
+                                                setActionLoading('confirm');
+                                                const result = await confirmMeeting(activeMeeting.id);
+                                                if (result.success) {
+                                                    alert(result.bothConfirmed
+                                                        ? '✅ Meeting confirmed! Payment transferred.'
+                                                        : '✅ Confirmed! Waiting for other party.');
+                                                    await refreshMeetings();
+                                                }
+                                                setActionLoading(null);
+                                            }}
+                                            disabled={actionLoading}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#22C55E',
+                                                border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
+                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <Check size={14} />
+                                            Yes, We Met
+                                        </motion.button>
+                                        <motion.button
+                                            onClick={() => setShowRescheduleModal(true)}
+                                            disabled={actionLoading}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
+                                                border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600,
+                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <RefreshCw size={14} />
+                                            No, Reschedule
+                                        </motion.button>
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    );
+                }
+
+                // SCHEDULED + NOT EXPIRED = Show upcoming meeting
+                if (activeMeeting.status === 'SCHEDULED' && !isExpired) {
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            style={{ padding: 12, background: '#DCFCE7', borderBottom: '1px solid var(--border-light)' }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <Calendar size={16} color="#16A34A" />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#166534' }}>Meeting Confirmed!</p>
+                                    <p style={{ fontSize: 11, color: '#16A34A' }}>
+                                        {meetingTime.toLocaleDateString('en-IN', {
+                                            weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                                        })}
+                                    </p>
+                                </div>
+                                <motion.button
+                                    onClick={async () => {
+                                        if (confirm('Are you sure you want to cancel this meeting?')) {
+                                            setActionLoading('cancel');
+                                            await cancelMeeting(activeMeeting.id);
+                                            await refreshMeetings();
+                                            setActionLoading(null);
+                                        }
+                                    }}
+                                    disabled={actionLoading}
+                                    whileTap={{ scale: 0.95 }}
+                                    style={{
+                                        padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
+                                        border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                    }}
+                                >
+                                    Cancel
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    );
+                }
+
+                return null;
+            })()}
 
             {/* Messages */}
             <div style={{
@@ -601,6 +720,27 @@ export function ChatView({ chat, onBack }) {
                         onScheduled={async () => {
                             setShowMeetingModal(false);
                             // Refresh meetings to show the new request
+                            const updated = await getMeetings();
+                            setMeetings(updated.filter(m =>
+                                (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
+                            ));
+                        }}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Reschedule Meeting Modal - uses same component as schedule */}
+            <AnimatePresence>
+                {showRescheduleModal && (
+                    <ScheduleMeetingModal
+                        match={{ id: otherUserId, name }}
+                        onClose={() => setShowRescheduleModal(false)}
+                        onScheduled={async () => {
+                            setShowRescheduleModal(false);
+                            // Cancel the old meeting and refresh
+                            if (activeMeeting) {
+                                await cancelMeeting(activeMeeting.id);
+                            }
                             const updated = await getMeetings();
                             setMeetings(updated.filter(m =>
                                 (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo

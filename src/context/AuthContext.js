@@ -774,6 +774,12 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Cannot accept your own request' };
             }
 
+            // Check if meeting time has already passed - can't accept expired meetings
+            const meetingTime = new Date(meeting.scheduledAt);
+            if (meetingTime < new Date()) {
+                return { success: false, error: 'Meeting time has passed', expired: true };
+            }
+
             // Update meeting to SCHEDULED
             await updateDoc(meetingRef, {
                 status: 'SCHEDULED',
