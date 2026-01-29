@@ -22,7 +22,8 @@ import {
     onSnapshot,
     serverTimestamp,
     runTransaction,
-    updateDoc
+    updateDoc,
+    deleteDoc
 } from 'firebase/firestore';
 
 const AuthContext = createContext();
@@ -1397,6 +1398,138 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
+    // Delete account and all associated data
+    const deleteAccount = async () => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            console.log('🗑️ Starting account deletion for:', user.id);
+            const userId = user.id;
+
+            // 1. Delete all chats and their messages
+            const chatsQuery1 = query(collection(db, 'chats'), where('user1Id', '==', userId));
+            const chatsQuery2 = query(collection(db, 'chats'), where('user2Id', '==', userId));
+
+            const chats1 = await getDocs(chatsQuery1);
+            const chats2 = await getDocs(chatsQuery2);
+
+            for (const chatDoc of [...chats1.docs, ...chats2.docs]) {
+                // Delete all messages in this chat
+                const messagesQuery = query(collection(db, 'chats', chatDoc.id, 'messages'));
+                const messages = await getDocs(messagesQuery);
+                for (const msgDoc of messages.docs) {
+                    await deleteDoc(doc(db, 'chats', chatDoc.id, 'messages', msgDoc.id));
+                }
+                // Delete the chat
+                await deleteDoc(doc(db, 'chats', chatDoc.id));
+            }
+            console.log('✅ Deleted chats and messages');
+
+            // 2. Delete all matches
+            const matchesQuery1 = query(collection(db, 'matches'), where('user1Id', '==', userId));
+            const matchesQuery2 = query(collection(db, 'matches'), where('user2Id', '==', userId));
+
+            const matches1 = await getDocs(matchesQuery1);
+            const matches2 = await getDocs(matchesQuery2);
+
+            for (const matchDoc of [...matches1.docs, ...matches2.docs]) {
+                await deleteDoc(doc(db, 'matches', matchDoc.id));
+            }
+            console.log('✅ Deleted matches');
+
+            // 3. Delete all meetings
+            const meetingsQuery1 = query(collection(db, 'meetings'), where('companyId', '==', userId));
+            const meetingsQuery2 = query(collection(db, 'meetings'), where('seekerId', '==', userId));
+
+            const meetings1 = await getDocs(meetingsQuery1);
+            const meetings2 = await getDocs(meetingsQuery2);
+
+            for (const meetingDoc of [...meetings1.docs, ...meetings2.docs]) {
+                await deleteDoc(doc(db, 'meetings', meetingDoc.id));
+            }
+            console.log('✅ Deleted meetings');
+
+            // 4. Delete all projects
+            const projectsQuery1 = query(collection(db, 'projects'), where('companyId', '==', userId));
+            const projectsQuery2 = query(collection(db, 'projects'), where('seekerId', '==', userId));
+
+            const projects1 = await getDocs(projectsQuery1);
+            const projects2 = await getDocs(projectsQuery2);
+
+            for (const projectDoc of [...projects1.docs, ...projects2.docs]) {
+                await deleteDoc(doc(db, 'projects', projectDoc.id));
+            }
+            console.log('✅ Deleted projects');
+
+            // 5. Delete transactions
+            const transactionsQuery = query(collection(db, 'transactions'), where('userId', '==', userId));
+            const transactions = await getDocs(transactionsQuery);
+            for (const txDoc of transactions.docs) {
+                await deleteDoc(doc(db, 'transactions', txDoc.id));
+            }
+            console.log('✅ Deleted transactions');
+
+            // 6. Delete wallet
+            const walletRef = doc(db, 'wallets', userId);
+            const walletSnap = await getDoc(walletRef);
+            if (walletSnap.exists()) {
+                await deleteDoc(walletRef);
+            }
+            console.log('✅ Deleted wallet');
+
+            // 7. Delete all likes involving this user
+            const likesQuery1 = query(collection(db, 'likes'), where('likerId', '==', userId));
+            const likesQuery2 = query(collection(db, 'likes'), where('likedId', '==', userId));
+
+            const likes1 = await getDocs(likesQuery1);
+            const likes2 = await getDocs(likesQuery2);
+
+            for (const likeDoc of [...likes1.docs, ...likes2.docs]) {
+                await deleteDoc(doc(db, 'likes', likeDoc.id));
+            }
+            console.log('✅ Deleted likes');
+
+            // 8. Delete all passes involving this user
+            const passesQuery1 = query(collection(db, 'passes'), where('passerId', '==', userId));
+            const passesQuery2 = query(collection(db, 'passes'), where('passedId', '==', userId));
+
+            const passes1 = await getDocs(passesQuery1);
+            const passes2 = await getDocs(passesQuery2);
+
+            for (const passDoc of [...passes1.docs, ...passes2.docs]) {
+                await deleteDoc(doc(db, 'passes', passDoc.id));
+            }
+            console.log('✅ Deleted passes');
+
+            // 9. Delete user document
+            const userRef = doc(db, 'users', userId);
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+                await deleteDoc(userRef);
+            }
+            console.log('✅ Deleted user document');
+
+            // 10. Delete Firebase Auth account
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+                await currentUser.delete();
+                console.log('✅ Deleted Firebase Auth account');
+            }
+
+            // Clear local state
+            setUser(null);
+            router.push('/login');
+
+            console.log('🎉 Account completely deleted');
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error deleting account:', error);
+            return { success: false, error: error.message };
+        }
+    };
+
     const logout = async () => {
         try {
             isOnboarding.current = false;
@@ -1442,6 +1575,7 @@ export const AuthProvider = ({ children }) => {
             declineProject,
             recordAdvancePayment,
             confirmAdvancePayment,
+            deleteAccount,
             logout
         }}>
             {children}

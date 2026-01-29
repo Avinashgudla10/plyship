@@ -736,11 +736,35 @@ export function PrivacyView({ onBack }) {
 
 // App Settings Page
 export function SettingsView({ onBack }) {
+    const { deleteAccount } = useAuth();
     const [settings, setSettings] = useState({
         pushNotifications: true,
         emailNotifications: false,
         darkMode: false,
     });
+    const [deleting, setDeleting] = useState(false);
+
+    const handleDeleteAccount = async () => {
+        const confirmed = confirm(
+            '⚠️ DELETE ACCOUNT\n\nThis will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All matches & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!\n\nType "DELETE" to confirm.'
+        );
+
+        if (confirmed) {
+            const finalConfirm = prompt('Type "DELETE" to permanently delete your account:');
+            if (finalConfirm === 'DELETE') {
+                setDeleting(true);
+                const result = await deleteAccount();
+                if (result.success) {
+                    alert('✅ Your account has been completely deleted.');
+                } else {
+                    alert('❌ Error: ' + result.error);
+                    setDeleting(false);
+                }
+            } else {
+                alert('Account deletion cancelled.');
+            }
+        }
+    };
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
@@ -761,12 +785,18 @@ export function SettingsView({ onBack }) {
                 <div style={{ background: 'white', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
                     <MenuItem label="Clear Cache" />
                     <MenuItem label="Export My Data" />
-                    <MenuItem label="Delete Account" color="var(--error)" isLast />
+                    <MenuItem
+                        label={deleting ? "Deleting..." : "Delete Account"}
+                        color="var(--error)"
+                        isLast
+                        onClick={!deleting ? handleDeleteAccount : undefined}
+                    />
                 </div>
             </div>
         </div>
     );
 }
+
 
 // Help & Support Page
 export function HelpView({ onBack }) {
@@ -891,9 +921,10 @@ function ToggleSetting({ label, value, onChange, isLast }) {
     );
 }
 
-function MenuItem({ label, color, isLast }) {
+function MenuItem({ label, color, isLast, onClick }) {
     return (
         <motion.button
+            onClick={onClick}
             whileTap={{ scale: 0.98 }}
             style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
