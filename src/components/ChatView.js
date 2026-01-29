@@ -365,8 +365,8 @@ export function ChatView({ chat, onBack }) {
                 )}
             </div>
 
-            {/* Meeting Banner - show if there's an active meeting */}
-            {activeMeeting && (() => {
+            {/* Meeting Banner - show if there's an active meeting but NOT if already confirmed */}
+            {activeMeeting && !hasConfirmedMeeting && (() => {
                 const meetingTime = new Date(activeMeeting.scheduledAt);
                 const now = new Date();
                 const isExpired = meetingTime < now;
