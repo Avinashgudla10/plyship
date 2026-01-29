@@ -1104,20 +1104,22 @@ export const AuthProvider = ({ children }) => {
 
     // ============ PROJECT FUNCTIONS ============
 
-    // Create a project (seeker selects company for their interior project)
-    const createProject = useCallback(async (companyId, projectDetails = {}) => {
+    // Create a project request (either seeker or company can request)
+    const createProject = useCallback(async (targetUserId, projectDetails = {}) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
 
-        if (user.role !== 'SEEKER') {
-            return { success: false, error: 'Only seekers can create projects' };
-        }
-
         try {
+            // Determine seekerId and companyId based on who's requesting
+            const isCompany = user.role === 'COMPANY';
+            const companyId = isCompany ? user.id : targetUserId;
+            const seekerId = isCompany ? targetUserId : user.id;
+
             const projectData = {
-                seekerId: user.id,
+                seekerId,
                 companyId,
+                requestedBy: user.id,  // Track who initiated the request
                 status: 'PENDING_ACCEPTANCE',
                 description: projectDetails.description || '',
                 budgetRange: projectDetails.budgetRange || '',
@@ -1131,7 +1133,7 @@ export const AuthProvider = ({ children }) => {
             };
 
             const projectRef = await addDoc(collection(db, 'projects'), projectData);
-            console.log('🏠 Project created:', projectRef.id);
+            console.log('🏠 Project request created:', projectRef.id);
 
             return { success: true, projectId: projectRef.id };
         } catch (error) {
@@ -1170,14 +1172,10 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
-    // Company accepts a project request
+    // Accept a project request (non-requester accepts)
     const acceptProject = useCallback(async (projectId) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
-        }
-
-        if (user.role !== 'COMPANY') {
-            return { success: false, error: 'Only companies can accept projects' };
         }
 
         try {
@@ -1189,8 +1187,73 @@ export const AuthProvider = ({ children }) => {
             }
 
             const project = projectSnap.data();
-            if (project.companyId !== user.id) {
-                return { success: false, error: 'This project is not assigned to you' };
+
+            // Check if user is part of this project
+            if (project.companyId !== user.id && project.seekerId !== user.id) {
+                return { success: false, error: 'You are not part of this project' };
+            }
+
+            // Can't accept your own request
+            if (project.requestedBy === user.id) {
+                return { success: false, error: 'Cannot accept your own request' };
+            }
+
+            if (project.status !== 'PENDING_ACCEPTANCE') {
+                return { success: false, error: 'Project is not pending acceptance' };
+            }
+
+            // Update project status and unlock seeker wallet for withdrawals
+            await updateDoc(projectRef, {
+                status: 'ACCEPTED',
+                acceptedBy: user.id,
+                acceptedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+
+            // Unlock seeker's wallet for withdrawals
+            const seekerWalletRef = doc(db, 'wallets', project.seekerId);
+            const seekerWalletSnap = await getDoc(seekerWalletRef);
+            if (seekerWalletSnap.exists()) {
+                await updateDoc(seekerWalletRef, {
+                    isLocked: false,
+                    unlockedAt: new Date().toISOString(),
+                    unlockedBy: projectId,
+                });
+                console.log('🔓 Seeker wallet unlocked for project:', projectId);
+            }
+
+            console.log('✅ Project accepted:', projectId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error accepting project:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
+    // Decline a project request
+    const declineProject = useCallback(async (projectId) => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const projectRef = doc(db, 'projects', projectId);
+            const projectSnap = await getDoc(projectRef);
+
+            if (!projectSnap.exists()) {
+                return { success: false, error: 'Project not found' };
+            }
+
+            const project = projectSnap.data();
+
+            // Check if user is part of this project
+            if (project.companyId !== user.id && project.seekerId !== user.id) {
+                return { success: false, error: 'You are not part of this project' };
+            }
+
+            // Can't decline your own request
+            if (project.requestedBy === user.id) {
+                return { success: false, error: 'Cannot decline your own request' };
             }
 
             if (project.status !== 'PENDING_ACCEPTANCE') {
@@ -1198,15 +1261,16 @@ export const AuthProvider = ({ children }) => {
             }
 
             await updateDoc(projectRef, {
-                status: 'ACCEPTED',
-                acceptedAt: new Date().toISOString(),
+                status: 'DECLINED',
+                declinedBy: user.id,
+                declinedAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             });
 
-            console.log('✅ Project accepted:', projectId);
+            console.log('❌ Project declined:', projectId);
             return { success: true };
         } catch (error) {
-            console.error('❌ Error accepting project:', error);
+            console.error('❌ Error declining project:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -1375,6 +1439,7 @@ export const AuthProvider = ({ children }) => {
             createProject,
             getProjects,
             acceptProject,
+            declineProject,
             recordAdvancePayment,
             confirmAdvancePayment,
             logout

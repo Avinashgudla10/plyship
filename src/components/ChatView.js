@@ -166,7 +166,11 @@ export function ChatListView({ chats = [], onChatSelect }) {
 
 // Individual chat view
 export function ChatView({ chat, onBack }) {
-    const { user, sendMessage, getChatId, getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting } = useAuth();
+    const {
+        user, sendMessage, getChatId,
+        getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting,
+        getProjects, acceptProject, declineProject
+    } = useAuth();
     const [message, setMessage] = useState('');
     const [messages, setMessages] = useState([]);
     const [sending, setSending] = useState(false);
@@ -174,6 +178,7 @@ export function ChatView({ chat, onBack }) {
     const [showMeetingModal, setShowMeetingModal] = useState(false);
     const [showRescheduleModal, setShowRescheduleModal] = useState(false);
     const [meetings, setMeetings] = useState([]);
+    const [projects, setProjects] = useState([]);
     const [actionLoading, setActionLoading] = useState(null);
     const messagesEndRef = useRef(null);
 
@@ -217,6 +222,23 @@ export function ChatView({ chat, onBack }) {
         return () => clearInterval(interval);
     }, [user, otherUserId, getMeetings]);
 
+    // Fetch projects between these two users (with polling for real-time updates)
+    useEffect(() => {
+        const fetchProjects = async () => {
+            if (!user || !otherUserId) return;
+            const allProjects = await getProjects();
+            // Filter to only projects with this match
+            const relevantProjects = allProjects.filter(p =>
+                (p.companyId === otherUserId || p.seekerId === otherUserId)
+            );
+            setProjects(relevantProjects);
+        };
+
+        fetchProjects();
+        const interval = setInterval(fetchProjects, 5000);
+        return () => clearInterval(interval);
+    }, [user, otherUserId, getProjects]);
+
 
     // Get the most relevant meeting (pending or upcoming)
     const activeMeeting = meetings.find(m =>
@@ -225,6 +247,12 @@ export function ChatView({ chat, onBack }) {
 
     // Check if there's a confirmed meeting with this user
     const hasConfirmedMeeting = meetings.some(m => m.status === 'CONFIRMED');
+
+    // Get the most relevant project (pending acceptance)
+    const activeProject = projects.find(p => p.status === 'PENDING_ACCEPTANCE');
+
+    // Check if there's an accepted project with this user
+    const hasAcceptedProject = projects.some(p => p.status === 'ACCEPTED');
 
     // Subscribe to real-time messages
     useEffect(() => {
@@ -589,6 +617,86 @@ export function ChatView({ chat, onBack }) {
                 }
 
                 return null;
+            })()}
+
+            {/* Project Request Banner - show if there's a pending project */}
+            {activeProject && !hasAcceptedProject && (() => {
+                const isRequester = activeProject.requestedBy === user?.id;
+
+                // Helper to refresh projects
+                const refreshProjects = async () => {
+                    const updated = await getProjects();
+                    setProjects(updated.filter(p =>
+                        (p.companyId === otherUserId || p.seekerId === otherUserId)
+                    ));
+                };
+
+                return (
+                    <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        style={{ padding: 12, background: '#E0F2FE', borderBottom: '1px solid var(--border-light)' }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Home size={16} color="#0284C7" />
+                            <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: 13, fontWeight: 600, color: '#0369A1' }}>
+                                    {isRequester ? 'Project request sent' : 'Project request received'}
+                                </p>
+                                <p style={{ fontSize: 11, color: '#0284C7' }}>
+                                    {activeProject.budgetRange || 'Budget not specified'}
+                                </p>
+                            </div>
+                            {!isRequester && (
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <motion.button
+                                        onClick={async () => {
+                                            setActionLoading('acceptProject');
+                                            const result = await acceptProject(activeProject.id);
+                                            if (result.success) {
+                                                alert('✅ Project accepted! Wallet unlocked for withdrawals.');
+                                                await refreshProjects();
+                                            } else {
+                                                alert('Error: ' + result.error);
+                                            }
+                                            setActionLoading(null);
+                                        }}
+                                        disabled={actionLoading}
+                                        whileTap={{ scale: 0.95 }}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: 8, background: '#22C55E',
+                                            border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
+                                            display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                        }}
+                                    >
+                                        <Check size={14} />
+                                        Accept
+                                    </motion.button>
+                                    <motion.button
+                                        onClick={async () => {
+                                            setActionLoading('declineProject');
+                                            const result = await declineProject(activeProject.id);
+                                            if (result.success) {
+                                                await refreshProjects();
+                                            } else {
+                                                alert('Error: ' + result.error);
+                                            }
+                                            setActionLoading(null);
+                                        }}
+                                        disabled={actionLoading}
+                                        whileTap={{ scale: 0.95 }}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
+                                            border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        }}
+                                    >
+                                        <X size={14} />
+                                    </motion.button>
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
+                );
             })()}
 
             {/* Messages */}
