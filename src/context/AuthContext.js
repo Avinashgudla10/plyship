@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, auth, uploadImage, uploadImages } from '../lib/firebase';
+import { db, auth, uploadImage, uploadImages, deleteUserStorage } from '../lib/firebase';
 import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
@@ -1505,7 +1505,10 @@ export const AuthProvider = ({ children }) => {
             }
             console.log('✅ Deleted passes');
 
-            // 9. Delete user document
+            // 9. Delete all storage files (profile images, portfolio, etc.)
+            await deleteUserStorage(userId);
+
+            // 10. Delete user document
             const userRef = doc(db, 'users', userId);
             const userSnap = await getDoc(userRef);
             if (userSnap.exists()) {

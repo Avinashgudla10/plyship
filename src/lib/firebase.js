@@ -1,7 +1,7 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
+import { getStorage, ref, uploadString, getDownloadURL, listAll, deleteObject } from "firebase/storage";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -25,6 +25,39 @@ export const auth = getAuth(app);
 
 // Initialize Storage
 export const storage = getStorage(app);
+
+/**
+ * Delete all files in a user's storage folder
+ * @param {string} userId - The user ID  
+ */
+export const deleteUserStorage = async (userId) => {
+    try {
+        const userStorageRef = ref(storage, `users/${userId}`);
+        const listResult = await listAll(userStorageRef);
+
+        // Delete all files in the user's folder
+        for (const fileRef of listResult.items) {
+            await deleteObject(fileRef);
+            console.log('🗑️ Deleted storage file:', fileRef.fullPath);
+        }
+
+        // Recursively delete files in subdirectories (portfolio, etc.)
+        for (const folderRef of listResult.prefixes) {
+            const subListResult = await listAll(folderRef);
+            for (const fileRef of subListResult.items) {
+                await deleteObject(fileRef);
+                console.log('🗑️ Deleted storage file:', fileRef.fullPath);
+            }
+        }
+
+        console.log('✅ Deleted all storage files for user:', userId);
+    } catch (error) {
+        // If folder doesn't exist or is empty, that's fine
+        if (error.code !== 'storage/object-not-found') {
+            console.error('⚠️ Error deleting storage files:', error);
+        }
+    }
+};
 
 /**
  * Subscribe to real-time messages in a chat
