@@ -7,7 +7,9 @@ import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signOut,
-    onAuthStateChanged
+    onAuthStateChanged,
+    reauthenticateWithCredential,
+    EmailAuthProvider
 } from 'firebase/auth';
 import {
     doc,
@@ -1398,8 +1400,8 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
-    // Delete account and all associated data
-    const deleteAccount = async () => {
+    // Delete account and all associated data (requires password for reauthentication)
+    const deleteAccount = async (password) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
@@ -1511,9 +1513,12 @@ export const AuthProvider = ({ children }) => {
             }
             console.log('✅ Deleted user document');
 
-            // 10. Delete Firebase Auth account
+            // 10. Reauthenticate and delete Firebase Auth account
             const currentUser = auth.currentUser;
-            if (currentUser) {
+            if (currentUser && currentUser.email && password) {
+                // Reauthenticate before deleting
+                const credential = EmailAuthProvider.credential(currentUser.email, password);
+                await reauthenticateWithCredential(currentUser, credential);
                 await currentUser.delete();
                 console.log('✅ Deleted Firebase Auth account');
             }

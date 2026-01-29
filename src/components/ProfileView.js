@@ -746,18 +746,22 @@ export function SettingsView({ onBack }) {
 
     const handleDeleteAccount = async () => {
         const confirmed = confirm(
-            '⚠️ DELETE ACCOUNT\n\nThis will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All matches & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!\n\nType "DELETE" to confirm.'
+            '⚠️ DELETE ACCOUNT\n\nThis will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All matches & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!'
         );
 
         if (confirmed) {
-            const finalConfirm = prompt('Type "DELETE" to permanently delete your account:');
-            if (finalConfirm === 'DELETE') {
+            const password = prompt('Enter your password to confirm account deletion:');
+            if (password) {
                 setDeleting(true);
-                const result = await deleteAccount();
+                const result = await deleteAccount(password);
                 if (result.success) {
                     alert('✅ Your account has been completely deleted.');
                 } else {
-                    alert('❌ Error: ' + result.error);
+                    if (result.error.includes('wrong-password') || result.error.includes('invalid-credential')) {
+                        alert('❌ Incorrect password. Please try again.');
+                    } else {
+                        alert('❌ Error: ' + result.error);
+                    }
                     setDeleting(false);
                 }
             } else {
