@@ -720,6 +720,8 @@ export const AuthProvider = ({ children }) => {
             const isCompany = user.role === 'COMPANY';
             const fieldToQuery = isCompany ? 'companyId' : 'seekerId';
 
+            console.log(`📋 getMeetings: Querying ${fieldToQuery} == ${user.id} (role: ${user.role})`);
+
             // Query without orderBy to avoid needing composite index
             const q = query(
                 collection(db, 'meetings'),
@@ -735,7 +737,7 @@ export const AuthProvider = ({ children }) => {
             // Sort by scheduledAt descending in JavaScript
             meetings.sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt));
 
-            console.log(`📋 Found ${meetings.length} meetings for ${user.id}`);
+            console.log(`📋 Found ${meetings.length} meetings for ${user.id} (${user.role}):`, meetings.map(m => ({ id: m.id, status: m.status, companyId: m.companyId, seekerId: m.seekerId })));
             return meetings;
         } catch (error) {
             console.error('❌ Error getting meetings:', error);

@@ -188,6 +188,7 @@ export function ChatView({ chat, onBack }) {
 
     // Generate chat ID
     const chatId = user && otherUserId ? getChatId(user.id, otherUserId) : null;
+    console.log(`🔍 ChatView: user=${user?.id} (${user?.role}), otherUserId=${otherUserId}, chatId=${chatId}`);
 
     // Fetch meetings between these two users (with polling for real-time updates)
     useEffect(() => {
