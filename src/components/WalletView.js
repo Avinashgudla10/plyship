@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import {
     Wallet, ArrowLeft, Plus, ArrowDownLeft, ArrowUpRight,
     Clock, CheckCircle, AlertCircle, Lock, Unlock, CreditCard,
-    TrendingUp, IndianRupee, ChevronRight, Building2, User
+    TrendingUp, IndianRupee, ChevronRight, Building2, User, X, MessageCircle
 } from 'lucide-react';
 
 // Main Wallet View - Routes to appropriate view based on role
@@ -21,21 +21,285 @@ export default function WalletView({ onBack }) {
     );
 }
 
+// ============ TOP UP MODAL ============
+function TopUpModal({ onClose, onSuccess }) {
+    const { user, topUpWallet } = useAuth();
+    const [amount, setAmount] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const presetAmounts = [500, 1000, 2000, 5000];
+
+    const handlePayment = async () => {
+        const numAmount = parseInt(amount);
+        if (!numAmount || numAmount < 100) {
+            setError('Minimum top-up amount is ₹100');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+
+        try {
+            // 1. Create order on server
+            const orderRes = await fetch('/api/razorpay/create-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: numAmount, userId: user.id }),
+            });
+
+            const orderData = await orderRes.json();
+
+            if (!orderData.success) {
+                throw new Error(orderData.error || 'Failed to create order');
+            }
+
+            // 2. Open Razorpay checkout
+            const options = {
+                key: orderData.keyId,
+                amount: orderData.amount,
+                currency: orderData.currency,
+                name: 'Plyship',
+                description: 'Wallet Top Up',
+                order_id: orderData.orderId,
+                handler: async function (response) {
+                    // 3. Verify payment on server
+                    const verifyRes = await fetch('/api/razorpay/verify-payment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature,
+                            userId: user.id,
+                            amount: numAmount,
+                        }),
+                    });
+
+                    const verifyData = await verifyRes.json();
+
+                    if (verifyData.success) {
+                        // 4. Update wallet in Firebase
+                        const result = await topUpWallet(
+                            numAmount,
+                            response.razorpay_payment_id,
+                            response.razorpay_order_id
+                        );
+
+                        if (result.success) {
+                            onSuccess?.(numAmount);
+                            onClose();
+                        } else {
+                            setError('Payment successful but wallet update failed. Contact support.');
+                        }
+                    } else {
+                        setError('Payment verification failed');
+                    }
+                    setLoading(false);
+                },
+                prefill: {
+                    name: user?.profile?.companyName || user?.profile?.name || '',
+                    email: user?.email || '',
+                },
+                theme: {
+                    color: '#22C55E',
+                },
+                modal: {
+                    ondismiss: function () {
+                        setLoading(false);
+                    },
+                },
+            };
+
+            // Load Razorpay script dynamically
+            if (!window.Razorpay) {
+                const script = document.createElement('script');
+                script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                script.async = true;
+                document.body.appendChild(script);
+                script.onload = () => {
+                    const rzp = new window.Razorpay(options);
+                    rzp.open();
+                };
+            } else {
+                const rzp = new window.Razorpay(options);
+                rzp.open();
+            }
+        } catch (err) {
+            console.error('Payment error:', err);
+            setError(err.message || 'Payment failed. Please try again.');
+            setLoading(false);
+        }
+    };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 20,
+                zIndex: 100,
+            }}
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                style={{
+                    width: '100%',
+                    maxWidth: 400,
+                    background: 'white',
+                    borderRadius: 20,
+                    padding: 24,
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        Top Up Wallet
+                    </h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                        <X size={20} color="var(--text-muted)" />
+                    </button>
+                </div>
+
+                {/* Preset Amounts */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+                    {presetAmounts.map((preset) => (
+                        <motion.button
+                            key={preset}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setAmount(preset.toString())}
+                            style={{
+                                padding: '12px 8px',
+                                borderRadius: 10,
+                                background: amount === preset.toString() ? 'var(--primary)' : 'var(--bg-secondary)',
+                                border: amount === preset.toString() ? 'none' : '1px solid var(--border)',
+                                color: amount === preset.toString() ? 'white' : 'var(--text-primary)',
+                                fontSize: 14,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            ₹{preset}
+                        </motion.button>
+                    ))}
+                </div>
+
+                {/* Custom Amount */}
+                <div style={{ marginBottom: 16 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                        Or enter custom amount
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                        <span style={{
+                            position: 'absolute',
+                            left: 14,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: 'var(--text-muted)',
+                            fontSize: 16,
+                        }}>₹</span>
+                        <input
+                            type="number"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            placeholder="Enter amount"
+                            style={{
+                                width: '100%',
+                                padding: '14px 14px 14px 32px',
+                                borderRadius: 12,
+                                border: '1px solid var(--border)',
+                                fontSize: 16,
+                                fontWeight: 600,
+                            }}
+                        />
+                    </div>
+                </div>
+
+                {/* Error */}
+                {error && (
+                    <div style={{
+                        padding: 12,
+                        borderRadius: 10,
+                        background: '#FEE2E2',
+                        color: '#DC2626',
+                        fontSize: 13,
+                        marginBottom: 16,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                    }}>
+                        <AlertCircle size={16} />
+                        {error}
+                    </div>
+                )}
+
+                {/* Pay Button */}
+                <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handlePayment}
+                    disabled={loading || !amount}
+                    style={{
+                        width: '100%',
+                        padding: 16,
+                        borderRadius: 14,
+                        background: loading || !amount ? '#E5E7EB' : 'var(--gradient-primary)',
+                        border: 'none',
+                        color: loading || !amount ? '#9CA3AF' : 'white',
+                        fontSize: 16,
+                        fontWeight: 700,
+                        cursor: loading || !amount ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                    }}
+                >
+                    {loading ? (
+                        <>Processing...</>
+                    ) : (
+                        <>
+                            <CreditCard size={20} />
+                            Pay ₹{amount || '0'}
+                        </>
+                    )}
+                </motion.button>
+
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 12 }}>
+                    Secure payment powered by Razorpay
+                </p>
+            </motion.div>
+        </motion.div>
+    );
+}
+
 // ============ COMPANY WALLET VIEW ============
 function CompanyWalletView({ onBack }) {
     const { getWallet, getTransactions } = useAuth();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [showTopUp, setShowTopUp] = useState(false);
+
+    const loadWalletData = async () => {
+        const walletData = await getWallet();
+        const txns = await getTransactions();
+        setWallet(walletData);
+        setTransactions(txns);
+        setLoading(false);
+    };
 
     useEffect(() => {
-        const loadWalletData = async () => {
-            const walletData = await getWallet();
-            const txns = await getTransactions();
-            setWallet(walletData);
-            setTransactions(txns);
-            setLoading(false);
-        };
         loadWalletData();
     }, [getWallet, getTransactions]);
 
@@ -122,7 +386,7 @@ function CompanyWalletView({ onBack }) {
                         marginBottom: 24,
                         boxShadow: 'var(--shadow-glow-soft)',
                     }}
-                    onClick={() => alert('Razorpay integration coming soon!')}
+                    onClick={() => setShowTopUp(true)}
                 >
                     <Plus size={20} />
                     Top Up Wallet
@@ -145,27 +409,47 @@ function CompanyWalletView({ onBack }) {
                 {/* Transactions */}
                 <TransactionsList transactions={transactions} />
             </div>
+
+            {/* Top Up Modal */}
+            <AnimatePresence>
+                {showTopUp && (
+                    <TopUpModal
+                        onClose={() => setShowTopUp(false)}
+                        onSuccess={(amount) => {
+                            alert(`✅ Wallet topped up with ₹${amount}!`);
+                            loadWalletData();
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }
 
 // ============ SEEKER WALLET VIEW ============
 function SeekerWalletView({ onBack }) {
-    const { getWallet, getTransactions } = useAuth();
+    const { user, getWallet, getTransactions, getProjects } = useAuth();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
+    const [hasConfirmedProject, setHasConfirmedProject] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const loadWalletData = async () => {
             const walletData = await getWallet();
             const txns = await getTransactions();
+            const projects = await getProjects();
+
+            // Check if user has at least one CONFIRMED project
+            const confirmedProject = projects.find(p => p.status === 'CONFIRMED' || p.status === 'COMPLETED');
+            setHasConfirmedProject(!!confirmedProject);
+
             setWallet(walletData);
             setTransactions(txns);
             setLoading(false);
         };
         loadWalletData();
-    }, [getWallet, getTransactions]);
+    }, [getWallet, getTransactions, getProjects]);
 
     if (loading) {
         return <LoadingView />;
@@ -174,7 +458,24 @@ function SeekerWalletView({ onBack }) {
     const availableBalance = wallet?.balance || 0;
     const lockedBalance = wallet?.lockedBalance || 0;
     const totalEarnings = wallet?.totalEarnings || 0;
-    const canWithdraw = availableBalance >= 500;
+
+    // Can only withdraw if: balance >= 500 AND has at least one confirmed project
+    const canWithdraw = availableBalance >= 500 && hasConfirmedProject;
+    const hasBalanceButNoProject = availableBalance >= 500 && !hasConfirmedProject;
+
+    // WhatsApp withdrawal handler
+    const handleWithdrawal = () => {
+        const userName = user?.profile?.name || 'User';
+        const phone = '918465834152'; // WhatsApp number with country code
+        const message = encodeURIComponent(
+            `Hi, I would like to withdraw ₹${availableBalance} from my Plyship wallet.\n\n` +
+            `Name: ${userName}\n` +
+            `Amount: ₹${availableBalance}\n` +
+            `Email: ${user?.email || 'N/A'}`
+        );
+
+        window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+    };
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
@@ -231,6 +532,31 @@ function SeekerWalletView({ onBack }) {
                     </motion.div>
                 )}
 
+                {/* Project Required Notice */}
+                {hasBalanceButNoProject && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.15 }}
+                        style={{
+                            background: '#FEF3C7',
+                            borderRadius: 16,
+                            padding: 20,
+                            border: '1px solid #F59E0B',
+                            marginBottom: 16,
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <AlertCircle size={18} color="#D97706" />
+                            <span style={{ fontSize: 14, fontWeight: 600, color: '#92400E' }}>Project Confirmation Required</span>
+                        </div>
+                        <p style={{ fontSize: 13, color: '#92400E', lineHeight: 1.5 }}>
+                            To withdraw your earnings, you need to confirm at least one project with an Interior Company.
+                            Start a project from your matches to unlock withdrawals.
+                        </p>
+                    </motion.div>
+                )}
+
                 {/* Withdraw Button */}
                 <motion.button
                     whileHover={canWithdraw ? { scale: 1.02 } : {}}
@@ -240,7 +566,7 @@ function SeekerWalletView({ onBack }) {
                         width: '100%',
                         padding: 16,
                         borderRadius: 14,
-                        background: canWithdraw ? 'var(--gradient-primary)' : '#E5E7EB',
+                        background: canWithdraw ? 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)' : '#E5E7EB',
                         border: 'none',
                         color: canWithdraw ? 'white' : '#9CA3AF',
                         fontSize: 16,
@@ -250,13 +576,31 @@ function SeekerWalletView({ onBack }) {
                         justifyContent: 'center',
                         gap: 8,
                         cursor: canWithdraw ? 'pointer' : 'not-allowed',
-                        marginBottom: 24,
+                        marginBottom: 12,
                     }}
-                    onClick={() => canWithdraw && alert('Withdrawal feature coming soon!')}
+                    onClick={() => canWithdraw && handleWithdrawal()}
                 >
-                    <CreditCard size={20} />
-                    Withdraw to Bank
+                    <MessageCircle size={20} />
+                    Withdraw via WhatsApp
                 </motion.button>
+
+                {!canWithdraw && availableBalance < 500 && (
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
+                        Minimum withdrawal amount is ₹500
+                    </p>
+                )}
+
+                {hasBalanceButNoProject && (
+                    <p style={{ fontSize: 12, color: '#D97706', textAlign: 'center', marginBottom: 24 }}>
+                        Confirm a project with an Interior Company to enable withdrawals
+                    </p>
+                )}
+
+                {canWithdraw && (
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
+                        You'll be redirected to WhatsApp to request withdrawal
+                    </p>
+                )}
 
                 {/* Quick Stats */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>

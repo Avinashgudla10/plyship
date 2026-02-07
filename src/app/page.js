@@ -20,6 +20,7 @@ import ProfileView, {
 import WalletView from '../components/WalletView';
 import MeetingsView from '../components/MeetingsView';
 import ProjectsView from '../components/ProjectsView';
+import LandingPage from '../components/LandingPage';
 import { Leaf, Compass, Heart, MessageCircle, User, RefreshCw } from 'lucide-react';
 
 export default function Home() {
@@ -35,12 +36,10 @@ export default function Home() {
   const [selectedChat, setSelectedChat] = useState(null);
   const [profileSubPage, setProfileSubPage] = useState(null);
 
-  // Initial auth check
+  // Redirect logic for incomplete profiles
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.push('/login');
-      } else if (!user.role) {
+    if (!loading && user) {
+      if (!user.role) {
         // User logged in but no role - they need to signup properly
         router.push('/signup');
       } else if (!user.profileComplete) {
@@ -84,6 +83,11 @@ export default function Home() {
     };
     loadChats();
   }, [user, activeTab, getChats]);
+
+  // Show landing page for non-authenticated users (must be after all hooks)
+  if (!loading && !user) {
+    return <LandingPage />;
+  }
 
   if (loading || !user || !user.profileComplete) return null;
 
@@ -280,6 +284,11 @@ export default function Home() {
             <ChatView
               chat={selectedChat}
               onBack={() => setSelectedChat(null)}
+              onNavigate={(page) => {
+                setSelectedChat(null);
+                setActiveTab('profile');
+                setProfileSubPage(page);
+              }}
             />
           );
         }

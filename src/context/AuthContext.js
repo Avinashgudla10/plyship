@@ -57,6 +57,7 @@ export const AuthProvider = ({ children }) => {
                     if (userDoc.exists()) {
                         const userData = { id: firebaseUser.uid, ...userDoc.data() };
                         setUser(userData);
+                        localStorage.setItem('userEmail', userData.email);
                         console.log('✅ Loaded SEEKER from Firestore:', userData.email);
                     } else {
                         // Check in companies collection
@@ -65,6 +66,7 @@ export const AuthProvider = ({ children }) => {
                         if (userDoc.exists()) {
                             const userData = { id: firebaseUser.uid, ...userDoc.data() };
                             setUser(userData);
+                            localStorage.setItem('userEmail', userData.email);
                             console.log('✅ Loaded COMPANY from Firestore:', userData.email);
                         } else {
                             // New user, just signed up but no profile yet
@@ -90,6 +92,7 @@ export const AuthProvider = ({ children }) => {
                 }
             } else {
                 setUser(null);
+                localStorage.removeItem('userEmail');
             }
             setLoading(false);
         });
@@ -666,6 +669,55 @@ export const AuthProvider = ({ children }) => {
         }
     }, []);
 
+    // Top up wallet after successful Razorpay payment
+    const topUpWallet = useCallback(async (amount, paymentId, orderId) => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const walletRef = doc(db, 'wallets', user.id);
+            const walletSnap = await getDoc(walletRef);
+
+            let currentBalance = 0;
+            if (walletSnap.exists()) {
+                currentBalance = walletSnap.data().balance || 0;
+            }
+
+            const newBalance = currentBalance + amount;
+
+            // Update wallet balance
+            await setDoc(walletRef, {
+                balance: newBalance,
+                updatedAt: new Date().toISOString(),
+                lastTopUp: {
+                    amount,
+                    paymentId,
+                    orderId,
+                    timestamp: new Date().toISOString(),
+                },
+            }, { merge: true });
+
+            // Record transaction
+            await addDoc(collection(db, 'transactions'), {
+                userId: user.id,
+                type: 'CREDIT',
+                amount,
+                reason: 'TOP_UP',
+                paymentId,
+                orderId,
+                status: 'COMPLETED',
+                createdAt: new Date().toISOString(),
+            });
+
+            console.log('💰 Wallet topped up:', amount, 'New balance:', newBalance);
+            return { success: true, newBalance };
+        } catch (error) {
+            console.error('❌ Error topping up wallet:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
     // ============ MEETING FUNCTIONS ============
 
     // Schedule a meeting with a match (creates a request that needs acceptance)
@@ -783,6 +835,42 @@ export const AuthProvider = ({ children }) => {
             const meetingTime = new Date(meeting.scheduledAt);
             if (meetingTime < new Date()) {
                 return { success: false, error: 'Meeting time has passed', expired: true };
+            }
+
+            // Check if company has sufficient funds (₹500 required for meeting)
+            const MEETING_FEE = 500;
+            const companyId = meeting.companyId;
+            const companyWalletRef = doc(db, 'wallets', companyId);
+            const companyWalletSnap = await getDoc(companyWalletRef);
+
+            if (companyWalletSnap.exists()) {
+                const companyWallet = companyWalletSnap.data();
+                if ((companyWallet.balance || 0) < MEETING_FEE) {
+                    // If current user is the company, tell them to add funds
+                    if (user.id === companyId) {
+                        return {
+                            success: false,
+                            error: `Insufficient funds. You need ₹${MEETING_FEE} to accept this meeting. Please add funds to your wallet.`,
+                            insufficientFunds: true,
+                            required: MEETING_FEE,
+                            current: companyWallet.balance || 0
+                        };
+                    }
+                    // If seeker is trying to accept, the company doesn't have funds
+                    return { success: false, error: 'Cannot accept meeting - waiting for company to add funds' };
+                }
+            } else {
+                // Company has no wallet initialized
+                if (user.id === companyId) {
+                    return {
+                        success: false,
+                        error: `Please add ₹${MEETING_FEE} to your wallet before accepting meetings.`,
+                        insufficientFunds: true,
+                        required: MEETING_FEE,
+                        current: 0
+                    };
+                }
+                return { success: false, error: 'Cannot accept meeting - company wallet not initialized' };
             }
 
             // Update meeting to SCHEDULED
@@ -1155,10 +1243,10 @@ export const AuthProvider = ({ children }) => {
             const isCompany = user.role === 'COMPANY';
             const fieldToQuery = isCompany ? 'companyId' : 'seekerId';
 
+            // Query without orderBy to avoid needing composite index
             const q = query(
                 collection(db, 'projects'),
-                where(fieldToQuery, '==', user.id),
-                orderBy('createdAt', 'desc')
+                where(fieldToQuery, '==', user.id)
             );
 
             const snapshot = await getDocs(q);
@@ -1166,6 +1254,9 @@ export const AuthProvider = ({ children }) => {
             snapshot.forEach((docSnap) => {
                 projects.push({ id: docSnap.id, ...docSnap.data() });
             });
+
+            // Sort by createdAt descending in JavaScript
+            projects.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
             console.log(`📋 Found ${projects.length} projects`);
             return projects;
@@ -1400,6 +1491,85 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
+    // ============ REVIEW FUNCTIONS ============
+
+    // Submit a review for a company (called by seeker)
+    const submitReview = useCallback(async (companyId, type, rating, comment, relatedId = null) => {
+        if (!user || !user.id || user.role !== 'SEEKER') {
+            return { success: false, error: 'Only seekers can submit reviews' };
+        }
+
+        try {
+            const reviewData = {
+                companyId,
+                seekerId: user.id,
+                seekerName: user.profile?.name || user.name || 'Anonymous',
+                type, // 'MEETING' or 'PROJECT'
+                rating: Math.min(5, Math.max(1, rating)), // Ensure 1-5 range
+                comment: comment || '',
+                relatedId, // meetingId or projectId
+                createdAt: new Date().toISOString(),
+            };
+
+            const reviewRef = await addDoc(collection(db, 'reviews'), reviewData);
+            console.log('⭐ Review submitted:', reviewRef.id);
+
+            return { success: true, reviewId: reviewRef.id };
+        } catch (error) {
+            console.error('❌ Error submitting review:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
+    // Get all reviews for a company
+    const getCompanyReviews = useCallback(async (companyId) => {
+        try {
+            const q = query(
+                collection(db, 'reviews'),
+                where('companyId', '==', companyId)
+            );
+
+            const snapshot = await getDocs(q);
+            const reviews = [];
+            snapshot.forEach((docSnap) => {
+                reviews.push({ id: docSnap.id, ...docSnap.data() });
+            });
+
+            // Sort by createdAt descending
+            reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            console.log(`⭐ Found ${reviews.length} reviews for company ${companyId}`);
+            return reviews;
+        } catch (error) {
+            console.error('❌ Error getting reviews:', error);
+            return [];
+        }
+    }, []);
+
+    // Check if seeker has already reviewed a specific meeting/project
+    const hasReviewed = useCallback(async (companyId, type, relatedId) => {
+        if (!user || !user.id) return false;
+
+        try {
+            const q = query(
+                collection(db, 'reviews'),
+                where('seekerId', '==', user.id),
+                where('companyId', '==', companyId),
+                where('type', '==', type)
+            );
+
+            const snapshot = await getDocs(q);
+            // Check if any review matches the relatedId
+            const existing = snapshot.docs.find(doc => doc.data().relatedId === relatedId);
+            return !!existing;
+        } catch (error) {
+            console.error('❌ Error checking review:', error);
+            return false;
+        }
+    }, [user]);
+
+    // ============ ACCOUNT FUNCTIONS ============
+
     // Delete account and all associated data (requires password for reauthentication)
     const deleteAccount = async (password) => {
         if (!user || !user.id) {
@@ -1570,6 +1740,7 @@ export const AuthProvider = ({ children }) => {
             getWallet,
             getTransactions,
             addTransaction,
+            topUpWallet,
             scheduleMeeting,
             getMeetings,
             acceptMeeting,
@@ -1583,6 +1754,9 @@ export const AuthProvider = ({ children }) => {
             declineProject,
             recordAdvancePayment,
             confirmAdvancePayment,
+            submitReview,
+            getCompanyReviews,
+            hasReviewed,
             deleteAccount,
             logout
         }}>

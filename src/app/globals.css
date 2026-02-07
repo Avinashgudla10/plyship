@@ -132,6 +132,38 @@ body>div:first-child {
   background: var(--bg-primary);
 }
 
+/* Admin page - full screen override (applied via JavaScript) */
+body.admin-page-active,
+body.admin-page-active>div:first-child {
+  max-width: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow: auto !important;
+  background: #F3F4F6 !important;
+}
+
+/* Landing page - full screen override for scrolling */
+body.landing-page-active {
+  display: block !important;
+  overflow: auto !important;
+  background: #FAFAFA !important;
+}
+
+body.landing-page-active>div:first-child,
+body.landing-page-active #__next {
+  max-width: 100% !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 100vh !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  background: #FAFAFA !important;
+  margin: 0 !important;
+}
+
 @media (min-width: 481px) {
   body {
     display: flex;
@@ -147,6 +179,45 @@ body>div:first-child {
     max-height: 900px;
     border-radius: var(--radius-2xl);
     box-shadow: var(--shadow-xl), 0 0 0 1px var(--glass-border);
+  }
+
+  /* Admin page in desktop - full screen */
+  body.admin-page-active {
+    align-items: stretch;
+    justify-content: stretch;
+    background: #F3F4F6 !important;
+    background-image: none !important;
+  }
+
+  body.admin-page-active>div:first-child {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: auto !important;
+  }
+
+  /* Landing page in desktop - full screen */
+  body.landing-page-active {
+    display: block !important;
+    background: #FAFAFA !important;
+    background-image: none !important;
+    overflow: auto !important;
+  }
+
+  body.landing-page-active>div:first-child,
+  body.landing-page-active #__next {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
   }
 }
 

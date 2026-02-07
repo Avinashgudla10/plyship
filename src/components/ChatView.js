@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle } from 'lucide-react';
+import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToMessages } from '../lib/firebase';
 import { StartProjectModal } from './ProjectsView';
 import { ScheduleMeetingModal } from './MeetingsView';
+import ReviewModal from './ReviewModal';
 
 // Chat list view
 export function ChatListView({ chats = [], onChatSelect }) {
@@ -165,9 +166,9 @@ export function ChatListView({ chats = [], onChatSelect }) {
 }
 
 // Individual chat view
-export function ChatView({ chat, onBack }) {
+export function ChatView({ chat, onBack, onNavigate }) {
     const {
-        user, sendMessage, getChatId,
+        user, sendMessage, getChatId, getWallet,
         getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting,
         getProjects, acceptProject, declineProject
     } = useAuth();
@@ -180,9 +181,14 @@ export function ChatView({ chat, onBack }) {
     const [meetings, setMeetings] = useState([]);
     const [projects, setProjects] = useState([]);
     const [actionLoading, setActionLoading] = useState(null);
+    const [walletBalance, setWalletBalance] = useState(null);
+    const [showReviewModal, setShowReviewModal] = useState(false);
+    const [reviewData, setReviewData] = useState(null); // { type: 'MEETING' | 'PROJECT', relatedId: string }
     const messagesEndRef = useRef(null);
 
     const isSeeker = user?.role === 'SEEKER';
+    const isCompanyUser = user?.role === 'COMPANY';
+    const MEETING_FEE = 500;
 
     // Get chat partner info
     const isCompany = chat?.matchedUserRole === 'COMPANY' || chat?.role === 'COMPANY';
@@ -227,17 +233,35 @@ export function ChatView({ chat, onBack }) {
         const fetchProjects = async () => {
             if (!user || !otherUserId) return;
             const allProjects = await getProjects();
+            console.log('📁 Fetched all projects:', allProjects.map(p => ({ id: p.id, status: p.status, companyId: p.companyId, seekerId: p.seekerId })));
+            console.log('🎯 Filtering for otherUserId:', otherUserId);
             // Filter to only projects with this match
             const relevantProjects = allProjects.filter(p =>
                 (p.companyId === otherUserId || p.seekerId === otherUserId)
             );
+            console.log('✅ Relevant projects:', relevantProjects.map(p => ({ id: p.id, status: p.status })));
             setProjects(relevantProjects);
         };
 
         fetchProjects();
-        const interval = setInterval(fetchProjects, 5000);
+        // Poll every 3 seconds for faster updates
+        const interval = setInterval(fetchProjects, 3000);
         return () => clearInterval(interval);
     }, [user, otherUserId, getProjects]);
+
+    // Fetch wallet balance for companies (to check if they can accept meetings)
+    useEffect(() => {
+        const fetchWallet = async () => {
+            if (!user || !isCompanyUser) return;
+            const wallet = await getWallet();
+            setWalletBalance(wallet?.balance || 0);
+        };
+
+        fetchWallet();
+        // Poll wallet every 10 seconds
+        const interval = setInterval(fetchWallet, 10000);
+        return () => clearInterval(interval);
+    }, [user, isCompanyUser, getWallet]);
 
 
     // Get the most relevant meeting (pending or upcoming)
@@ -245,14 +269,47 @@ export function ChatView({ chat, onBack }) {
         ['PENDING_ACCEPTANCE', 'SCHEDULED'].includes(m.status)
     );
 
-    // Check if there's a confirmed meeting with this user
+    // Check if there's a confirmed meeting with this user (payment transferred)
     const hasConfirmedMeeting = meetings.some(m => m.status === 'CONFIRMED');
+
+    // Get the most recent cancelled/declined meeting (for reschedule prompt)
+    const cancelledMeeting = meetings.find(m =>
+        ['CANCELLED', 'DECLINED'].includes(m.status)
+    );
 
     // Get the most relevant project (pending acceptance)
     const activeProject = projects.find(p => p.status === 'PENDING_ACCEPTANCE');
 
     // Check if there's an accepted project with this user
     const hasAcceptedProject = projects.some(p => p.status === 'ACCEPTED');
+
+    // Debug: log button visibility states and project info
+    console.log('🔘 Button visibility:', {
+        hasConfirmedMeeting,
+        activeMeeting: activeMeeting?.id,
+        activeMeetingStatus: activeMeeting?.status,
+        showMeetButton: !hasConfirmedMeeting,
+        showStartProjectButton: hasConfirmedMeeting,
+        meetingsCount: meetings.length,
+        allMeetingStatuses: meetings.map(m => ({ id: m.id, status: m.status }))
+    });
+
+    // Debug: log project visibility states
+    console.log('🏠 Project visibility:', {
+        projectsCount: projects.length,
+        activeProject: activeProject?.id,
+        activeProjectStatus: activeProject?.status,
+        activeProjectRequestedBy: activeProject?.requestedBy,
+        hasAcceptedProject,
+        showProjectBanner: !!activeProject && !hasAcceptedProject,
+        allProjects: projects.map(p => ({
+            id: p.id,
+            status: p.status,
+            companyId: p.companyId,
+            seekerId: p.seekerId,
+            requestedBy: p.requestedBy
+        }))
+    });
 
     // Subscribe to real-time messages
     useEffect(() => {
@@ -348,28 +405,30 @@ export function ChatView({ chat, onBack }) {
                     <span style={{ fontSize: 12, color: 'var(--success)' }}>Online</span>
                 </div>
 
-                {/* Schedule Meeting Button */}
-                <motion.button
-                    onClick={() => setShowMeetingModal(true)}
-                    whileTap={{ scale: 0.9 }}
-                    style={{
-                        padding: '8px 12px',
-                        borderRadius: 10,
-                        background: activeMeeting ? 'var(--bg-secondary)' : '#EFF6FF',
-                        border: activeMeeting ? '1px solid var(--border)' : '1px solid #BFDBFE',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        cursor: activeMeeting ? 'default' : 'pointer',
-                        opacity: activeMeeting ? 0.5 : 1,
-                    }}
-                    disabled={!!activeMeeting}
-                >
-                    <Calendar size={14} color={activeMeeting ? 'var(--text-muted)' : '#3B82F6'} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: activeMeeting ? 'var(--text-muted)' : '#3B82F6' }}>
-                        {activeMeeting ? 'Meeting Set' : 'Meet'}
-                    </span>
-                </motion.button>
+                {/* Schedule Meeting Button - hide once meeting is confirmed and Start Project is visible */}
+                {!hasConfirmedMeeting && (
+                    <motion.button
+                        onClick={() => setShowMeetingModal(true)}
+                        whileTap={{ scale: 0.9 }}
+                        style={{
+                            padding: '8px 12px',
+                            borderRadius: 10,
+                            background: activeMeeting ? 'var(--bg-secondary)' : '#EFF6FF',
+                            border: activeMeeting ? '1px solid var(--border)' : '1px solid #BFDBFE',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            cursor: activeMeeting ? 'default' : 'pointer',
+                            opacity: activeMeeting ? 0.5 : 1,
+                        }}
+                        disabled={!!activeMeeting}
+                    >
+                        <Calendar size={14} color={activeMeeting ? 'var(--text-muted)' : '#3B82F6'} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: activeMeeting ? 'var(--text-muted)' : '#3B82F6' }}>
+                            {activeMeeting ? 'Meeting Set' : 'Meet'}
+                        </span>
+                    </motion.button>
+                )}
 
                 {/* Start Project Button - only shows after meeting completion */}
                 {hasConfirmedMeeting && (
@@ -442,8 +501,73 @@ export function ChatView({ chat, onBack }) {
                     );
                 }
 
-                // PENDING_ACCEPTANCE + NOT EXPIRED = Show accept/decline
+                // PENDING_ACCEPTANCE + NOT EXPIRED = Show accept/decline (or low balance warning for companies)
                 if (activeMeeting.status === 'PENDING_ACCEPTANCE' && !isExpired) {
+                    const isReceiver = activeMeeting.requestedBy !== user?.id;
+                    const hasLowBalance = isCompanyUser && walletBalance !== null && walletBalance < MEETING_FEE;
+
+                    // Show low balance warning for company receiving a meeting request
+                    if (isReceiver && hasLowBalance) {
+                        return (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                style={{ padding: 12, background: '#FEF3C7', borderBottom: '1px solid var(--border-light)' }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                    <AlertCircle size={18} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
+                                    <div style={{ flex: 1 }}>
+                                        <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
+                                            Meeting request received
+                                        </p>
+                                        <p style={{ fontSize: 11, color: '#D97706', marginBottom: 6 }}>
+                                            {meetingTime.toLocaleDateString('en-IN', {
+                                                weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                                            })}
+                                        </p>
+                                        <div style={{
+                                            padding: '8px 10px',
+                                            borderRadius: 8,
+                                            background: '#FDE68A',
+                                            marginBottom: 8,
+                                        }}>
+                                            <p style={{ fontSize: 12, color: '#92400E', fontWeight: 500 }}>
+                                                ⚠️ Your wallet balance is low (₹{walletBalance})
+                                            </p>
+                                            <p style={{ fontSize: 11, color: '#B45309', marginTop: 2 }}>
+                                                You need ₹{MEETING_FEE} to accept this meeting
+                                            </p>
+                                        </div>
+                                        <motion.button
+                                            onClick={() => onNavigate?.('wallet')}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                borderRadius: 10,
+                                                background: 'var(--gradient-primary)',
+                                                border: 'none',
+                                                color: 'white',
+                                                fontSize: 13,
+                                                fontWeight: 600,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: 6,
+                                                cursor: 'pointer',
+                                                boxShadow: 'var(--shadow-sm)',
+                                            }}
+                                        >
+                                            <Wallet size={16} />
+                                            Add Funds to Wallet
+                                        </motion.button>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        );
+                    }
+
+                    // Normal accept/decline banner
                     return (
                         <motion.div
                             initial={{ opacity: 0, height: 0 }}
@@ -462,7 +586,7 @@ export function ChatView({ chat, onBack }) {
                                         })}
                                     </p>
                                 </div>
-                                {activeMeeting.requestedBy !== user?.id && (
+                                {isReceiver && (
                                     <div style={{ display: 'flex', gap: 6 }}>
                                         <motion.button
                                             onClick={async () => {
@@ -473,6 +597,8 @@ export function ChatView({ chat, onBack }) {
                                                 } else if (result.expired) {
                                                     alert('This meeting has expired. Please reschedule.');
                                                     await refreshMeetings();
+                                                } else if (result.error) {
+                                                    alert(result.error);
                                                 }
                                                 setActionLoading(null);
                                             }}
@@ -619,6 +745,55 @@ export function ChatView({ chat, onBack }) {
                 return null;
             })()}
 
+            {/* Cancelled Meeting Banner - show if no active meeting but there's a cancelled one */}
+            {!activeMeeting && cancelledMeeting && !hasConfirmedMeeting && (() => {
+                const meetingTime = new Date(cancelledMeeting.scheduledAt);
+                const cancelledBy = cancelledMeeting.cancelledBy;
+                const wasCancelledByMe = cancelledBy === user?.id;
+                const statusText = cancelledMeeting.status === 'DECLINED' ? 'Declined' : 'Cancelled';
+
+                return (
+                    <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        style={{ padding: 12, background: '#FEE2E2', borderBottom: '1px solid var(--border-light)' }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <X size={16} color="#DC2626" />
+                            <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: 13, fontWeight: 600, color: '#DC2626' }}>
+                                    Meeting {statusText}
+                                </p>
+                                <p style={{ fontSize: 11, color: '#B91C1C' }}>
+                                    {wasCancelledByMe
+                                        ? 'You cancelled • '
+                                        : cancelledMeeting.status === 'DECLINED'
+                                            ? 'Request declined • '
+                                            : 'They cancelled • '
+                                    }
+                                    {meetingTime.toLocaleDateString('en-IN', {
+                                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                                    })}
+                                </p>
+                            </div>
+                            <motion.button
+                                onClick={() => setShowMeetingModal(true)}
+                                whileTap={{ scale: 0.95 }}
+                                style={{
+                                    padding: '8px 14px', borderRadius: 10, background: 'var(--gradient-primary)',
+                                    border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
+                                    display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                                    boxShadow: 'var(--shadow-sm)',
+                                }}
+                            >
+                                <RefreshCw size={14} />
+                                Reschedule
+                            </motion.button>
+                        </div>
+                    </motion.div>
+                );
+            })()}
+
             {/* Project Request Banner - show if there's a pending project */}
             {activeProject && !hasAcceptedProject && (() => {
                 const isRequester = activeProject.requestedBy === user?.id;
@@ -760,54 +935,103 @@ export function ChatView({ chat, onBack }) {
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Input */}
-            <div style={{
-                padding: '12px 16px 24px',
-                background: 'white',
-                borderTop: '1px solid var(--border-light)',
-                display: 'flex',
-                gap: 10,
-            }}>
-                <input
-                    type="text"
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                    placeholder="Type a message..."
-                    disabled={sending}
-                    style={{
-                        flex: 1,
-                        padding: '14px 18px',
-                        borderRadius: 24,
-                        border: '1px solid var(--border)',
-                        background: 'var(--bg-secondary)',
-                        fontSize: 15,
-                        outline: 'none',
-                        opacity: sending ? 0.7 : 1,
-                    }}
-                />
-                <motion.button
-                    onClick={handleSend}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    disabled={sending || !message.trim()}
-                    style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: '50%',
-                        background: 'var(--gradient-primary)',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: sending || !message.trim() ? 'not-allowed' : 'pointer',
-                        boxShadow: 'var(--shadow-glow-soft)',
-                        opacity: sending || !message.trim() ? 0.7 : 1,
-                    }}
-                >
-                    <Send size={20} color="white" />
-                </motion.button>
-            </div>
+            {/* Input or Chat Closed Banner */}
+            {hasAcceptedProject ? (
+                <div style={{
+                    padding: '16px 20px 24px',
+                    background: 'linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%)',
+                    borderTop: '1px solid #BBF7D0',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                        <Lock size={20} color="#16A34A" />
+                        <div>
+                            <p style={{ fontSize: 14, fontWeight: 600, color: '#166534' }}>
+                                Project Started!
+                            </p>
+                            <p style={{ fontSize: 12, color: '#15803D' }}>
+                                Chat is now closed. Continue your project offline.
+                            </p>
+                        </div>
+                    </div>
+                    {isSeeker && (
+                        <motion.button
+                            onClick={() => {
+                                const acceptedProject = projects.find(p => p.status === 'ACCEPTED');
+                                setReviewData({ type: 'PROJECT', relatedId: acceptedProject?.id });
+                                setShowReviewModal(true);
+                            }}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            style={{
+                                width: '100%',
+                                padding: 12,
+                                borderRadius: 10,
+                                background: 'white',
+                                border: '1px solid #BBF7D0',
+                                color: '#166534',
+                                fontSize: 14,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 8,
+                            }}
+                        >
+                            <Star size={18} />
+                            Rate Your Experience
+                        </motion.button>
+                    )}
+                </div>
+            ) : (
+                <div style={{
+                    padding: '12px 16px 24px',
+                    background: 'white',
+                    borderTop: '1px solid var(--border-light)',
+                    display: 'flex',
+                    gap: 10,
+                }}>
+                    <input
+                        type="text"
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                        placeholder="Type a message..."
+                        disabled={sending}
+                        style={{
+                            flex: 1,
+                            padding: '14px 18px',
+                            borderRadius: 24,
+                            border: '1px solid var(--border)',
+                            background: 'var(--bg-secondary)',
+                            fontSize: 15,
+                            outline: 'none',
+                            opacity: sending ? 0.7 : 1,
+                        }}
+                    />
+                    <motion.button
+                        onClick={handleSend}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        disabled={sending || !message.trim()}
+                        style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: '50%',
+                            background: 'var(--gradient-primary)',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: sending || !message.trim() ? 'not-allowed' : 'pointer',
+                            boxShadow: 'var(--shadow-glow-soft)',
+                            opacity: sending || !message.trim() ? 0.7 : 1,
+                        }}
+                    >
+                        <Send size={20} color="white" />
+                    </motion.button>
+                </div>
+            )}
 
             {/* Start Project Modal */}
             <AnimatePresence>
@@ -854,6 +1078,26 @@ export function ChatView({ chat, onBack }) {
                             setMeetings(updated.filter(m =>
                                 (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
                             ));
+                        }}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Review Modal */}
+            <AnimatePresence>
+                {showReviewModal && reviewData && (
+                    <ReviewModal
+                        companyId={otherUserId}
+                        companyName={name}
+                        type={reviewData.type}
+                        relatedId={reviewData.relatedId}
+                        onClose={() => {
+                            setShowReviewModal(false);
+                            setReviewData(null);
+                        }}
+                        onSuccess={() => {
+                            setShowReviewModal(false);
+                            setReviewData(null);
                         }}
                     />
                 )}

@@ -1,13 +1,33 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Star, MapPin, Shield, Sparkles, Heart, Phone, CheckCircle, Briefcase, Calendar, Wallet, Home } from 'lucide-react';
+import { X, Star, MapPin, Shield, Sparkles, Heart, Phone, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function ProfileDetail({ profile, onClose, onLike, onPass }) {
+    const { getCompanyReviews } = useAuth();
+    const [reviews, setReviews] = useState([]);
+
     // Determine if we're viewing a company or seeker profile
     const isCompanyProfile = profile?.role === 'COMPANY';
     const profileData = profile?.profile || {};
+
+    // Fetch reviews for company profiles
+    useEffect(() => {
+        if (isCompanyProfile && profile?.id) {
+            const fetchReviews = async () => {
+                const companyReviews = await getCompanyReviews(profile.id);
+                setReviews(companyReviews);
+            };
+            fetchReviews();
+        }
+    }, [isCompanyProfile, profile?.id, getCompanyReviews]);
+
+    // Calculate average rating
+    const averageRating = reviews.length > 0
+        ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+        : 0;
 
     // Get display data based on profile type
     const displayName = isCompanyProfile
@@ -353,6 +373,87 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass }) {
                                 >
                                     {area}
                                 </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Reviews Section (for companies) */}
+                {isCompanyProfile && reviews.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                            <h3 style={{
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: 'var(--text-tertiary)',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px',
+                            }}>
+                                Reviews
+                            </h3>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '4px 10px',
+                                borderRadius: 12,
+                                background: '#FEF3C7',
+                            }}>
+                                <Star size={14} color="#FBBF24" fill="#FBBF24" />
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#D97706' }}>
+                                    {averageRating}
+                                </span>
+                                <span style={{ fontSize: 11, color: '#B45309' }}>
+                                    ({reviews.length})
+                                </span>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {reviews.slice(0, 3).map((review) => (
+                                <div
+                                    key={review.id}
+                                    style={{
+                                        padding: 14,
+                                        borderRadius: 12,
+                                        background: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border-light)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                        <div style={{
+                                            width: 28,
+                                            height: 28,
+                                            borderRadius: '50%',
+                                            background: 'var(--pastel-green)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}>
+                                            <User size={14} color="var(--primary)" />
+                                        </div>
+                                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                            {review.seekerName || 'Seeker'}
+                                        </span>
+                                        <div style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
+                                            {[1, 2, 3, 4, 5].map((star) => (
+                                                <Star
+                                                    key={star}
+                                                    size={12}
+                                                    color={star <= review.rating ? '#FBBF24' : '#E5E7EB'}
+                                                    fill={star <= review.rating ? '#FBBF24' : 'transparent'}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                    {review.comment && (
+                                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                            {review.comment}
+                                        </p>
+                                    )}
+                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                                        {review.type === 'MEETING' ? '📅 Meeting' : '🏠 Project'} • {new Date(review.createdAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    </p>
+                                </div>
                             ))}
                         </div>
                     </div>
