@@ -90,6 +90,7 @@ export default function ProfileSetup() {
     const { user, loading, completeProfile } = useAuth();
     const [currentStep, setCurrentStep] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [errors, setErrors] = useState({});
 
     const isCompany = user?.role === 'COMPANY';
     const STEPS = isCompany ? COMPANY_STEPS : SEEKER_STEPS;
@@ -127,7 +128,16 @@ export default function ProfileSetup() {
         maxBudget: '',
     });
 
+    const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
+
     useEffect(() => {
+        if (!loading && user) {
+            // Admin users go straight to dashboard
+            if (ADMIN_EMAILS.includes(user.email)) {
+                router.replace('/admin');
+                return;
+            }
+        }
         // Only redirect after loading is complete and we know the user state
         if (!loading && (!user || !user.role)) {
             console.log('⚠️ Profile setup: No user or role, redirecting to login');
@@ -135,8 +145,71 @@ export default function ProfileSetup() {
         }
     }, [user, loading, router]);
 
+    // Validate current step before advancing
+    const validateStep = () => {
+        const newErrors = {};
+
+        if (!isCompany) {
+            // Seeker validation
+            if (currentStep === 0) {
+                if (!seekerData.name || seekerData.name.trim().length < 2) {
+                    newErrors.name = 'Name must be at least 2 characters';
+                }
+                const phoneDigits = seekerData.phone.replace(/\D/g, '');
+                if (!phoneDigits || phoneDigits.length !== 10) {
+                    newErrors.phone = 'Enter a valid 10-digit phone number';
+                }
+                if (!seekerData.propertyType) {
+                    newErrors.propertyType = 'Please select a property type';
+                }
+            } else if (currentStep === 1) {
+                if (!seekerData.city || seekerData.city.trim().length < 2) {
+                    newErrors.city = 'City is required';
+                }
+            } else if (currentStep === 2) {
+                if (!seekerData.styles || seekerData.styles.length === 0) {
+                    newErrors.styles = 'Select at least one style';
+                }
+                if (!seekerData.rooms || seekerData.rooms.length === 0) {
+                    newErrors.rooms = 'Select at least one room';
+                }
+            } else if (currentStep === 3) {
+                if (!seekerData.budget) {
+                    newErrors.budget = 'Please select a budget range';
+                }
+                if (!seekerData.timeline) {
+                    newErrors.timeline = 'Please select a timeline';
+                }
+            }
+        } else {
+            // Company validation
+            if (currentStep === 0) {
+                if (!companyData.companyName || companyData.companyName.trim().length < 2) {
+                    newErrors.companyName = 'Company name must be at least 2 characters';
+                }
+                const phoneDigits = companyData.phone.replace(/\D/g, '');
+                if (!phoneDigits || phoneDigits.length !== 10) {
+                    newErrors.phone = 'Enter a valid 10-digit phone number';
+                }
+            } else if (currentStep === 1) {
+                if (!companyData.services || companyData.services.length === 0) {
+                    newErrors.services = 'Select at least one service';
+                }
+                if (!companyData.specializations || companyData.specializations.length === 0) {
+                    newErrors.specializations = 'Select at least one specialization';
+                }
+            }
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
     const handleNext = async () => {
+        if (!validateStep()) return;
+
         if (currentStep < STEPS.length - 1) {
+            setErrors({});
             setCurrentStep(prev => prev + 1);
         } else {
             // Complete profile and save to Firestore
@@ -287,24 +360,24 @@ export default function ProfileSetup() {
                     >
                         {/* ============ SEEKER STEPS ============ */}
                         {!isCompany && currentStep === 0 && (
-                            <SeekerBasicInfo data={seekerData} setData={setSeekerData} />
+                            <SeekerBasicInfo data={seekerData} setData={setSeekerData} errors={errors} />
                         )}
                         {!isCompany && currentStep === 1 && (
-                            <SeekerLocation data={seekerData} setData={setSeekerData} />
+                            <SeekerLocation data={seekerData} setData={setSeekerData} errors={errors} />
                         )}
                         {!isCompany && currentStep === 2 && (
-                            <SeekerPreferences data={seekerData} toggleSelection={(f, v) => toggleSelection(f, v, false)} />
+                            <SeekerPreferences data={seekerData} toggleSelection={(f, v) => toggleSelection(f, v, false)} errors={errors} />
                         )}
                         {!isCompany && currentStep === 3 && (
-                            <SeekerBudget data={seekerData} setData={setSeekerData} />
+                            <SeekerBudget data={seekerData} setData={setSeekerData} errors={errors} />
                         )}
 
                         {/* ============ COMPANY STEPS ============ */}
                         {isCompany && currentStep === 0 && (
-                            <CompanyBasicInfo data={companyData} setData={setCompanyData} />
+                            <CompanyBasicInfo data={companyData} setData={setCompanyData} errors={errors} />
                         )}
                         {isCompany && currentStep === 1 && (
-                            <CompanyServices data={companyData} toggleSelection={(f, v) => toggleSelection(f, v, true)} />
+                            <CompanyServices data={companyData} toggleSelection={(f, v) => toggleSelection(f, v, true)} errors={errors} />
                         )}
                         {isCompany && currentStep === 2 && (
                             <CompanyPortfolio data={companyData} setData={setCompanyData} />
@@ -386,7 +459,7 @@ export default function ProfileSetup() {
 
 // ============ SEEKER FORM COMPONENTS ============
 
-function SeekerBasicInfo({ data, setData }) {
+function SeekerBasicInfo({ data, setData, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -408,8 +481,8 @@ function SeekerBasicInfo({ data, setData }) {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <InputField label="Full Name" value={data.name} onChange={(v) => setData({ ...data, name: v })} placeholder="Your name" />
-                <InputField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} placeholder="+91 98765 43210" type="tel" />
+                <InputField label="Full Name" value={data.name} onChange={(v) => setData({ ...data, name: v })} placeholder="Your name" error={errors?.name} />
+                <PhoneField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} error={errors?.phone} />
 
                 <div>
                     <label style={labelStyle}>Property Type</label>
@@ -420,13 +493,14 @@ function SeekerBasicInfo({ data, setData }) {
                             </SelectButton>
                         ))}
                     </div>
+                    {errors?.propertyType && <p style={errorTextStyle}>{errors.propertyType}</p>}
                 </div>
             </div>
         </div>
     );
 }
 
-function SeekerLocation({ data, setData }) {
+function SeekerLocation({ data, setData, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -437,7 +511,7 @@ function SeekerLocation({ data, setData }) {
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Bangalore" />
+                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Bangalore" error={errors?.city} />
                 <InputField label="Locality / Area" value={data.locality} onChange={(v) => setData({ ...data, locality: v })} placeholder="e.g., Indiranagar" />
 
                 <div>
@@ -455,7 +529,7 @@ function SeekerLocation({ data, setData }) {
     );
 }
 
-function SeekerPreferences({ data, toggleSelection }) {
+function SeekerPreferences({ data, toggleSelection, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -472,6 +546,7 @@ function SeekerPreferences({ data, toggleSelection }) {
                         <EmojiButton key={style.id} item={style} selected={data.styles.includes(style.id)} onClick={() => toggleSelection('styles', style.id)} />
                     ))}
                 </div>
+                {errors?.styles && <p style={errorTextStyle}>{errors.styles}</p>}
             </div>
 
             <div>
@@ -481,12 +556,13 @@ function SeekerPreferences({ data, toggleSelection }) {
                         <EmojiButton key={room.id} item={room} selected={data.rooms.includes(room.id)} onClick={() => toggleSelection('rooms', room.id)} />
                     ))}
                 </div>
+                {errors?.rooms && <p style={errorTextStyle}>{errors.rooms}</p>}
             </div>
         </div>
     );
 }
 
-function SeekerBudget({ data, setData }) {
+function SeekerBudget({ data, setData, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -503,6 +579,7 @@ function SeekerBudget({ data, setData }) {
                         <RadioCard key={budget.id} item={budget} selected={data.budget === budget.id} onClick={() => setData({ ...data, budget: budget.id })} />
                     ))}
                 </div>
+                {errors?.budget && <p style={errorTextStyle}>{errors.budget}</p>}
             </div>
 
             <div>
@@ -512,6 +589,7 @@ function SeekerBudget({ data, setData }) {
                         <SelectCard key={tl.id} item={tl} selected={data.timeline === tl.id} onClick={() => setData({ ...data, timeline: tl.id })} />
                     ))}
                 </div>
+                {errors?.timeline && <p style={errorTextStyle}>{errors.timeline}</p>}
             </div>
         </div>
     );
@@ -519,7 +597,7 @@ function SeekerBudget({ data, setData }) {
 
 // ============ COMPANY FORM COMPONENTS ============
 
-function CompanyBasicInfo({ data, setData }) {
+function CompanyBasicInfo({ data, setData, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -541,16 +619,16 @@ function CompanyBasicInfo({ data, setData }) {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <InputField label="Company Name" value={data.companyName} onChange={(v) => setData({ ...data, companyName: v })} placeholder="Your company name" />
+                <InputField label="Company Name" value={data.companyName} onChange={(v) => setData({ ...data, companyName: v })} placeholder="Your company name" error={errors?.companyName} />
                 <InputField label="Tagline" value={data.tagline} onChange={(v) => setData({ ...data, tagline: v })} placeholder="e.g., Modern designs for modern living" />
-                <InputField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} placeholder="+91 98765 43210" type="tel" />
+                <PhoneField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} error={errors?.phone} />
                 <InputField label="Years in Business" value={data.yearsInBusiness} onChange={(v) => setData({ ...data, yearsInBusiness: v })} placeholder="e.g., 5" type="number" />
             </div>
         </div>
     );
 }
 
-function CompanyServices({ data, toggleSelection }) {
+function CompanyServices({ data, toggleSelection, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -567,6 +645,7 @@ function CompanyServices({ data, toggleSelection }) {
                         <EmojiButton key={service.id} item={service} selected={data.services.includes(service.id)} onClick={() => toggleSelection('services', service.id)} />
                     ))}
                 </div>
+                {errors?.services && <p style={errorTextStyle}>{errors.services}</p>}
             </div>
 
             <div>
@@ -578,6 +657,7 @@ function CompanyServices({ data, toggleSelection }) {
                         </PillButton>
                     ))}
                 </div>
+                {errors?.specializations && <p style={errorTextStyle}>{errors.specializations}</p>}
             </div>
         </div>
     );
@@ -671,7 +751,11 @@ const labelStyle = {
     textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12, display: 'block',
 };
 
-function InputField({ label, value, onChange, placeholder, type = 'text' }) {
+const errorTextStyle = {
+    fontSize: 12, color: '#EF4444', fontWeight: 500, marginTop: 6, marginBottom: 0,
+};
+
+function InputField({ label, value, onChange, placeholder, type = 'text', error }) {
     return (
         <div>
             <label style={labelStyle}>{label}</label>
@@ -682,10 +766,61 @@ function InputField({ label, value, onChange, placeholder, type = 'text' }) {
                 placeholder={placeholder}
                 style={{
                     width: '100%', padding: '16px 20px', borderRadius: 14,
-                    border: '1px solid var(--border)', background: 'white',
+                    border: `1px solid ${error ? '#EF4444' : 'var(--border)'}`,
+                    background: error ? '#FEF2F2' : 'white',
                     fontSize: 16, fontWeight: 500, color: 'var(--text-primary)', outline: 'none',
+                    transition: 'border-color 0.2s, background 0.2s',
                 }}
             />
+            {error && <p style={errorTextStyle}>{error}</p>}
+        </div>
+    );
+}
+
+function PhoneField({ label, value, onChange, error }) {
+    const handlePhoneChange = (rawValue) => {
+        // Strip all non-digit characters
+        const digits = rawValue.replace(/\D/g, '');
+        // Limit to 10 digits
+        onChange(digits.substring(0, 10));
+    };
+
+    return (
+        <div>
+            <label style={labelStyle}>{label}</label>
+            <div style={{
+                display: 'flex', alignItems: 'center', borderRadius: 14,
+                border: `1px solid ${error ? '#EF4444' : 'var(--border)'}`,
+                background: error ? '#FEF2F2' : 'white', overflow: 'hidden',
+                transition: 'border-color 0.2s, background 0.2s',
+            }}>
+                <span style={{
+                    padding: '16px 12px 16px 20px', fontSize: 16, fontWeight: 600,
+                    color: 'var(--text-secondary)', background: '#F9FAFB',
+                    borderRight: '1px solid var(--border)', userSelect: 'none',
+                    whiteSpace: 'nowrap',
+                }}>+91</span>
+                <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
+                    placeholder="98765 43210"
+                    maxLength={10}
+                    style={{
+                        flex: 1, padding: '16px 20px', border: 'none', outline: 'none',
+                        fontSize: 16, fontWeight: 500, color: 'var(--text-primary)',
+                        background: 'transparent', letterSpacing: '0.5px',
+                    }}
+                />
+                <span style={{
+                    padding: '0 16px', fontSize: 12, color: value.length === 10 ? '#16A34A' : '#888',
+                    fontWeight: 500, whiteSpace: 'nowrap',
+                }}>
+                    {value.replace(/\D/g, '').length}/10
+                </span>
+            </div>
+            {error && <p style={errorTextStyle}>{error}</p>}
         </div>
     );
 }

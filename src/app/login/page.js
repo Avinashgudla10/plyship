@@ -8,6 +8,8 @@ import { Mail, Lock, Eye, EyeOff, ArrowRight, Leaf } from 'lucide-react';
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 
+const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
+
 export default function Login() {
     const router = useRouter();
     const { user, loading, login, selectRole } = useAuth();
@@ -20,8 +22,15 @@ export default function Login() {
 
     // Redirect if already logged in
     useEffect(() => {
-        if (!loading && user && user.profileComplete) {
-            router.replace('/');
+        if (!loading && user) {
+            // Admin users go straight to dashboard
+            if (ADMIN_EMAILS.includes(user.email)) {
+                router.replace('/admin');
+                return;
+            }
+            if (user.profileComplete) {
+                router.replace('/');
+            }
         }
     }, [user, loading, router]);
 
@@ -36,9 +45,12 @@ export default function Login() {
                 // Wait a moment for auth state listener to update user profile
                 setTimeout(() => {
                     setIsLoading(false);
-                    // The auth state listener will update the user
-                    // Use replace so back button doesn't go through login
-                    router.replace('/');
+                    // Admin users go straight to dashboard
+                    if (ADMIN_EMAILS.includes(formData.email)) {
+                        router.replace('/admin');
+                    } else {
+                        router.replace('/');
+                    }
                 }, 1000);
             } else {
                 setIsLoading(false);

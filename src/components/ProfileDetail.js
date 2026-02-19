@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { X, Star, MapPin, Shield, Sparkles, Heart, Phone, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export default function ProfileDetail({ profile, onClose, onLike, onPass }) {
+export default function ProfileDetail({ profile, onClose, onLike, onPass, viewerRole }) {
     const { getCompanyReviews } = useAuth();
     const [reviews, setReviews] = useState([]);
 
@@ -479,8 +479,8 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass }) {
                         {aboutText}
                     </p>
 
-                    {/* Contact Info (if available) */}
-                    {profileData.phone && (
+                    {/* Contact Info — only show company phone to seekers, never show seeker phone to companies */}
+                    {profileData.phone && isCompanyProfile && (
                         <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                             <Phone size={16} color="var(--primary)" />
                             <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
@@ -505,6 +505,7 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass }) {
                     background: 'linear-gradient(to top, white 80%, transparent)',
                     display: 'flex',
                     gap: 12,
+                    zIndex: 20,
                 }}
             >
                 <motion.button

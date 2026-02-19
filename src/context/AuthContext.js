@@ -77,6 +77,7 @@ export const AuthProvider = ({ children }) => {
                                 profileComplete: false,
                                 profile: null
                             });
+                            localStorage.setItem('userEmail', firebaseUser.email);
                             console.log('🆕 New user, no profile yet:', firebaseUser.email);
                         }
                     }
@@ -491,6 +492,15 @@ export const AuthProvider = ({ children }) => {
                 collection(db, 'matches', user.id, 'matched')
             );
 
+            // Fetch all meetings for this user at once (avoid N+1 queries)
+            const isCompany = user.role === 'COMPANY';
+            const meetingField = isCompany ? 'companyId' : 'seekerId';
+            const meetingsSnapshot = await getDocs(
+                query(collection(db, 'meetings'), where(meetingField, '==', user.id))
+            );
+            const allMeetings = [];
+            meetingsSnapshot.forEach((d) => allMeetings.push({ id: d.id, ...d.data() }));
+
             const chats = [];
             for (const matchDoc of matchesSnapshot.docs) {
                 const matchData = matchDoc.data();
@@ -500,6 +510,17 @@ export const AuthProvider = ({ children }) => {
                 const chatDoc = await getDoc(doc(db, 'chats', chatId));
                 const chatData = chatDoc.exists() ? chatDoc.data() : {};
 
+                // Find the latest active meeting with this matched user
+                const otherUserId = matchDoc.id;
+                const relevantMeetings = allMeetings
+                    .filter(m => {
+                        const matchesOther = (m.companyId === otherUserId || m.seekerId === otherUserId);
+                        return matchesOther && !m.rescheduledTo;
+                    })
+                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+                const latestMeeting = relevantMeetings[0] || null;
+
                 chats.push({
                     id: chatId,
                     matchedUserId: matchDoc.id,
@@ -508,6 +529,8 @@ export const AuthProvider = ({ children }) => {
                     matchedUserProfile: matchData.matchedUserProfile,
                     lastMessage: chatData.lastMessage || null,
                     lastMessageAt: chatData.lastMessageAt || matchData.matchedAt,
+                    meetingStatus: latestMeeting?.status || null,
+                    meetingScheduledAt: latestMeeting?.scheduledAt || null,
                 });
             }
 
@@ -749,6 +772,8 @@ export const AuthProvider = ({ children }) => {
                 status: 'PENDING_ACCEPTANCE',  // Needs other party to accept
                 companyConfirmed: false,
                 seekerConfirmed: false,
+                companyDenied: false,
+                seekerDenied: false,
                 paymentStatus: 'PENDING',
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
@@ -953,6 +978,26 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Cannot cancel this meeting' };
             }
 
+            // DISPUTE DETECTION: If the other party already confirmed but this user
+            // is cancelling/rescheduling, it means one says "we met" and the other says "we didn't"
+            const isCompany = user.id === meeting.companyId;
+            const otherConfirmed = isCompany ? meeting.seekerConfirmed : meeting.companyConfirmed;
+
+            if (otherConfirmed) {
+                // CONFLICT: Other party confirmed, this user is denying → DISPUTE
+                await updateDoc(meetingRef, {
+                    status: 'DISPUTE',
+                    disputeReason: 'One party confirmed meeting, other party denied/rescheduled',
+                    disputeConfirmedBy: isCompany ? meeting.seekerId : meeting.companyId,
+                    disputeDeniedBy: user.id,
+                    cancelReason: reason,
+                    disputeAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                });
+                console.log('⚠️ Meeting DISPUTE detected:', meetingId);
+                return { success: true, dispute: true };
+            }
+
             await updateDoc(meetingRef, {
                 status: 'CANCELLED',
                 cancelledBy: user.id,
@@ -965,6 +1010,73 @@ export const AuthProvider = ({ children }) => {
             return { success: true };
         } catch (error) {
             console.error('❌ Error cancelling meeting:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
+    // Deny meeting (Not Met button) - only triggers DISPUTE if other party confirmed
+    const denyMeeting = useCallback(async (meetingId) => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+
+            if (!meetingSnap.exists()) {
+                return { success: false, error: 'Meeting not found' };
+            }
+
+            const meeting = meetingSnap.data();
+
+            // Check if user is part of this meeting
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+
+            const isCompany = user.id === meeting.companyId;
+            const denyField = isCompany ? 'companyDenied' : 'seekerDenied';
+            const otherConfirmed = isCompany ? meeting.seekerConfirmed : meeting.companyConfirmed;
+            const otherDenied = isCompany ? meeting.seekerDenied : meeting.companyDenied;
+
+            if (otherConfirmed) {
+                // CONTRADICTION: Other party said "We Met", this user says "Not Met" → DISPUTE
+                await updateDoc(meetingRef, {
+                    [denyField]: true,
+                    status: 'DISPUTE',
+                    disputeReason: 'One party confirmed meeting, other party denied',
+                    disputeConfirmedBy: isCompany ? meeting.seekerId : meeting.companyId,
+                    disputeDeniedBy: user.id,
+                    disputeAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                });
+                console.log('⚠️ DISPUTE: Contradiction detected for meeting:', meetingId);
+                return { success: true, dispute: true };
+            }
+
+            if (otherDenied) {
+                // Both parties agree meeting didn't happen → CANCELLED
+                await updateDoc(meetingRef, {
+                    [denyField]: true,
+                    status: 'CANCELLED',
+                    cancelReason: 'Both parties confirmed meeting did not happen',
+                    cancelledAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                });
+                console.log('🚫 Both denied — meeting cancelled:', meetingId);
+                return { success: true, bothDenied: true };
+            }
+
+            // Only this user denied so far — wait for other party
+            await updateDoc(meetingRef, {
+                [denyField]: true,
+                updatedAt: new Date().toISOString(),
+            });
+            console.log(`❌ ${isCompany ? 'Company' : 'Seeker'} denied meeting, waiting for other party`);
+            return { success: true, waitingForOther: true };
+        } catch (error) {
+            console.error('❌ Error denying meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -990,9 +1102,9 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Not authorized' };
             }
 
-            // Can only reschedule cancelled or declined meetings
-            if (!['CANCELLED', 'DECLINED'].includes(meeting.status)) {
-                return { success: false, error: 'Can only reschedule cancelled meetings' };
+            // Can only reschedule cancelled, declined, or dispute meetings
+            if (!['CANCELLED', 'DECLINED', 'DISPUTE'].includes(meeting.status)) {
+                return { success: false, error: 'Can only reschedule cancelled or disputed meetings' };
             }
 
             // Create a new meeting request linked to the original
@@ -1006,6 +1118,8 @@ export const AuthProvider = ({ children }) => {
                 status: 'PENDING_ACCEPTANCE',
                 companyConfirmed: false,
                 seekerConfirmed: false,
+                companyDenied: false,
+                seekerDenied: false,
                 paymentStatus: 'PENDING',
                 rescheduledFrom: meetingId,
                 createdAt: new Date().toISOString(),
@@ -1028,63 +1142,92 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
-    // Process ₹500 payment from company to seeker (atomic transaction)
+    // Process ₹500 payment from company — ₹250 to seeker, ₹250 to admin wallet (atomic transaction)
     const processMeetingPayment = useCallback(async (meetingId, companyId, seekerId) => {
         const MEETING_FEE = 500;
+        const SEEKER_SHARE = 250;
+        const ADMIN_SHARE = 250;
+        const ADMIN_WALLET_ID = 'admin_wallet';
 
         try {
             const result = await runTransaction(db, async (transaction) => {
-                // Get company wallet
+                // ===== ALL READS FIRST =====
                 const companyWalletRef = doc(db, 'wallets', companyId);
+                const seekerWalletRef = doc(db, 'wallets', seekerId);
+                const adminWalletRef = doc(db, 'wallets', ADMIN_WALLET_ID);
+                const meetingRef = doc(db, 'meetings', meetingId);
+
                 const companyWalletSnap = await transaction.get(companyWalletRef);
+                const seekerWalletSnap = await transaction.get(seekerWalletRef);
+                const adminWalletSnap = await transaction.get(adminWalletRef);
 
                 if (!companyWalletSnap.exists()) {
-                    throw new Error('Company wallet not found');
+                    throw new Error('Company wallet not found. Please contact support.');
                 }
 
                 const companyWallet = companyWalletSnap.data();
 
-                // Check balance
                 if (companyWallet.balance < MEETING_FEE) {
                     throw new Error('Insufficient balance');
                 }
 
-                // Get/create seeker wallet
-                const seekerWalletRef = doc(db, 'wallets', seekerId);
-                let seekerWalletSnap = await transaction.get(seekerWalletRef);
+                const seekerWallet = seekerWalletSnap.exists()
+                    ? seekerWalletSnap.data()
+                    : { balance: 0, lockedBalance: 0, totalEarnings: 0 };
 
+                const adminWallet = adminWalletSnap.exists()
+                    ? adminWalletSnap.data()
+                    : { balance: 0, totalEarnings: 0 };
+
+                // ===== ALL WRITES AFTER =====
+
+                // Create seeker wallet if it doesn't exist
                 if (!seekerWalletSnap.exists()) {
-                    // Initialize seeker wallet
                     transaction.set(seekerWalletRef, {
                         userId: seekerId,
                         type: 'SEEKER',
                         balance: 0,
-                        lockedBalance: 0,
-                        totalEarnings: 0,
+                        lockedBalance: SEEKER_SHARE,
+                        totalEarnings: SEEKER_SHARE,
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),
                     });
-                    seekerWalletSnap = { data: () => ({ balance: 0, lockedBalance: 0, totalEarnings: 0 }) };
+                } else {
+                    // Credit seeker ₹250 (LOCKED)
+                    transaction.update(seekerWalletRef, {
+                        lockedBalance: (seekerWallet.lockedBalance || 0) + SEEKER_SHARE,
+                        totalEarnings: (seekerWallet.totalEarnings || 0) + SEEKER_SHARE,
+                        updatedAt: new Date().toISOString(),
+                    });
                 }
 
-                const seekerWallet = seekerWalletSnap.data();
+                // Create admin wallet if it doesn't exist
+                if (!adminWalletSnap.exists()) {
+                    transaction.set(adminWalletRef, {
+                        userId: ADMIN_WALLET_ID,
+                        type: 'ADMIN',
+                        balance: ADMIN_SHARE,
+                        totalEarnings: ADMIN_SHARE,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                    });
+                } else {
+                    // Credit admin wallet ₹250
+                    transaction.update(adminWalletRef, {
+                        balance: (adminWallet.balance || 0) + ADMIN_SHARE,
+                        totalEarnings: (adminWallet.totalEarnings || 0) + ADMIN_SHARE,
+                        updatedAt: new Date().toISOString(),
+                    });
+                }
 
-                // Debit company
+                // Debit company (full ₹500)
                 transaction.update(companyWalletRef, {
                     balance: companyWallet.balance - MEETING_FEE,
                     totalSpent: (companyWallet.totalSpent || 0) + MEETING_FEE,
                     updatedAt: new Date().toISOString(),
                 });
 
-                // Credit seeker (LOCKED)
-                transaction.update(seekerWalletRef, {
-                    lockedBalance: (seekerWallet.lockedBalance || 0) + MEETING_FEE,
-                    totalEarnings: (seekerWallet.totalEarnings || 0) + MEETING_FEE,
-                    updatedAt: new Date().toISOString(),
-                });
-
                 // Update meeting status
-                const meetingRef = doc(db, 'meetings', meetingId);
                 transaction.update(meetingRef, {
                     status: 'CONFIRMED',
                     paymentStatus: 'PROCESSED',
@@ -1110,7 +1253,7 @@ export const AuthProvider = ({ children }) => {
             await addDoc(collection(db, 'transactions'), {
                 userId: seekerId,
                 type: 'LOCK',
-                amount: MEETING_FEE,
+                amount: SEEKER_SHARE,
                 reason: 'MEETING_EARNINGS',
                 relatedMeetingId: meetingId,
                 relatedUserId: companyId,
@@ -1118,7 +1261,18 @@ export const AuthProvider = ({ children }) => {
                 createdAt: new Date().toISOString(),
             });
 
-            console.log('💰 Payment processed: ₹500 transferred');
+            await addDoc(collection(db, 'transactions'), {
+                userId: ADMIN_WALLET_ID,
+                type: 'CREDIT',
+                amount: ADMIN_SHARE,
+                reason: 'ADMIN_COMMISSION',
+                relatedMeetingId: meetingId,
+                relatedUserId: companyId,
+                status: 'COMPLETED',
+                createdAt: new Date().toISOString(),
+            });
+
+            console.log('💰 Payment processed: ₹500 split — ₹250 to seeker, ₹250 to admin');
             return { success: true, bothConfirmed: true, paymentProcessed: true };
         } catch (error) {
             console.error('❌ Error processing payment:', error);
@@ -1167,12 +1321,28 @@ export const AuthProvider = ({ children }) => {
 
             const isCompany = user.role === 'COMPANY';
             const confirmField = isCompany ? 'companyConfirmed' : 'seekerConfirmed';
+            const otherDenied = isCompany ? meeting.seekerDenied : meeting.companyDenied;
 
             // Update confirmation
             await updateDoc(meetingRef, {
                 [confirmField]: true,
                 updatedAt: new Date().toISOString(),
             });
+
+            // Check if other party DENIED → DISPUTE (contradiction)
+            if (otherDenied) {
+                const meetingRef2 = doc(db, 'meetings', meetingId);
+                await updateDoc(meetingRef2, {
+                    status: 'DISPUTE',
+                    disputeReason: 'One party confirmed meeting, other party denied',
+                    disputeConfirmedBy: user.id,
+                    disputeDeniedBy: isCompany ? meeting.seekerId : meeting.companyId,
+                    disputeAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                });
+                console.log('⚠️ DISPUTE: This user confirmed but other denied for meeting:', meetingId);
+                return { success: true, dispute: true };
+            }
 
             // Check if both parties confirmed
             const otherConfirmField = isCompany ? 'seekerConfirmed' : 'companyConfirmed';
@@ -1192,6 +1362,55 @@ export const AuthProvider = ({ children }) => {
             return { success: false, error: error.message };
         }
     }, [user, processMeetingPayment]);
+
+    // ============ WITHDRAWAL FUNCTIONS ============
+
+    // Request a withdrawal (creates a record for admin tracking)
+    const requestWithdrawal = useCallback(async (amount) => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const walletRef = doc(db, 'wallets', user.id);
+            const walletSnap = await getDoc(walletRef);
+
+            if (!walletSnap.exists()) {
+                return { success: false, error: 'Wallet not found' };
+            }
+
+            const wallet = walletSnap.data();
+
+            if ((wallet.balance || 0) < amount) {
+                return { success: false, error: 'Insufficient balance' };
+            }
+
+            if (amount < 250) {
+                return { success: false, error: 'Minimum withdrawal is ₹250' };
+            }
+
+            // Create withdrawal record
+            const withdrawalData = {
+                seekerId: user.id,
+                seekerName: user.profile?.name || user.email || 'Unknown',
+                seekerEmail: user.email || '',
+                seekerPhone: user.profile?.phone || '',
+                amount,
+                walletBalance: wallet.balance || 0,
+                status: 'PENDING',
+                requestedAt: new Date().toISOString(),
+                processedAt: null,
+                adminNote: '',
+            };
+
+            await addDoc(collection(db, 'withdrawals'), withdrawalData);
+            console.log('💸 Withdrawal request created:', amount);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error requesting withdrawal:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
 
     // ============ PROJECT FUNCTIONS ============
 
@@ -1304,16 +1523,22 @@ export const AuthProvider = ({ children }) => {
                 updatedAt: new Date().toISOString(),
             });
 
-            // Unlock seeker's wallet for withdrawals
+            // Unlock seeker's wallet for withdrawals - move lockedBalance to balance
             const seekerWalletRef = doc(db, 'wallets', project.seekerId);
             const seekerWalletSnap = await getDoc(seekerWalletRef);
             if (seekerWalletSnap.exists()) {
+                const walletData = seekerWalletSnap.data();
+                const lockedAmount = walletData.lockedBalance || 0;
+                const currentBalance = walletData.balance || 0;
+
                 await updateDoc(seekerWalletRef, {
                     isLocked: false,
+                    balance: currentBalance + lockedAmount, // Move locked funds to available
+                    lockedBalance: 0, // Clear locked balance
                     unlockedAt: new Date().toISOString(),
                     unlockedBy: projectId,
                 });
-                console.log('🔓 Seeker wallet unlocked for project:', projectId);
+                console.log(`🔓 Seeker wallet unlocked. Moved ₹${lockedAmount} from locked to available for project:`, projectId);
             }
 
             console.log('✅ Project accepted:', projectId);
@@ -1493,13 +1718,17 @@ export const AuthProvider = ({ children }) => {
 
     // ============ REVIEW FUNCTIONS ============
 
-    // Submit a review for a company (called by seeker)
+    // Submit a review for a company (called by seeker) — one review per seeker per company, overrides if exists
     const submitReview = useCallback(async (companyId, type, rating, comment, relatedId = null) => {
         if (!user || !user.id || user.role !== 'SEEKER') {
             return { success: false, error: 'Only seekers can submit reviews' };
         }
 
         try {
+            // Use a deterministic ID so each seeker gets exactly ONE review per company
+            const reviewId = `${user.id}_${companyId}`;
+            const reviewRef = doc(db, 'reviews', reviewId);
+
             const reviewData = {
                 companyId,
                 seekerId: user.id,
@@ -1508,13 +1737,23 @@ export const AuthProvider = ({ children }) => {
                 rating: Math.min(5, Math.max(1, rating)), // Ensure 1-5 range
                 comment: comment || '',
                 relatedId, // meetingId or projectId
-                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
             };
 
-            const reviewRef = await addDoc(collection(db, 'reviews'), reviewData);
-            console.log('⭐ Review submitted:', reviewRef.id);
-
-            return { success: true, reviewId: reviewRef.id };
+            // Check if review already exists (for createdAt preservation)
+            const existingSnap = await getDoc(reviewRef);
+            if (existingSnap.exists()) {
+                // Update existing — preserve createdAt
+                await updateDoc(reviewRef, reviewData);
+                console.log('⭐ Review updated:', reviewId);
+                return { success: true, reviewId, updated: true };
+            } else {
+                // Create new
+                reviewData.createdAt = new Date().toISOString();
+                await setDoc(reviewRef, reviewData);
+                console.log('⭐ Review submitted:', reviewId);
+                return { success: true, reviewId, updated: false };
+            }
         } catch (error) {
             console.error('❌ Error submitting review:', error);
             return { success: false, error: error.message };
@@ -1741,11 +1980,13 @@ export const AuthProvider = ({ children }) => {
             getTransactions,
             addTransaction,
             topUpWallet,
+            requestWithdrawal,
             scheduleMeeting,
             getMeetings,
             acceptMeeting,
             declineMeeting,
             cancelMeeting,
+            denyMeeting,
             rescheduleMeeting,
             confirmMeeting,
             createProject,

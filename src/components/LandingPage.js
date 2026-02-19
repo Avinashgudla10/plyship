@@ -575,7 +575,7 @@ function ForSeekersSection() {
     const benefits = [
         'Find verified interior companies',
         'Get personalized design solutions',
-        'Earn ₹500 for every consultation',
+        'Earn ₹250 for every consultation',
         'Transform your dream home into reality',
     ];
 
@@ -643,7 +643,7 @@ function ForSeekersSection() {
                         }}
                     >
                         <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: 48, fontWeight: 800, color: '#22C55E', marginBottom: 8 }}>₹500</div>
+                            <div style={{ fontSize: 48, fontWeight: 800, color: '#22C55E', marginBottom: 8 }}>₹250</div>
                             <div style={{ fontSize: 16, color: '#666', marginBottom: 24 }}>earned per meeting</div>
                             <div style={{ padding: 16, background: '#F9FAFB', borderRadius: 12, marginBottom: 16 }}>
                                 <div style={{ fontSize: 14, color: '#666' }}>Meeting interior companies</div>

@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import SwipeDeck from '../components/SwipeDeck';
 import MatchOverlay from '../components/MatchOverlay';
@@ -23,6 +23,8 @@ import ProjectsView from '../components/ProjectsView';
 import LandingPage from '../components/LandingPage';
 import { Leaf, Compass, Heart, MessageCircle, User, RefreshCw } from 'lucide-react';
 
+const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
+
 export default function Home() {
   const router = useRouter();
   const { user, loading, getSwipeProfiles, likeProfile, passProfile, getMatches, getChats } = useAuth();
@@ -36,9 +38,14 @@ export default function Home() {
   const [selectedChat, setSelectedChat] = useState(null);
   const [profileSubPage, setProfileSubPage] = useState(null);
 
-  // Redirect logic for incomplete profiles
+  // Redirect logic for admin and incomplete profiles
   useEffect(() => {
     if (!loading && user) {
+      // Admin users go straight to dashboard
+      if (ADMIN_EMAILS.includes(user.email)) {
+        router.replace('/admin');
+        return;
+      }
       if (!user.role) {
         // User logged in but no role - they need to signup properly
         router.push('/signup');
@@ -72,16 +79,44 @@ export default function Home() {
     loadMatches();
   }, [user, activeTab, getMatches]);
 
-  // Load chats when switching to messages tab
+  // Load chats when switching to messages tab + real-time updates
   useEffect(() => {
-    const loadChats = async () => {
-      if (user && user.profileComplete && activeTab === 'messages') {
-        const userChats = await getChats();
-        setChats(userChats);
-        console.log('💬 Loaded', userChats.length, 'chats');
-      }
+    let unsubscribes = [];
+    let isMounted = true;
+
+    const setupChatListeners = async () => {
+      if (!user || !user.profileComplete || activeTab !== 'messages') return;
+
+      // Initial load
+      const userChats = await getChats();
+      if (!isMounted) return;
+      setChats(userChats);
+      console.log('💬 Loaded', userChats.length, 'chats');
+
+      // Set up real-time listeners on each chat's metadata doc
+      const { onSnapshot, doc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+
+      userChats.forEach(chat => {
+        const unsub = onSnapshot(doc(db, 'chats', chat.id), (snap) => {
+          if (!isMounted || !snap.exists()) return;
+          const data = snap.data();
+          setChats(prev => prev.map(c =>
+            c.id === chat.id
+              ? { ...c, lastMessage: data.lastMessage || c.lastMessage, lastMessageAt: data.lastMessageAt || c.lastMessageAt }
+              : c
+          ));
+        });
+        unsubscribes.push(unsub);
+      });
     };
-    loadChats();
+
+    setupChatListeners();
+
+    return () => {
+      isMounted = false;
+      unsubscribes.forEach(unsub => unsub());
+    };
   }, [user, activeTab, getChats]);
 
   // Show landing page for non-authenticated users (must be after all hooks)
@@ -296,6 +331,7 @@ export default function Home() {
           <ChatListView
             chats={chats}
             onChatSelect={(chat) => setSelectedChat(chat)}
+            user={user}
           />
         );
 
@@ -320,101 +356,72 @@ export default function Home() {
       flexDirection: 'column',
       overflow: 'hidden',
     }}>
-      {/* Top Header */}
+
+      {/* Minimal Top Header */}
       {!isFullScreen && (
-        <motion.header
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: 'white',
-            borderBottom: '1px solid var(--border-light)',
-            zIndex: 10,
-          }}
-        >
+        <header style={{
+          padding: '8px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'white',
+          borderBottom: '1px solid var(--border-light)',
+          zIndex: 10,
+          minHeight: 44,
+          position: 'relative',
+        }}>
+          {/* Logo */}
           <div style={{
+            width: 28,
+            height: 28,
+            borderRadius: 8,
+            background: 'var(--gradient-primary)',
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
+            justifyContent: 'center',
+            flexShrink: 0,
           }}>
-            <div style={{
-              width: 38,
-              height: 38,
-              borderRadius: 12,
-              background: 'var(--gradient-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: 'var(--shadow-glow-soft)',
-            }}>
-              <Leaf size={20} color="white" />
-            </div>
-            <div>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: 20,
-                fontWeight: 800,
-                letterSpacing: '-0.5px',
-                color: 'var(--primary-hover)',
-              }}>
-                PLYSHIP
-              </span>
-              <span style={{
-                fontSize: 11,
-                color: 'var(--text-muted)',
-                marginLeft: 8,
-                padding: '2px 8px',
-                background: 'var(--pastel-green)',
-                borderRadius: 8,
-              }}>
-                {activeTab === 'explore' && (user?.role === 'SEEKER' ? 'Finding Companies' : 'Finding Clients')}
-                {activeTab === 'matches' && 'Your Matches'}
-                {activeTab === 'messages' && 'Messages'}
-                {activeTab === 'profile' && 'Profile'}
-              </span>
-            </div>
+            <Leaf size={15} color="white" />
           </div>
 
-          {/* Refresh and User */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {activeTab === 'explore' && (
-              <motion.button
-                onClick={refreshProfiles}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                }}
-              >
-                <RefreshCw size={16} color="var(--text-secondary)" />
-              </motion.button>
-            )}
-            <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: 12,
+          {/* Centered Tab Title */}
+          <span style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 16,
+            fontWeight: 700,
+            color: 'var(--text-primary)',
+            letterSpacing: '-0.3px',
+            position: 'absolute',
+            left: '50%',
+            transform: 'translateX(-50%)',
+          }}>
+            {activeTab === 'explore' && 'Explore'}
+            {activeTab === 'matches' && 'Matches'}
+            {activeTab === 'messages' && 'Messages'}
+            {activeTab === 'profile' && 'Profile'}
+          </span>
+
+          {/* Clickable Avatar → Profile/Settings */}
+          <motion.div
+            onClick={() => { setActiveTab('profile'); setProfileSubPage(null); }}
+            whileTap={{ scale: 0.9 }}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 10,
               background: user?.profile?.avatar ? `url(${user.profile.avatar}) center/cover` : 'var(--pastel-green)',
-              border: '2px solid var(--pastel-mint)',
+              border: '1.5px solid var(--pastel-mint)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
               overflow: 'hidden',
-            }}>
-              {!user?.profile?.avatar && <User size={18} color="var(--primary-hover)" />}
-            </div>
-          </div>
-        </motion.header>
+            }}
+          >
+            {!user?.profile?.avatar && <User size={14} color="var(--primary-hover)" />}
+          </motion.div>
+        </header>
       )}
 
       {/* Main Content Area */}
@@ -548,6 +555,8 @@ export default function Home() {
           <ProfileDetail
             profile={detailProfile}
             onClose={() => setDetailProfile(null)}
+            onLike={() => handleMatch(detailProfile, 'right')}
+            onPass={() => handleMatch(detailProfile, 'left')}
             viewerRole={user?.role}
           />
         )}

@@ -428,7 +428,7 @@ function CompanyWalletView({ onBack }) {
 
 // ============ SEEKER WALLET VIEW ============
 function SeekerWalletView({ onBack }) {
-    const { user, getWallet, getTransactions, getProjects } = useAuth();
+    const { user, getWallet, getTransactions, getProjects, requestWithdrawal } = useAuth();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [hasConfirmedProject, setHasConfirmedProject] = useState(false);
@@ -440,9 +440,11 @@ function SeekerWalletView({ onBack }) {
             const txns = await getTransactions();
             const projects = await getProjects();
 
-            // Check if user has at least one CONFIRMED project
-            const confirmedProject = projects.find(p => p.status === 'CONFIRMED' || p.status === 'COMPLETED');
-            setHasConfirmedProject(!!confirmedProject);
+            // Check if user has at least one ACCEPTED project (or wallet explicitly unlocked)
+            const acceptedProject = projects.find(p => p.status === 'ACCEPTED' || p.status === 'CONFIRMED' || p.status === 'COMPLETED');
+            // Also check if wallet isLocked field is explicitly false
+            const walletUnlocked = walletData?.isLocked === false;
+            setHasConfirmedProject(!!acceptedProject || walletUnlocked);
 
             setWallet(walletData);
             setTransactions(txns);
@@ -459,12 +461,19 @@ function SeekerWalletView({ onBack }) {
     const lockedBalance = wallet?.lockedBalance || 0;
     const totalEarnings = wallet?.totalEarnings || 0;
 
-    // Can only withdraw if: balance >= 500 AND has at least one confirmed project
-    const canWithdraw = availableBalance >= 500 && hasConfirmedProject;
-    const hasBalanceButNoProject = availableBalance >= 500 && !hasConfirmedProject;
+    // Can only withdraw if: balance >= 250 AND (has accepted project OR wallet is unlocked)
+    const canWithdraw = availableBalance >= 250 && hasConfirmedProject;
+    const hasBalanceButNoProject = availableBalance >= 250 && !hasConfirmedProject;
 
     // WhatsApp withdrawal handler
-    const handleWithdrawal = () => {
+    const handleWithdrawal = async () => {
+        // Create withdrawal record in Firestore for admin tracking
+        const result = await requestWithdrawal(availableBalance);
+        if (!result.success) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
         const userName = user?.profile?.name || 'User';
         const phone = '918465834152'; // WhatsApp number with country code
         const message = encodeURIComponent(
@@ -584,9 +593,9 @@ function SeekerWalletView({ onBack }) {
                     Withdraw via WhatsApp
                 </motion.button>
 
-                {!canWithdraw && availableBalance < 500 && (
+                {!canWithdraw && availableBalance < 250 && (
                     <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
-                        Minimum withdrawal amount is ₹500
+                        Minimum withdrawal amount is ₹250
                     </p>
                 )}
 
@@ -612,7 +621,7 @@ function SeekerWalletView({ onBack }) {
                     <StatCard
                         icon={User}
                         label="Meetings"
-                        value={Math.floor(totalEarnings / 500)}
+                        value={Math.floor(totalEarnings / 250)}
                     />
                 </div>
 

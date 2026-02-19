@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -11,7 +11,7 @@ import {
 
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
-    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting } = useAuth();
+    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting } = useAuth();
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionId, setActionId] = useState(null);
@@ -91,10 +91,12 @@ export default function MeetingsView({ onBack }) {
         const result = await confirmMeeting(meetingId);
 
         if (result.success) {
-            if (result.bothConfirmed) {
-                alert('🎉 Meeting confirmed! ₹500 has been transferred.');
+            if (result.dispute) {
+                alert('⚠️ Dispute raised — the other party said they did not meet. Admin will review.');
+            } else if (result.bothConfirmed) {
+                alert('🎉 Meeting confirmed! ₹250 has been credited to your wallet.');
             } else {
-                alert('✅ You confirmed the meeting. Waiting for the other party.');
+                alert('✅ You confirmed the meeting. Waiting for the other party to respond.');
             }
             refreshMeetings();
         } else {
@@ -105,6 +107,26 @@ export default function MeetingsView({ onBack }) {
             } else {
                 alert('Error: ' + result.error);
             }
+        }
+        setActionId(null);
+    };
+
+    // Deny meeting (Not Met button)
+    const handleDeny = async (meetingId) => {
+        if (!confirm('Are you sure the meeting did not happen?')) return;
+        setActionId(meetingId);
+        const result = await denyMeeting(meetingId);
+        if (result.success) {
+            if (result.dispute) {
+                alert('⚠️ Dispute raised — the other party said they met. Admin will review.');
+            } else if (result.bothDenied) {
+                alert('Meeting cancelled — both parties confirmed it did not happen.');
+            } else {
+                alert('✅ Recorded. Waiting for other party to respond.');
+            }
+            refreshMeetings();
+        } else {
+            alert('Error: ' + result.error);
         }
         setActionId(null);
     };
@@ -242,7 +264,7 @@ export default function MeetingsView({ onBack }) {
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {isCompany
                             ? '₹500 is charged when both confirm the meeting happened'
-                            : '₹500 is credited when both confirm the meeting happened'
+                            : '₹250 is credited when both confirm the meeting happened'
                         }
                     </span>
                 </div>
@@ -275,6 +297,7 @@ export default function MeetingsView({ onBack }) {
                                             onDecline={handleDecline}
                                             onCancel={handleCancel}
                                             onConfirm={handleConfirm}
+                                            onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
@@ -304,6 +327,7 @@ export default function MeetingsView({ onBack }) {
                                             onDecline={handleDecline}
                                             onCancel={handleCancel}
                                             onConfirm={handleConfirm}
+                                            onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
@@ -333,6 +357,7 @@ export default function MeetingsView({ onBack }) {
                                             onDecline={handleDecline}
                                             onCancel={handleCancel}
                                             onConfirm={handleConfirm}
+                                            onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
@@ -366,20 +391,23 @@ export default function MeetingsView({ onBack }) {
 
 // Meeting Card Component
 function MeetingCard({
-    meeting, user, isCompany, actionId, onAccept, onDecline, onCancel, onConfirm, onReschedule,
+    meeting, user, isCompany, actionId, onAccept, onDecline, onCancel, onConfirm, onDeny, onReschedule,
     getStatusColor, getStatusText, formatDate, isPast
 }) {
     const iAmRequester = meeting.requestedBy === user?.id;
     const isPastMeeting = isPast(meeting.scheduledAt);
     const myConfirmed = isCompany ? meeting.companyConfirmed : meeting.seekerConfirmed;
+    const myDenied = isCompany ? meeting.companyDenied : meeting.seekerDenied;
+    const hasResponded = myConfirmed || myDenied;
     const isLoading = actionId === meeting.id;
 
     // Determine what actions are available
     const canAccept = meeting.status === 'PENDING_ACCEPTANCE' && !iAmRequester;
     const canCancel = meeting.status === 'PENDING_ACCEPTANCE' && iAmRequester;
     const canCancelScheduled = meeting.status === 'SCHEDULED' && !isPastMeeting;
-    const canConfirm = meeting.status === 'SCHEDULED' && isPastMeeting && !myConfirmed;
+    const canConfirm = meeting.status === 'SCHEDULED' && isPastMeeting && !hasResponded;
     const canReschedule = ['CANCELLED', 'DECLINED'].includes(meeting.status);
+    const isDispute = meeting.status === 'DISPUTE';
 
     return (
         <motion.div
@@ -419,7 +447,7 @@ function MeetingCard({
                         fontWeight: 600,
                     }}>
                         <CheckCircle size={14} />
-                        ₹500 {isCompany ? 'paid' : 'earned'}
+                        ₹{isCompany ? '500' : '250'} {isCompany ? 'paid' : 'earned'}
                     </span>
                 )}
             </div>
@@ -590,6 +618,71 @@ function MeetingCard({
                     </motion.button>
                 )}
 
+                {/* Not Met - deny meeting */}
+                {canConfirm && (
+                    <motion.button
+                        onClick={() => onDeny(meeting.id)}
+                        disabled={isLoading}
+                        whileTap={{ scale: 0.95 }}
+                        style={{
+                            width: '100%',
+                            padding: 12,
+                            borderRadius: 10,
+                            background: '#FEE2E2',
+                            border: 'none',
+                            color: '#EF4444',
+                            fontSize: 14,
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            cursor: isLoading ? 'wait' : 'pointer',
+                            opacity: isLoading ? 0.7 : 1,
+                        }}
+                    >
+                        <X size={16} />
+                        Not Met
+                    </motion.button>
+                )}
+
+                {/* Waiting state - user already responded, waiting for other party */}
+                {hasResponded && meeting.status === 'SCHEDULED' && isPastMeeting && (
+                    <div style={{
+                        width: '100%',
+                        padding: 12,
+                        borderRadius: 10,
+                        background: '#FEF3C7',
+                        border: '1px solid #FCD34D',
+                        textAlign: 'center',
+                    }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 2 }}>
+                            ⏳ Waiting for other party
+                        </p>
+                        <p style={{ fontSize: 11, color: '#B45309' }}>
+                            {myConfirmed ? 'You confirmed the meeting' : 'You reported the meeting did not happen'}
+                        </p>
+                    </div>
+                )}
+                {/* Dispute state - no actions available */}
+                {isDispute && (
+                    <div style={{
+                        width: '100%',
+                        padding: 12,
+                        borderRadius: 10,
+                        background: '#FEF3C7',
+                        border: '1px solid #F59E0B',
+                        textAlign: 'center',
+                    }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 2 }}>
+                            ⚠️ Under Admin Review
+                        </p>
+                        <p style={{ fontSize: 11, color: '#B45309' }}>
+                            Dispute raised. Admin will review and contact both parties.
+                        </p>
+                    </div>
+                )}
+
                 {/* Reschedule cancelled meetings */}
                 {canReschedule && (
                     <motion.button
@@ -648,6 +741,14 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
     const [notes, setNotes] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [wallet, setWallet] = useState(null);
+    const canCloseRef = useRef(false);
+
+    // Prevent ghost clicks from closing modal on mobile
+    useEffect(() => {
+        canCloseRef.current = false;
+        const timer = setTimeout(() => { canCloseRef.current = true; }, 400);
+        return () => clearTimeout(timer);
+    }, []);
 
     const isCompany = user?.role === 'COMPANY';
 
@@ -695,7 +796,8 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                 padding: 20,
                 zIndex: 100,
             }}
-            onClick={onClose}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { if (e.target === e.currentTarget && canCloseRef.current) onClose(); }}
         >
             <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -802,7 +904,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
                     {isCompany
                         ? '₹500 will be charged when both parties confirm the meeting'
-                        : 'You\'ll earn ₹500 when both parties confirm the meeting'
+                        : 'You\'ll earn ₹250 when both parties confirm the meeting'
                     }
                 </p>
 
@@ -840,6 +942,14 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
     const [time, setTime] = useState('');
     const [notes, setNotes] = useState(meeting.notes || '');
     const [submitting, setSubmitting] = useState(false);
+    const canCloseRef = useRef(false);
+
+    // Prevent ghost clicks from closing modal on mobile
+    useEffect(() => {
+        canCloseRef.current = false;
+        const timer = setTimeout(() => { canCloseRef.current = true; }, 400);
+        return () => clearTimeout(timer);
+    }, []);
 
     const handleSubmit = async () => {
         if (!date || !time) {
@@ -877,7 +987,8 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
                 padding: 20,
                 zIndex: 100,
             }}
-            onClick={onClose}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { if (e.target === e.currentTarget && canCloseRef.current) onClose(); }}
         >
             <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}

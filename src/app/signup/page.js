@@ -12,16 +12,24 @@ export default function Signup() {
     const router = useRouter();
     const { user, loading, signup, selectRole } = useAuth();
 
+    const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
+
     const [formData, setFormData] = useState({ name: '', email: '', password: '' });
     const [showRoleSelection, setShowRoleSelection] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Redirect if already logged in with complete profile
+    // Redirect if already logged in with complete profile or admin
     useEffect(() => {
-        if (!loading && user && user.profileComplete) {
-            router.replace('/');
+        if (!loading && user) {
+            if (ADMIN_EMAILS.includes(user.email)) {
+                router.replace('/admin');
+                return;
+            }
+            if (user.profileComplete) {
+                router.replace('/');
+            }
         }
     }, [user, loading, router]);
 

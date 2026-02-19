@@ -86,17 +86,23 @@ export function AvatarUpload({ image, onImageChange, isCompany = false }) {
 export function PortfolioUpload({ images = [], onImagesChange, maxImages = 6 }) {
     const inputRef = useRef(null);
 
-    const handleFileChange = (e) => {
+    const handleFileChange = async (e) => {
         const files = Array.from(e.target.files || []);
-        files.forEach(file => {
-            if (images.length >= maxImages) return;
+        const remaining = maxImages - images.length;
+        const filesToProcess = files.slice(0, remaining);
 
+        if (filesToProcess.length === 0) return;
+
+        // Read all files in parallel, then update state once
+        const readFile = (file) => new Promise((resolve) => {
             const reader = new FileReader();
-            reader.onloadend = () => {
-                onImagesChange([...images, reader.result]);
-            };
+            reader.onloadend = () => resolve(reader.result);
             reader.readAsDataURL(file);
         });
+
+        const newImages = await Promise.all(filesToProcess.map(readFile));
+        onImagesChange([...images, ...newImages]);
+
         // Reset input
         e.target.value = '';
     };

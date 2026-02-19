@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Star, Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { db } from '../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function ReviewModal({
     companyId,
@@ -13,11 +15,38 @@ export default function ReviewModal({
     onClose,
     onSuccess
 }) {
-    const { submitReview } = useAuth();
+    const { submitReview, user } = useAuth();
     const [rating, setRating] = useState(0);
     const [hoveredRating, setHoveredRating] = useState(0);
     const [comment, setComment] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    // Load existing review if one exists
+    useEffect(() => {
+        const loadExisting = async () => {
+            if (!user?.id || !companyId) {
+                setLoading(false);
+                return;
+            }
+            try {
+                const reviewId = `${user.id}_${companyId}`;
+                const reviewRef = doc(db, 'reviews', reviewId);
+                const snap = await getDoc(reviewRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    setRating(data.rating || 0);
+                    setComment(data.comment || '');
+                    setIsEditing(true);
+                }
+            } catch (err) {
+                console.error('Error loading existing review:', err);
+            }
+            setLoading(false);
+        };
+        loadExisting();
+    }, [user?.id, companyId]);
 
     const handleSubmit = async () => {
         if (rating === 0) {
@@ -30,7 +59,7 @@ export default function ReviewModal({
         setSubmitting(false);
 
         if (result.success) {
-            alert('✅ Thank you for your review!');
+            alert(result.updated ? '✅ Review updated!' : '✅ Thank you for your review!');
             onSuccess?.();
             onClose();
         } else {
@@ -73,7 +102,7 @@ export default function ReviewModal({
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                     <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        Rate Your {type === 'MEETING' ? 'Meeting' : 'Experience'}
+                        {isEditing ? 'Update Your Rating' : `Rate Your ${type === 'MEETING' ? 'Meeting' : 'Experience'}`}
                     </h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
                         <X size={20} color="var(--text-muted)" />
@@ -82,7 +111,10 @@ export default function ReviewModal({
 
                 {/* Company Name */}
                 <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, textAlign: 'center' }}>
-                    How was your {typeLabel} with <strong>{companyName || 'this company'}</strong>?
+                    {isEditing
+                        ? <>Update your review for <strong>{companyName || 'this company'}</strong></>
+                        : <>How was your {typeLabel} with <strong>{companyName || 'this company'}</strong>?</>
+                    }
                 </p>
 
                 {/* Star Rating */}
@@ -156,19 +188,19 @@ export default function ReviewModal({
                 {/* Submit Button */}
                 <motion.button
                     onClick={handleSubmit}
-                    disabled={submitting || rating === 0}
+                    disabled={submitting || rating === 0 || loading}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     style={{
                         width: '100%',
                         padding: 14,
                         borderRadius: 12,
-                        background: (submitting || rating === 0) ? '#E5E7EB' : 'var(--gradient-primary)',
+                        background: (submitting || rating === 0 || loading) ? '#E5E7EB' : 'var(--gradient-primary)',
                         border: 'none',
-                        color: (submitting || rating === 0) ? '#9CA3AF' : 'white',
+                        color: (submitting || rating === 0 || loading) ? '#9CA3AF' : 'white',
                         fontSize: 15,
                         fontWeight: 600,
-                        cursor: (submitting || rating === 0) ? 'not-allowed' : 'pointer',
+                        cursor: (submitting || rating === 0 || loading) ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -176,7 +208,7 @@ export default function ReviewModal({
                     }}
                 >
                     <Send size={18} />
-                    {submitting ? 'Submitting...' : 'Submit Review'}
+                    {submitting ? 'Submitting...' : loading ? 'Loading...' : isEditing ? 'Update Review' : 'Submit Review'}
                 </motion.button>
             </motion.div>
         </motion.div>
