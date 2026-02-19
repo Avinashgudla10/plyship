@@ -253,20 +253,17 @@ export const AuthProvider = ({ children }) => {
         console.log('👤 Current user:', user.email, 'Role:', user.role);
 
         try {
-            // First, get the list of users we've already liked
-            const likedUsersSnapshot = await getDocs(
-                collection(db, 'likes', user.id, 'outgoing')
-            );
+            // Fetch liked and passed users in parallel (was sequential)
+            const [likedUsersSnapshot, passedUsersSnapshot] = await Promise.all([
+                getDocs(collection(db, 'likes', user.id, 'outgoing')),
+                getDocs(collection(db, 'passes', user.id, 'passed')),
+            ]);
             const likedUserIds = new Set();
             likedUsersSnapshot.forEach((doc) => {
                 likedUserIds.add(doc.id);
             });
             console.log(`🚫 Already liked ${likedUserIds.size} users`);
 
-            // Also get users we've passed (left swiped)
-            const passedUsersSnapshot = await getDocs(
-                collection(db, 'passes', user.id, 'passed')
-            );
             const passedUserIds = new Set();
             passedUsersSnapshot.forEach((doc) => {
                 passedUserIds.add(doc.id);
@@ -501,16 +498,16 @@ export const AuthProvider = ({ children }) => {
             const allMeetings = [];
             meetingsSnapshot.forEach((d) => allMeetings.push({ id: d.id, ...d.data() }));
 
-            const chats = [];
-            for (const matchDoc of matchesSnapshot.docs) {
-                const matchData = matchDoc.data();
+            // Batch-fetch all chat docs in parallel (was N+1 sequential)
+            const chatPromises = matchesSnapshot.docs.map(matchDoc => {
                 const chatId = getChatId(user.id, matchDoc.id);
+                return getDoc(doc(db, 'chats', chatId))
+                    .then(snap => ({ matchDoc, chatId, chatData: snap.exists() ? snap.data() : {} }));
+            });
+            const chatResults = await Promise.all(chatPromises);
 
-                // Get chat metadata if it exists
-                const chatDoc = await getDoc(doc(db, 'chats', chatId));
-                const chatData = chatDoc.exists() ? chatDoc.data() : {};
-
-                // Find the latest active meeting with this matched user
+            const chats = chatResults.map(({ matchDoc, chatId, chatData }) => {
+                const matchData = matchDoc.data();
                 const otherUserId = matchDoc.id;
                 const relevantMeetings = allMeetings
                     .filter(m => {
@@ -521,7 +518,7 @@ export const AuthProvider = ({ children }) => {
 
                 const latestMeeting = relevantMeetings[0] || null;
 
-                chats.push({
+                return {
                     id: chatId,
                     matchedUserId: matchDoc.id,
                     matchedUserName: matchData.matchedUserName,
@@ -531,8 +528,8 @@ export const AuthProvider = ({ children }) => {
                     lastMessageAt: chatData.lastMessageAt || matchData.matchedAt,
                     meetingStatus: latestMeeting?.status || null,
                     meetingScheduledAt: latestMeeting?.scheduledAt || null,
-                });
-            }
+                };
+            });
 
             // Sort by last message time (most recent first)
             chats.sort((a, b) => {
@@ -561,23 +558,23 @@ export const AuthProvider = ({ children }) => {
                 collection(db, 'matches', user.id, 'matched')
             );
 
-            let unreadCount = 0;
-
-            // For each match, check if there are unread messages
-            for (const matchDoc of matchesSnapshot.docs) {
+            // Batch-fetch all chat docs in parallel (was N+1 sequential)
+            const chatPromises = matchesSnapshot.docs.map(matchDoc => {
                 const chatId = getChatId(user.id, matchDoc.id);
-                const chatDoc = await getDoc(doc(db, 'chats', chatId));
+                return getDoc(doc(db, 'chats', chatId));
+            });
+            const chatDocs = await Promise.all(chatPromises);
 
+            let unreadCount = 0;
+            chatDocs.forEach(chatDoc => {
                 if (chatDoc.exists()) {
                     const chatData = chatDoc.data();
                     // Count as unread if last message wasn't sent by current user
                     if (chatData.lastMessageSenderId && chatData.lastMessageSenderId !== user.id) {
-                        // Check if we have a "lastSeenAt" record for this user
-                        // For simplicity, count any chat with a message from other user as having 1 unread
                         unreadCount++;
                     }
                 }
-            }
+            });
 
             return unreadCount;
         } catch (error) {

@@ -36,6 +36,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Firebase service account keys
+serviceAccountKey.json
+scripts/serviceAccountKey.json
+
+# Build output artifacts
+build_output.txt
+eslint-output*.txt
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

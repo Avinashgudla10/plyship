@@ -121,12 +121,10 @@ export const uploadImage = async (base64Data, path) => {
  * @returns {Promise<string[]>} - Array of download URLs
  */
 export const uploadImages = async (base64Images, basePath) => {
-    const urls = [];
-    for (let i = 0; i < base64Images.length; i++) {
-        const url = await uploadImage(base64Images[i], `${basePath}/image_${i}_${Date.now()}.jpg`);
-        urls.push(url);
-    }
-    return urls;
+    const uploadPromises = base64Images.map((img, i) =>
+        uploadImage(img, `${basePath}/image_${i}_${Date.now()}.jpg`)
+    );
+    return Promise.all(uploadPromises);
 };
 
 export default app;
