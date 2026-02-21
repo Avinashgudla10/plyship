@@ -2355,10 +2355,11 @@ function TransactionHistoryModal({ wallet, users, transactions, onClose }) {
         });
     };
 
-    // Calculate summary
-    const totalCredits = userTransactions.filter(t => t.type === 'CREDIT').reduce((s, t) => s + (t.amount || 0), 0);
-    const totalDebits = userTransactions.filter(t => t.type === 'DEBIT').reduce((s, t) => s + (t.amount || 0), 0);
-    const totalLocked = userTransactions.filter(t => t.type === 'LOCK').reduce((s, t) => s + (t.amount || 0), 0);
+    // Use actual wallet values
+    const walletBalance = wallet.balance || 0;
+    const walletLocked = wallet.lockedBalance || 0;
+    const walletEarned = wallet.totalEarnings || 0;
+    const walletSpent = wallet.totalSpent || 0;
 
     return (
         <div style={{
@@ -2389,16 +2390,20 @@ function TransactionHistoryModal({ wallet, users, transactions, onClose }) {
                 {/* Summary Cards */}
                 <div style={{ display: 'flex', gap: 10, padding: '12px 24px', borderBottom: '1px solid #F3F4F6' }}>
                     <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#DCFCE7', textAlign: 'center' }}>
-                        <p style={{ fontSize: 11, color: '#16A34A', fontWeight: 600, margin: 0 }}>Credits</p>
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#166534', margin: 0 }}>₹{totalCredits.toLocaleString()}</p>
-                    </div>
-                    <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#FEE2E2', textAlign: 'center' }}>
-                        <p style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, margin: 0 }}>Debits</p>
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#991B1B', margin: 0 }}>₹{totalDebits.toLocaleString()}</p>
+                        <p style={{ fontSize: 11, color: '#16A34A', fontWeight: 600, margin: 0 }}>Balance</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#166534', margin: 0 }}>₹{walletBalance.toLocaleString()}</p>
                     </div>
                     <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#FEF3C7', textAlign: 'center' }}>
                         <p style={{ fontSize: 11, color: '#D97706', fontWeight: 600, margin: 0 }}>Locked</p>
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#92400E', margin: 0 }}>₹{totalLocked.toLocaleString()}</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#92400E', margin: 0 }}>₹{walletLocked.toLocaleString()}</p>
+                    </div>
+                    <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#EEF2FF', textAlign: 'center' }}>
+                        <p style={{ fontSize: 11, color: '#4F46E5', fontWeight: 600, margin: 0 }}>Earned</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#3730A3', margin: 0 }}>₹{walletEarned.toLocaleString()}</p>
+                    </div>
+                    <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#FEE2E2', textAlign: 'center' }}>
+                        <p style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, margin: 0 }}>Spent</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#991B1B', margin: 0 }}>₹{walletSpent.toLocaleString()}</p>
                     </div>
                 </div>
 
