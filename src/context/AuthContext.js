@@ -59,6 +59,8 @@ export const AuthProvider = ({ children }) => {
                         setUser(userData);
                         localStorage.setItem('userEmail', userData.email);
                         console.log('✅ Loaded SEEKER from Firestore:', userData.email);
+                        // Track activity (fire-and-forget)
+                        setDoc(doc(db, 'seekers', firebaseUser.uid), { lastActiveAt: new Date().toISOString() }, { merge: true }).catch(() => { });
                     } else {
                         // Check in companies collection
                         userDoc = await getDoc(doc(db, 'companies', firebaseUser.uid));
@@ -68,6 +70,8 @@ export const AuthProvider = ({ children }) => {
                             setUser(userData);
                             localStorage.setItem('userEmail', userData.email);
                             console.log('✅ Loaded COMPANY from Firestore:', userData.email);
+                            // Track activity (fire-and-forget)
+                            setDoc(doc(db, 'companies', firebaseUser.uid), { lastActiveAt: new Date().toISOString() }, { merge: true }).catch(() => { });
                         } else {
                             // New user, just signed up but no profile yet
                             setUser({
@@ -289,6 +293,13 @@ export const AuthProvider = ({ children }) => {
             });
 
             console.log(`📊 Found ${profiles.length} ${collectionName} profiles (after filtering)`);
+
+            // Sort by lastActiveAt descending — most recently active users appear first
+            profiles.sort((a, b) => {
+                const aTime = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+                const bTime = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+                return bTime - aTime;
+            });
 
             return profiles;
         } catch (error) {
