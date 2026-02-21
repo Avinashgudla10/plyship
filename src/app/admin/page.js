@@ -947,6 +947,7 @@ export default function AdminDashboard() {
                     <WalletsTab
                         wallets={allWallets}
                         users={users}
+                        transactions={transactions}
                         onEdit={(wallet) => setEditingItem({ type: 'wallet', data: wallet })}
                     />
                 )}
@@ -2156,8 +2157,9 @@ function ChatsTab({ chats, users, onView, onDelete }) {
 }
 
 // ============ WALLETS TAB ============
-function WalletsTab({ wallets, users, onEdit }) {
+function WalletsTab({ wallets, users, transactions, onEdit }) {
     const [searchTerm, setSearchTerm] = useState('');
+    const [viewingTransactions, setViewingTransactions] = useState(null); // wallet object
     const getUserInfo = (walletId) => {
         if (walletId === 'admin_wallet') return { name: 'Plyship (Admin)', email: 'admin', phone: null, role: 'admin' };
         const u = users.find(u => u.id === walletId);
@@ -2186,7 +2188,7 @@ function WalletsTab({ wallets, users, onEdit }) {
     });
 
     return (
-        <div>
+        <>
             <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'white', borderRadius: 10, border: '1px solid #E5E7EB', maxWidth: 400 }}>
                     <Search size={18} color="#888" />
@@ -2269,12 +2271,20 @@ function WalletsTab({ wallets, users, onEdit }) {
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
-                                            <button onClick={() => onEdit(wallet)} style={{
-                                                padding: '6px 8px', borderRadius: 8, border: '1px solid #E5E7EB',
-                                                background: '#F0F9FF', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                                            }} title="Edit Wallet">
-                                                <Pencil size={15} color="#3B82F6" />
-                                            </button>
+                                            <div style={{ display: 'flex', gap: 6 }}>
+                                                <button onClick={() => setViewingTransactions(wallet)} style={{
+                                                    padding: '6px 8px', borderRadius: 8, border: '1px solid #E5E7EB',
+                                                    background: '#F0FDF4', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                                }} title="View Transactions">
+                                                    <Eye size={15} color="#22C55E" />
+                                                </button>
+                                                <button onClick={() => onEdit(wallet)} style={{
+                                                    padding: '6px 8px', borderRadius: 8, border: '1px solid #E5E7EB',
+                                                    background: '#F0F9FF', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                                }} title="Edit Wallet">
+                                                    <Pencil size={15} color="#3B82F6" />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
@@ -2285,6 +2295,194 @@ function WalletsTab({ wallets, users, onEdit }) {
                 <p style={{ padding: 12, fontSize: 13, color: '#888' }}>
                     Showing {filtered.length} of {wallets.length} wallets
                 </p>
+            </div>
+
+            {
+                viewingTransactions && (
+                    <TransactionHistoryModal
+                        wallet={viewingTransactions}
+                        users={users}
+                        transactions={transactions}
+                        onClose={() => setViewingTransactions(null)}
+                    />
+                )
+            }
+        </>
+    );
+}
+
+// ============ TRANSACTION HISTORY MODAL ============
+function TransactionHistoryModal({ wallet, users, transactions, onClose }) {
+    const getUserName = (userId) => {
+        if (userId === 'admin_wallet') return 'Plyship (Admin)';
+        const u = users.find(u => u.id === userId);
+        return u?.profile?.name || u?.profile?.companyName || u?.email || userId?.substring(0, 8) + '...';
+    };
+
+    const ownerName = getUserName(wallet.id);
+
+    // Filter transactions for this wallet user
+    const userTransactions = transactions
+        .filter(t => t.userId === wallet.id)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    const getReasonLabel = (reason) => {
+        const labels = {
+            TOP_UP: 'Wallet Top-up',
+            MEETING_FEE: 'Meeting Fee',
+            MEETING_EARNINGS: 'Meeting Earnings',
+            ADMIN_COMMISSION: 'Commission',
+            WITHDRAWAL: 'Withdrawal',
+            PROJECT_PAYMENT: 'Project Payment',
+            REFUND: 'Refund',
+        };
+        return labels[reason] || reason || 'Other';
+    };
+
+    const getTypeStyle = (type) => {
+        if (type === 'CREDIT') return { bg: '#DCFCE7', color: '#16A34A', label: 'Credit' };
+        if (type === 'DEBIT') return { bg: '#FEE2E2', color: '#EF4444', label: 'Debit' };
+        if (type === 'LOCK') return { bg: '#FEF3C7', color: '#D97706', label: 'Locked' };
+        return { bg: '#F3F4F6', color: '#6B7280', label: type || '—' };
+    };
+
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '—';
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-IN', {
+            day: 'numeric', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
+    };
+
+    // Calculate summary
+    const totalCredits = userTransactions.filter(t => t.type === 'CREDIT').reduce((s, t) => s + (t.amount || 0), 0);
+    const totalDebits = userTransactions.filter(t => t.type === 'DEBIT').reduce((s, t) => s + (t.amount || 0), 0);
+    const totalLocked = userTransactions.filter(t => t.type === 'LOCK').reduce((s, t) => s + (t.amount || 0), 0);
+
+    return (
+        <div style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }} onClick={onClose}>
+            <div style={{
+                background: 'white', borderRadius: 16, padding: 0,
+                width: '100%', maxWidth: 600, maxHeight: '85vh', display: 'flex', flexDirection: 'column',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
+            }} onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div style={{
+                    padding: '20px 24px', borderBottom: '1px solid #E5E7EB',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{ownerName}</h3>
+                        <p style={{ margin: 0, fontSize: 13, color: '#888', marginTop: 2 }}>Transaction History</p>
+                    </div>
+                    <button onClick={onClose} style={{
+                        padding: 6, borderRadius: 8, border: 'none', background: '#F3F4F6', cursor: 'pointer',
+                    }}>
+                        <X size={18} color="#666" />
+                    </button>
+                </div>
+
+                {/* Summary Cards */}
+                <div style={{ display: 'flex', gap: 10, padding: '12px 24px', borderBottom: '1px solid #F3F4F6' }}>
+                    <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#DCFCE7', textAlign: 'center' }}>
+                        <p style={{ fontSize: 11, color: '#16A34A', fontWeight: 600, margin: 0 }}>Credits</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#166534', margin: 0 }}>₹{totalCredits.toLocaleString()}</p>
+                    </div>
+                    <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#FEE2E2', textAlign: 'center' }}>
+                        <p style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, margin: 0 }}>Debits</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#991B1B', margin: 0 }}>₹{totalDebits.toLocaleString()}</p>
+                    </div>
+                    <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#FEF3C7', textAlign: 'center' }}>
+                        <p style={{ fontSize: 11, color: '#D97706', fontWeight: 600, margin: 0 }}>Locked</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#92400E', margin: 0 }}>₹{totalLocked.toLocaleString()}</p>
+                    </div>
+                </div>
+
+                {/* Transaction List */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
+                    {userTransactions.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: 40, color: '#888' }}>
+                            <Wallet size={32} color="#D1D5DB" style={{ marginBottom: 8 }} />
+                            <p style={{ fontSize: 13 }}>No transactions found</p>
+                        </div>
+                    ) : (
+                        userTransactions.map((txn, i) => {
+                            const typeStyle = getTypeStyle(txn.type);
+                            return (
+                                <div key={txn.id || i} style={{
+                                    display: 'flex', alignItems: 'center', gap: 12,
+                                    padding: '12px 0',
+                                    borderBottom: i < userTransactions.length - 1 ? '1px solid #F3F4F6' : 'none',
+                                }}>
+                                    {/* Type Badge */}
+                                    <div style={{
+                                        width: 40, height: 40, borderRadius: 10,
+                                        background: typeStyle.bg,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        flexShrink: 0,
+                                    }}>
+                                        {txn.type === 'CREDIT' ? (
+                                            <TrendingUp size={18} color={typeStyle.color} />
+                                        ) : txn.type === 'DEBIT' ? (
+                                            <DollarSign size={18} color={typeStyle.color} />
+                                        ) : (
+                                            <Clock size={18} color={typeStyle.color} />
+                                        )}
+                                    </div>
+
+                                    {/* Details */}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{ fontSize: 13, fontWeight: 600, color: '#333' }}>
+                                                {getReasonLabel(txn.reason)}
+                                            </span>
+                                            <span style={{
+                                                padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                                background: typeStyle.bg, color: typeStyle.color,
+                                            }}>{typeStyle.label}</span>
+                                        </div>
+                                        {txn.relatedUserId && (
+                                            <p style={{ fontSize: 11, color: '#888', margin: '2px 0 0' }}>
+                                                {txn.type === 'DEBIT' ? 'Paid to: ' : txn.type === 'CREDIT' && txn.reason === 'TOP_UP' ? 'Razorpay' : 'From: '}
+                                                {txn.reason !== 'TOP_UP' ? getUserName(txn.relatedUserId) : ''}
+                                            </p>
+                                        )}
+                                        {txn.paymentId && (
+                                            <p style={{ fontSize: 10, color: '#AAA', margin: '1px 0 0', fontFamily: 'monospace' }}>
+                                                ID: {txn.paymentId}
+                                            </p>
+                                        )}
+                                        <p style={{ fontSize: 10, color: '#AAA', margin: '2px 0 0' }}>
+                                            {formatDate(txn.createdAt)}
+                                        </p>
+                                    </div>
+
+                                    {/* Amount */}
+                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                        <span style={{
+                                            fontSize: 15, fontWeight: 700,
+                                            color: txn.type === 'CREDIT' ? '#16A34A' : txn.type === 'DEBIT' ? '#EF4444' : '#D97706',
+                                        }}>
+                                            {txn.type === 'CREDIT' ? '+' : txn.type === 'DEBIT' ? '-' : '🔒'}
+                                            ₹{(txn.amount || 0).toLocaleString()}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div style={{ padding: '12px 24px', borderTop: '1px solid #E5E7EB', textAlign: 'center' }}>
+                    <p style={{ fontSize: 12, color: '#888', margin: 0 }}>
+                        {userTransactions.length} transaction{userTransactions.length !== 1 ? 's' : ''}
+                    </p>
+                </div>
             </div>
         </div>
     );
