@@ -895,11 +895,15 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Cannot accept meeting - company wallet not initialized' };
             }
 
-            // Update meeting to SCHEDULED
+            // Generate a 6-digit OTP for meeting confirmation
+            const meetingOTP = String(Math.floor(100000 + Math.random() * 900000));
+
+            // Update meeting to SCHEDULED with OTP
             await updateDoc(meetingRef, {
                 status: 'SCHEDULED',
                 acceptedBy: user.id,
                 acceptedAt: new Date().toISOString(),
+                meetingOTP,
                 updatedAt: new Date().toISOString(),
             });
 
@@ -1356,6 +1360,48 @@ export const AuthProvider = ({ children }) => {
             return { success: true, bothConfirmed: false };
         } catch (error) {
             console.error('❌ Error confirming meeting:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user, processMeetingPayment]);
+
+    // Verify OTP entered by seeker to confirm meeting happened
+    const verifyMeetingOTP = useCallback(async (meetingId, enteredOTP) => {
+        if (!user || !user.id) {
+            return { success: false, error: 'Not logged in' };
+        }
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+
+            if (!meetingSnap.exists()) {
+                return { success: false, error: 'Meeting not found' };
+            }
+
+            const meeting = meetingSnap.data();
+
+            // Only the seeker should verify OTP
+            if (meeting.seekerId !== user.id) {
+                return { success: false, error: 'Only the seeker can verify the meeting OTP' };
+            }
+
+            // Check if meeting time has passed
+            const scheduledTime = new Date(meeting.scheduledAt);
+            if (new Date() < scheduledTime) {
+                return { success: false, error: 'Meeting time has not yet passed', notYetTime: true };
+            }
+
+            // Verify OTP
+            if (String(enteredOTP).trim() !== String(meeting.meetingOTP)) {
+                return { success: false, error: 'Incorrect OTP. Please check the code with the company.', wrongOTP: true };
+            }
+
+            // OTP matches! Process payment
+            console.log('✅ OTP verified! Processing payment for meeting:', meetingId);
+            const paymentResult = await processMeetingPayment(meetingId, meeting.companyId, meeting.seekerId);
+            return paymentResult;
+        } catch (error) {
+            console.error('❌ Error verifying meeting OTP:', error);
             return { success: false, error: error.message };
         }
     }, [user, processMeetingPayment]);
@@ -1986,6 +2032,7 @@ export const AuthProvider = ({ children }) => {
             denyMeeting,
             rescheduleMeeting,
             confirmMeeting,
+            verifyMeetingOTP,
             createProject,
             getProjects,
             acceptProject,

@@ -479,21 +479,45 @@ function MeetingCard({
                 </p>
             )}
 
-            {/* Confirmation Status for SCHEDULED */}
+            {/* OTP Info for SCHEDULED meetings that are past */}
             {meeting.status === 'SCHEDULED' && isPastMeeting && (
                 <div style={{
-                    display: 'flex',
-                    gap: 8,
                     marginBottom: 12,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: isCompany ? '#ECFDF5' : '#FFF7ED',
+                    border: `1px solid ${isCompany ? '#22C55E' : '#F59E0B'}`,
                 }}>
-                    <ConfirmBadge
-                        label={isCompany ? 'You' : 'Company'}
-                        confirmed={meeting.companyConfirmed}
-                    />
-                    <ConfirmBadge
-                        label={isCompany ? 'Seeker' : 'You'}
-                        confirmed={meeting.seekerConfirmed}
-                    />
+                    {isCompany ? (
+                        <>
+                            <p style={{ fontSize: 11, fontWeight: 600, color: '#166534', marginBottom: 4 }}>
+                                📋 Verification Code
+                            </p>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                {String(meeting.meetingOTP || '------').split('').map((digit, i) => (
+                                    <span key={i} style={{
+                                        display: 'inline-flex',
+                                        width: 26,
+                                        height: 30,
+                                        borderRadius: 6,
+                                        background: 'white',
+                                        border: '1.5px solid #22C55E',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 16,
+                                        fontWeight: 800,
+                                        color: '#166534',
+                                        fontFamily: 'monospace',
+                                    }}>{digit}</span>
+                                ))}
+                                <span style={{ fontSize: 10, color: '#16A34A', marginLeft: 6 }}>Share with seeker</span>
+                            </div>
+                        </>
+                    ) : (
+                        <p style={{ fontSize: 12, color: '#92400E', fontWeight: 500 }}>
+                            🔑 Enter the verification code in chat to confirm this meeting
+                        </p>
+                    )}
                 </div>
             )}
 
@@ -590,64 +614,45 @@ function MeetingCard({
                     </motion.button>
                 )}
 
-                {/* Confirm after meeting time */}
-                {canConfirm && (
-                    <motion.button
-                        onClick={() => onConfirm(meeting.id)}
-                        disabled={isLoading}
-                        whileTap={{ scale: 0.95 }}
-                        style={{
-                            width: '100%',
-                            padding: 12,
-                            borderRadius: 10,
-                            background: 'var(--gradient-primary)',
-                            border: 'none',
-                            color: 'white',
-                            fontSize: 14,
-                            fontWeight: 600,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 6,
-                            cursor: isLoading ? 'wait' : 'pointer',
-                            opacity: isLoading ? 0.7 : 1,
-                        }}
-                    >
-                        <Check size={16} />
-                        {isLoading ? 'Confirming...' : 'We Met'}
-                    </motion.button>
+                {/* OTP actions — company: show OTP in card above; seeker: go to chat */}
+                {canConfirm && isCompany && (
+                    <div style={{
+                        width: '100%',
+                        padding: 12,
+                        borderRadius: 10,
+                        background: '#ECFDF5',
+                        border: '1px solid #22C55E',
+                        textAlign: 'center',
+                    }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 2 }}>
+                            ✅ Share the code above
+                        </p>
+                        <p style={{ fontSize: 11, color: '#16A34A' }}>
+                            The seeker will enter it in chat to confirm
+                        </p>
+                    </div>
                 )}
 
-                {/* Not Met - deny meeting */}
-                {canConfirm && (
-                    <motion.button
-                        onClick={() => onDeny(meeting.id)}
-                        disabled={isLoading}
-                        whileTap={{ scale: 0.95 }}
-                        style={{
-                            width: '100%',
-                            padding: 12,
-                            borderRadius: 10,
-                            background: '#FEE2E2',
-                            border: 'none',
-                            color: '#EF4444',
-                            fontSize: 14,
-                            fontWeight: 600,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 6,
-                            cursor: isLoading ? 'wait' : 'pointer',
-                            opacity: isLoading ? 0.7 : 1,
-                        }}
-                    >
-                        <X size={16} />
-                        Not Met
-                    </motion.button>
+                {canConfirm && !isCompany && (
+                    <div style={{
+                        width: '100%',
+                        padding: 12,
+                        borderRadius: 10,
+                        background: '#FFF7ED',
+                        border: '1px solid #F59E0B',
+                        textAlign: 'center',
+                    }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 2 }}>
+                            🔑 Verify in Chat
+                        </p>
+                        <p style={{ fontSize: 11, color: '#B45309' }}>
+                            Open the chat to enter the 6-digit code from the company
+                        </p>
+                    </div>
                 )}
 
-                {/* Waiting state - user already responded, waiting for other party */}
-                {hasResponded && meeting.status === 'SCHEDULED' && isPastMeeting && (
+                {/* Waiting state — legacy backward compat */}
+                {hasResponded && meeting.status === 'SCHEDULED' && isPastMeeting && !canConfirm && (
                     <div style={{
                         width: '100%',
                         padding: 12,

@@ -315,7 +315,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
 export function ChatView({ chat, onBack, onNavigate }) {
     const {
         user, sendMessage, getChatId, getWallet,
-        getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting,
+        getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP,
         getProjects, acceptProject, declineProject
     } = useAuth();
     const [message, setMessage] = useState('');
@@ -331,6 +331,7 @@ export function ChatView({ chat, onBack, onNavigate }) {
     const [walletBalance, setWalletBalance] = useState(null);
     const [showReviewModal, setShowReviewModal] = useState(false);
     const [reviewData, setReviewData] = useState(null); // { type: 'MEETING' | 'PROJECT', relatedId: string }
+    const [otpInput, setOtpInput] = useState('');
     const messagesEndRef = useRef(null);
 
     const isSeeker = user?.role === 'SEEKER';
@@ -629,7 +630,7 @@ export function ChatView({ chat, onBack, onNavigate }) {
                     ));
                 };
 
-                // DISPUTE = One confirmed, other denied — admin will intervene
+                // DISPUTE = legacy dispute — show admin review banner
                 if (activeMeeting.status === 'DISPUTE') {
                     return (
                         <motion.div
@@ -820,144 +821,167 @@ export function ChatView({ chat, onBack, onNavigate }) {
                     );
                 }
 
-                // SCHEDULED + EXPIRED + BOTH CONFIRMED = Payment failed, show retry
-                if (activeMeeting.status === 'SCHEDULED' && isExpired && activeMeeting.companyConfirmed && activeMeeting.seekerConfirmed) {
-                    return (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            style={{ padding: 12, background: '#FEF3C7', borderBottom: '1px solid var(--border-light)' }}
-                        >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <Calendar size={16} color="#D97706" />
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
-                                        Both confirmed! Payment processing...
-                                    </p>
-                                    <p style={{ fontSize: 11, color: '#D97706' }}>
-                                        {activeMeeting.paymentError === 'Insufficient balance'
-                                            ? 'Company wallet has insufficient balance. Please add funds and retry.'
-                                            : 'Tap retry to process payment.'}
-                                    </p>
-                                </div>
-                                <motion.button
-                                    onClick={async () => {
-                                        setActionLoading('confirm');
-                                        const result = await confirmMeeting(activeMeeting.id);
-                                        if (result.success && result.bothConfirmed) {
-                                            alert('✅ Meeting confirmed! Payment transferred.');
-                                        } else if (result.insufficientBalance) {
-                                            alert('Company wallet has insufficient balance. Please add funds and try again.');
-                                        } else if (result.error) {
-                                            alert('Something went wrong. Please try again later.');
-                                        }
-                                        await refreshMeetings();
-                                        setActionLoading(null);
-                                    }}
-                                    disabled={actionLoading}
-                                    whileTap={{ scale: 0.95 }}
-                                    style={{
-                                        padding: '6px 12px', borderRadius: 8, background: '#22C55E',
-                                        border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
-                                        display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                                    }}
-                                >
-                                    <RefreshCw size={14} />
-                                    Retry Payment
-                                </motion.button>
-                            </div>
-                        </motion.div>
-                    );
-                }
-
-                // SCHEDULED + EXPIRED = Show "Did you meet?" confirmation
+                // SCHEDULED + EXPIRED = OTP Confirmation
                 if (activeMeeting.status === 'SCHEDULED' && isExpired) {
-                    return (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            style={{ padding: 12, background: '#FEF3C7', borderBottom: '1px solid var(--border-light)' }}
-                        >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <Calendar size={16} color="#D97706" />
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
-                                        {hasUserResponded ? 'Waiting for other party to respond' : 'Did you meet?'}
+                    // COMPANY sees the OTP code
+                    if (isCompanyUser) {
+                        return (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                style={{ padding: 16, background: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)', borderBottom: '2px solid #22C55E' }}
+                            >
+                                <div style={{ textAlign: 'center' }}>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 4 }}>
+                                        📋 Meeting Verification Code
                                     </p>
-                                    <p style={{ fontSize: 11, color: '#D97706' }}>
+                                    <p style={{ fontSize: 11, color: '#15803D', marginBottom: 12 }}>
+                                        Share this code with the seeker to confirm the meeting
+                                    </p>
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'center',
+                                        gap: 6,
+                                        marginBottom: 8,
+                                    }}>
+                                        {String(activeMeeting.meetingOTP || '------').split('').map((digit, i) => (
+                                            <div key={i} style={{
+                                                width: 38,
+                                                height: 46,
+                                                borderRadius: 10,
+                                                background: 'white',
+                                                border: '2px solid #22C55E',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: 22,
+                                                fontWeight: 800,
+                                                color: '#166534',
+                                                fontFamily: 'monospace',
+                                                boxShadow: '0 2px 8px rgba(34,197,94,0.15)',
+                                            }}>
+                                                {digit}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <p style={{ fontSize: 10, color: '#16A34A' }}>
                                         {meetingTime.toLocaleDateString('en-IN', {
                                             weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                                         })}
                                     </p>
                                 </div>
-                                {!hasUserResponded && (
-                                    <div style={{ display: 'flex', gap: 6 }}>
-                                        <motion.button
-                                            onClick={async () => {
-                                                setActionLoading('confirm');
-                                                const result = await confirmMeeting(activeMeeting.id);
-                                                if (result.success) {
-                                                    if (result.dispute) {
-                                                        alert('⚠️ Dispute raised — the other party said they did not meet. Admin will review.');
-                                                    } else {
-                                                        alert(result.bothConfirmed
-                                                            ? '✅ Meeting confirmed! Payment transferred.'
-                                                            : '✅ Confirmed! Waiting for other party to respond.');
+                            </motion.div>
+                        );
+                    }
+
+                    // SEEKER sees OTP input
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            style={{ padding: 16, background: '#FFF7ED', borderBottom: '2px solid #F59E0B' }}
+                        >
+                            <div style={{ textAlign: 'center' }}>
+                                <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 4 }}>
+                                    🔑 Enter Meeting Code
+                                </p>
+                                <p style={{ fontSize: 11, color: '#B45309', marginBottom: 12 }}>
+                                    Ask the company for the 6-digit verification code
+                                </p>
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 12 }}>
+                                    {[0, 1, 2, 3, 4, 5].map(i => (
+                                        <input
+                                            key={i}
+                                            type="text"
+                                            inputMode="numeric"
+                                            maxLength={1}
+                                            value={otpInput[i] || ''}
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/\D/g, '');
+                                                if (val.length <= 1) {
+                                                    const newOtp = otpInput.split('');
+                                                    newOtp[i] = val;
+                                                    setOtpInput(newOtp.join(''));
+                                                    // Auto-focus next input
+                                                    if (val && i < 5) {
+                                                        const next = e.target.parentNode.children[i + 1];
+                                                        if (next) next.focus();
                                                     }
-                                                    await refreshMeetings();
-                                                } else if (result.insufficientBalance) {
-                                                    alert('Company wallet has insufficient balance. Please add funds and try again.');
-                                                    await refreshMeetings();
-                                                } else if (result.error) {
-                                                    alert('Something went wrong. Please try again later.');
-                                                    await refreshMeetings();
-                                                }
-                                                setActionLoading(null);
-                                            }}
-                                            disabled={actionLoading}
-                                            whileTap={{ scale: 0.95 }}
-                                            style={{
-                                                padding: '6px 12px', borderRadius: 8, background: '#22C55E',
-                                                border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
-                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                                            }}
-                                        >
-                                            <Check size={14} />
-                                            Yes, We Met
-                                        </motion.button>
-                                        <motion.button
-                                            onClick={async () => {
-                                                if (confirm('Are you sure the meeting did not happen?')) {
-                                                    setActionLoading('deny');
-                                                    const result = await denyMeeting(activeMeeting.id);
-                                                    if (result.success) {
-                                                        if (result.dispute) {
-                                                            alert('⚠️ Dispute raised — the other party said they met. Admin will review and contact you.');
-                                                        } else if (result.bothDenied) {
-                                                            alert('Meeting cancelled — both parties confirmed it did not happen.');
-                                                        } else {
-                                                            alert('✅ Recorded. Waiting for other party to respond.');
-                                                        }
-                                                    } else {
-                                                        alert('Something went wrong. Please try again.');
-                                                    }
-                                                    await refreshMeetings();
-                                                    setActionLoading(null);
                                                 }
                                             }}
-                                            disabled={actionLoading}
-                                            whileTap={{ scale: 0.95 }}
-                                            style={{
-                                                padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
-                                                border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600,
-                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Backspace' && !otpInput[i] && i > 0) {
+                                                    const prev = e.target.parentNode.children[i - 1];
+                                                    if (prev) prev.focus();
+                                                }
                                             }}
-                                        >
-                                            <X size={14} />
-                                            Not Met
-                                        </motion.button>
-                                    </div>
-                                )}
+                                            style={{
+                                                width: 38,
+                                                height: 46,
+                                                borderRadius: 10,
+                                                border: `2px solid ${otpInput[i] ? '#F59E0B' : '#E5E7EB'}`,
+                                                background: 'white',
+                                                textAlign: 'center',
+                                                fontSize: 22,
+                                                fontWeight: 800,
+                                                color: '#92400E',
+                                                fontFamily: 'monospace',
+                                                outline: 'none',
+                                                padding: 0,
+                                                transition: 'border-color 0.2s',
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#F59E0B'}
+                                            onBlur={(e) => { if (!otpInput[i]) e.target.style.borderColor = '#E5E7EB'; }}
+                                        />
+                                    ))}
+                                </div>
+                                <motion.button
+                                    onClick={async () => {
+                                        if (otpInput.length !== 6) {
+                                            alert('Please enter all 6 digits');
+                                            return;
+                                        }
+                                        setActionLoading('otp');
+                                        const result = await verifyMeetingOTP(activeMeeting.id, otpInput);
+                                        if (result.success && result.bothConfirmed) {
+                                            alert('✅ Meeting confirmed! Payment transferred.');
+                                            setOtpInput('');
+                                        } else if (result.wrongOTP) {
+                                            alert('❌ Incorrect code. Please check with the company.');
+                                        } else if (result.insufficientBalance) {
+                                            alert('⚠️ Company has insufficient wallet balance.');
+                                        } else if (result.error) {
+                                            alert(result.error);
+                                        }
+                                        await refreshMeetings();
+                                        setActionLoading(null);
+                                    }}
+                                    disabled={actionLoading || otpInput.length !== 6}
+                                    whileTap={{ scale: 0.95 }}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: 10,
+                                        background: otpInput.length === 6 ? 'var(--gradient-primary)' : '#E5E7EB',
+                                        border: 'none',
+                                        color: otpInput.length === 6 ? 'white' : '#9CA3AF',
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 6,
+                                        cursor: otpInput.length === 6 ? 'pointer' : 'not-allowed',
+                                    }}
+                                >
+                                    <Check size={16} />
+                                    {actionLoading === 'otp' ? 'Verifying...' : 'Verify Code'}
+                                </motion.button>
+                                <p style={{ fontSize: 10, color: '#D97706', marginTop: 6 }}>
+                                    {meetingTime.toLocaleDateString('en-IN', {
+                                        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                                    })}
+                                </p>
                             </div>
                         </motion.div>
                     );
