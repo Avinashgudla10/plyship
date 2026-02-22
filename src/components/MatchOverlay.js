@@ -169,7 +169,7 @@ export default function MatchOverlay({ matchedProfile, onClose, onChat }) {
                             marginBottom: 8,
                         }}
                     >
-                        It&apos;s a Match!
+                        It&apos;s a Connection!
                     </motion.h1>
                     <motion.p
                         initial={{ y: 20, opacity: 0 }}

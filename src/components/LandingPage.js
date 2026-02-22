@@ -294,7 +294,7 @@ function HeroSection() {
                     }}>
                         <Zap size={16} color="#22C55E" />
                         <span style={{ fontSize: 14, fontWeight: 600, color: '#16A34A' }}>
-                            India's #1 Home Interior Matching Platform
+                            India's #1 Home Interior Connection Platform
                         </span>
                     </div>
 
@@ -326,7 +326,7 @@ function HeroSection() {
                         lineHeight: 1.6,
                     }}>
                         Plyship bridges the gap between home interior companies seeking clients
-                        and interior seekers looking for dream home designs. Swipe, match, and transform spaces together.
+                        and interior seekers looking for dream home designs. Swipe, connect, and transform spaces together.
                     </p>
 
                     {/* CTA Buttons */}
@@ -391,7 +391,7 @@ function StatItem({ value, label }) {
 function HowItWorksSection() {
     const steps = [
         { icon: Users, title: 'Create Profile', desc: 'Sign up as a Company or Interior Seeker. Build your profile and showcase what you need.' },
-        { icon: Target, title: 'Swipe & Match', desc: 'Browse profiles and swipe right to connect. When both parties match, the magic begins.' },
+        { icon: Target, title: 'Swipe & Connect', desc: 'Browse profiles and swipe right to connect. When both parties connect, the magic begins.' },
         { icon: Handshake, title: 'Meet & Collaborate', desc: 'Schedule meetings, discuss projects, and start working together on amazing interiors.' },
     ];
 
@@ -408,7 +408,7 @@ function HowItWorksSection() {
                         How Plyship Works
                     </h2>
                     <p style={{ fontSize: 18, color: '#666', maxWidth: 500, margin: '0 auto' }}>
-                        Three simple steps to find your perfect match
+                        Three simple steps to find your perfect connection
                     </p>
                 </motion.div>
 
@@ -502,7 +502,7 @@ function ForCompaniesSection() {
                             Find Your Next Clients
                         </h2>
                         <p style={{ fontSize: 17, color: '#666', marginBottom: 24, lineHeight: 1.6 }}>
-                            Stop waiting for clients to find you. Connect with interior seekers actively looking for home renovation services. Match, meet, and grow your business.
+                            Stop waiting for clients to find you. Connect with interior seekers actively looking for home renovation services. Connect, meet, and grow your business.
                         </p>
                         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                             {benefits.map((b, i) => (
@@ -594,7 +594,7 @@ function ForSeekersSection() {
                             Find Your Perfect Interior Company
                         </h2>
                         <p style={{ fontSize: 17, color: '#666', marginBottom: 24, lineHeight: 1.6 }}>
-                            Looking to renovate your home? Match with interior companies that understand your vision and budget.
+                            Looking to renovate your home? Connect with interior companies that understand your vision and budget.
                         </p>
                         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                             {benefits.map((b, i) => (
@@ -658,7 +658,7 @@ function TestimonialsSection() {
         {
             name: 'Priya Sharma',
             role: 'Homeowner, Mumbai',
-            quote: "Found my dream interior company through Plyship! The matching process was so simple and I loved being able to compare options easily.",
+            quote: "Found my dream interior company through Plyship! The connection process was so simple and I loved being able to compare options easily.",
             avatar: '👩',
         },
         {
@@ -670,7 +670,7 @@ function TestimonialsSection() {
         {
             name: 'Anita Patel',
             role: 'Interior Seeker, Bangalore',
-            quote: 'I was nervous about renovating my home, but Plyship matched me with the perfect company. The whole experience was seamless!',
+            quote: 'I was nervous about renovating my home, but Plyship connected me with the perfect company. The whole experience was seamless!',
             avatar: '👩‍💻',
         },
     ];

@@ -561,7 +561,7 @@ function SeekerWalletView({ onBack }) {
                         </div>
                         <p style={{ fontSize: 13, color: '#92400E', lineHeight: 1.5 }}>
                             To withdraw your earnings, you need to confirm at least one project with an Interior Company.
-                            Start a project from your matches to unlock withdrawals.
+                            Start a project from your connections to unlock withdrawals.
                         </p>
                     </motion.div>
                 )}

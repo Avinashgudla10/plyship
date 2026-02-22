@@ -134,7 +134,7 @@ export default function ProfileView({ onNavigate }) {
                     marginTop: 20,
                 }}>
                     {[
-                        { label: 'Matches', value: '-', icon: Heart },
+                        { label: 'Connections', value: '-', icon: Heart },
                         { label: 'Messages', value: '-', icon: MessageCircle },
                     ].map((stat) => (
                         <div key={stat.label} style={{
@@ -788,7 +788,7 @@ export function SettingsView({ onBack }) {
 
     const handleDeleteAccount = async () => {
         const confirmed = confirm(
-            '⚠️ DELETE ACCOUNT\n\nThis will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All matches & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!'
+            '⚠️ DELETE ACCOUNT\n\nThis will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All connections & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!'
         );
 
         if (confirmed) {
@@ -844,7 +844,7 @@ export function SettingsView({ onBack }) {
 // Help & Support Page
 export function HelpView({ onBack }) {
     const faqs = [
-        { q: 'How do I get more matches?', a: 'Swipe right on profiles you like! Complete your profile fully to get more visibility.' },
+        { q: 'How do I get more connections?', a: 'Swipe right on profiles you like! Complete your profile fully to get more visibility.' },
         { q: 'How does the meeting payment work?', a: 'When a meeting is confirmed via OTP, ₹500 is deducted from the company\'s wallet. The seeker receives ₹250 as locked earnings.' },
         { q: 'How do I withdraw my earnings?', a: 'Go to your Wallet page and tap "Withdraw". Withdrawals are processed within 3-5 business days.' },
         { q: 'What is the OTP for meetings?', a: 'When a meeting is accepted, the company receives a 6-digit OTP. When you meet in person, the seeker enters this OTP to confirm the meeting happened.' },

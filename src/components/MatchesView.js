@@ -57,14 +57,14 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
                     color: 'var(--text-primary)',
                     marginBottom: 8,
                 }}>
-                    No matches yet
+                    No connections yet
                 </h2>
                 <p style={{
                     fontSize: 15,
                     color: 'var(--text-secondary)',
                     lineHeight: 1.5,
                 }}>
-                    Keep swiping to find your perfect match!
+                    Keep swiping to find your perfect connection!
                 </p>
             </div>
         );
@@ -92,7 +92,7 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
             overflow: 'auto',
             padding: '16px',
         }}>
-            {/* Pending Match Requests */}
+            {/* Pending Connection Requests */}
             {pendingRequests.length > 0 && (
                 <div style={{ marginBottom: 24 }}>
                     <div style={{
@@ -108,7 +108,7 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
                             fontWeight: 700,
                             color: 'var(--text-primary)',
                         }}>
-                            Match Requests ({pendingRequests.length})
+                            Connection Requests ({pendingRequests.length})
                         </h2>
                     </div>
 
@@ -218,7 +218,7 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
                 </div>
             )}
 
-            {/* Confirmed Matches */}
+            {/* Confirmed Connections */}
             {matches.length > 0 && (
                 <div>
                     <h2 style={{
@@ -232,7 +232,7 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
                         gap: 8,
                     }}>
                         <Heart size={18} color="var(--primary)" />
-                        Your Matches ({matches.length})
+                        Your Connections ({matches.length})
                     </h2>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

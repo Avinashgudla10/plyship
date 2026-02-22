@@ -83,7 +83,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
                     color: 'var(--text-secondary)',
                     lineHeight: 1.5,
                 }}>
-                    Match with someone to start chatting!
+                    Connect with someone to start chatting!
                 </p>
             </div>
         );
