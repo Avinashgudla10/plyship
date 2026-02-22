@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, User, Eye, EyeOff, ArrowRight, Leaf, CheckCircle } from 'lucide-react';
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Signup() {
     const router = useRouter();
@@ -154,23 +155,11 @@ export default function Signup() {
                         width: 44,
                         height: 44,
                         borderRadius: 13,
-                        background: 'var(--gradient-primary)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: 'var(--shadow-glow-soft)'
+                        overflow: 'hidden',
                     }}>
-                        <Leaf size={22} color="white" />
+                        <Image src="/favicon.png" alt="PlyShip" width={44} height={44} />
                     </div>
-                    <span style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 22,
-                        fontWeight: 800,
-                        letterSpacing: '-0.5px',
-                        color: 'var(--primary-hover)'
-                    }}>
-                        PLYSHIP
-                    </span>
+                    <Image src="/logo.png" alt="PlyShip" width={110} height={28} style={{ objectFit: 'contain' }} />
                 </div>
 
                 <h1 style={{

@@ -7,8 +7,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AvatarUpload, PortfolioUpload } from '../../components/ImageUpload';
 import {
     User, MapPin, Wallet, Palette, Building2, Briefcase,
-    ArrowRight, ArrowLeft, Check, Leaf, Camera, Image, Star
+    ArrowRight, ArrowLeft, Check, Leaf, Camera, Image as ImageIcon, Star
 } from 'lucide-react';
+import Image from 'next/image';
 
 // ============ SEEKER FORM DATA ============
 const SEEKER_STEPS = [
@@ -54,7 +55,7 @@ const TIMELINES = [
 const COMPANY_STEPS = [
     { id: 'company', title: 'Company Info', icon: Building2 },
     { id: 'services', title: 'Services', icon: Briefcase },
-    { id: 'portfolio', title: 'Portfolio', icon: Image },
+    { id: 'portfolio', title: 'Portfolio', icon: ImageIcon },
     { id: 'pricing', title: 'Pricing & Areas', icon: Wallet },
 ];
 
@@ -287,22 +288,12 @@ export default function ProfileSetup() {
                             width: 36,
                             height: 36,
                             borderRadius: 10,
-                            background: 'var(--gradient-primary)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            overflow: 'hidden',
                         }}>
-                            <Leaf size={18} color="white" />
+                            <Image src="/favicon.png" alt="PlyShip" width={36} height={36} />
                         </div>
                         <div>
-                            <span style={{
-                                fontFamily: 'var(--font-display)',
-                                fontSize: 18,
-                                fontWeight: 800,
-                                color: 'var(--primary-hover)',
-                            }}>
-                                PLYSHIP
-                            </span>
+                            <Image src="/logo.png" alt="PlyShip" width={90} height={22} style={{ objectFit: 'contain' }} />
                             <span style={{
                                 fontSize: 12,
                                 color: 'var(--text-muted)',

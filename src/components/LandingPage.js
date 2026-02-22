@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
     ArrowRight, Check, Star, Users, Briefcase, Shield,
     Phone, MessageCircle, Mail, MapPin, ChevronDown,
@@ -59,18 +60,8 @@ function Navbar() {
                 }}>
                     {/* Logo */}
                     <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 12,
-                            background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}>
-                            <span style={{ color: 'white', fontSize: 20, fontWeight: 800 }}>P</span>
-                        </div>
-                        <span style={{ fontSize: 22, fontWeight: 800, color: '#111' }}>Plyship</span>
+                        <Image src="/favicon.png" alt="PlyShip" width={36} height={36} style={{ borderRadius: 8 }} />
+                        <Image src="/logo.png" alt="PlyShip" width={120} height={30} style={{ objectFit: 'contain' }} />
                     </Link>
 
                     {/* Desktop Nav */}
@@ -784,18 +775,8 @@ function Footer() {
                     {/* Brand */}
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                            <div style={{
-                                width: 36,
-                                height: 36,
-                                borderRadius: 10,
-                                background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                            }}>
-                                <span style={{ color: 'white', fontSize: 18, fontWeight: 800 }}>P</span>
-                            </div>
-                            <span style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>Plyship</span>
+                            <Image src="/favicon.png" alt="PlyShip" width={32} height={32} style={{ borderRadius: 8 }} />
+                            <Image src="/logo.png" alt="PlyShip" width={100} height={26} style={{ objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
                         </div>
                         <p style={{ fontSize: 14, color: '#888', lineHeight: 1.6 }}>
                             Connecting interior companies with talented designers across India.

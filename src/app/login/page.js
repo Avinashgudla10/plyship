@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Leaf } from 'lucide-react';
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
+import Image from 'next/image';
 
 const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
 
@@ -154,23 +155,11 @@ export default function Login() {
                         width: 48,
                         height: 48,
                         borderRadius: 14,
-                        background: 'var(--gradient-primary)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: 'var(--shadow-glow-soft)'
+                        overflow: 'hidden',
                     }}>
-                        <Leaf size={24} color="white" />
+                        <Image src="/favicon.png" alt="PlyShip" width={48} height={48} />
                     </div>
-                    <span style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 24,
-                        fontWeight: 800,
-                        letterSpacing: '-0.5px',
-                        color: 'var(--primary-hover)'
-                    }}>
-                        PLYSHIP
-                    </span>
+                    <Image src="/logo.png" alt="PlyShip" width={120} height={30} style={{ objectFit: 'contain' }} />
                 </div>
 
                 <h1 style={{

@@ -6,7 +6,8 @@ export const metadata = {
   description: 'Premium Interior Design Matching Platform',
   manifest: '/manifest.json',
   icons: {
-    icon: '/favicon.ico',
+    icon: '/favicon.png',
+    apple: '/favicon.png',
   },
 };
 
