@@ -27,12 +27,13 @@ const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
 
 export default function Home() {
   const router = useRouter();
-  const { user, loading, getSwipeProfiles, likeProfile, passProfile, getMatches, getChats } = useAuth();
+  const { user, loading, getSwipeProfiles, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats } = useAuth();
   const [match, setMatch] = useState(null);
   const [detailProfile, setDetailProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('explore');
   const [profiles, setProfiles] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
   const [chats, setChats] = useState([]);
   const [likedProfiles, setLikedProfiles] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
@@ -71,13 +72,17 @@ export default function Home() {
   useEffect(() => {
     const loadMatches = async () => {
       if (user && user.profileComplete && activeTab === 'matches') {
-        const userMatches = await getMatches();
+        const [userMatches, incomingLikes] = await Promise.all([
+          getMatches(),
+          getIncomingLikes(),
+        ]);
         setMatches(userMatches);
-        console.log('💕 Loaded', userMatches.length, 'matches');
+        setPendingRequests(incomingLikes);
+        console.log('💕 Loaded', userMatches.length, 'matches,', incomingLikes.length, 'pending requests');
       }
     };
     loadMatches();
-  }, [user, activeTab, getMatches]);
+  }, [user, activeTab, getMatches, getIncomingLikes]);
 
   // Load chats when switching to messages tab + real-time updates
   useEffect(() => {
@@ -308,7 +313,28 @@ export default function Home() {
         return (
           <MatchesView
             matches={matches}
+            pendingRequests={pendingRequests}
             onChatClick={handleChatClick}
+            onAccept={async (request) => {
+              const result = await acceptMatch(request.id);
+              if (result.success) {
+                setPendingRequests(prev => prev.filter(r => r.id !== request.id));
+                setMatches(prev => [...prev, {
+                  id: request.id,
+                  matchedUserId: request.id,
+                  matchedUserName: request.name,
+                  matchedUserRole: request.role,
+                  matchedUserProfile: request.profile,
+                  matchedAt: new Date().toISOString(),
+                }]);
+              }
+            }}
+            onRefuse={async (request) => {
+              const result = await refuseMatch(request.id);
+              if (result.success) {
+                setPendingRequests(prev => prev.filter(r => r.id !== request.id));
+              }
+            }}
             viewerRole={user?.role}
           />
         );

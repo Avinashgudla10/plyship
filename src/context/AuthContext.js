@@ -445,6 +445,145 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
+    // Get incoming likes (pending match requests to accept/refuse)
+    const getIncomingLikes = useCallback(async () => {
+        if (!user || !user.id) return [];
+
+        try {
+            const incomingSnapshot = await getDocs(
+                collection(db, 'likes', user.id, 'incoming')
+            );
+
+            const incoming = [];
+            incomingSnapshot.forEach((d) => {
+                incoming.push({ id: d.id, ...d.data() });
+            });
+
+            // Filter out users we've already matched with
+            const matchesSnapshot = await getDocs(
+                collection(db, 'matches', user.id, 'matched')
+            );
+            const matchedIds = new Set();
+            matchesSnapshot.forEach((d) => matchedIds.add(d.id));
+
+            const pendingLikes = incoming.filter(like => !matchedIds.has(like.likerUserId || like.id));
+
+            // Enrich each like with full profile data
+            const enriched = await Promise.all(
+                pendingLikes.map(async (like) => {
+                    const likerId = like.likerUserId || like.id;
+                    // Try seekers first, then companies
+                    let profileDoc = await getDoc(doc(db, 'seekers', likerId));
+                    if (!profileDoc.exists()) {
+                        profileDoc = await getDoc(doc(db, 'companies', likerId));
+                    }
+                    if (profileDoc.exists()) {
+                        const data = profileDoc.data();
+                        return {
+                            ...like,
+                            id: likerId,
+                            role: data.role,
+                            profile: data.profile || {},
+                            name: data.name || data.profile?.name || data.profile?.companyName,
+                            email: data.email,
+                        };
+                    }
+                    return { ...like, id: likerId };
+                })
+            );
+
+            console.log(`📩 Found ${enriched.length} incoming like requests`);
+            return enriched;
+        } catch (error) {
+            console.error('❌ Error fetching incoming likes:', error);
+            return [];
+        }
+    }, [user]);
+
+    // Accept a match request (incoming like → mutual match)
+    const acceptMatch = useCallback(async (likerUserId) => {
+        if (!user || !user.id) return { success: false };
+
+        try {
+            // Fetch the liker's full profile
+            let likerDoc = await getDoc(doc(db, 'seekers', likerUserId));
+            if (!likerDoc.exists()) {
+                likerDoc = await getDoc(doc(db, 'companies', likerUserId));
+            }
+
+            const likerData = likerDoc.exists() ? likerDoc.data() : {};
+            const likerName = likerData.name || likerData.profile?.companyName || likerData.profile?.name || 'Unknown';
+            const likerRole = likerData.role || 'SEEKER';
+            const likerProfile = likerData.profile || {};
+
+            const myName = user.name || user.profile?.companyName || user.profile?.name || 'Unknown';
+            const matchedAt = new Date().toISOString();
+
+            // Create match for current user
+            await setDoc(
+                doc(db, 'matches', user.id, 'matched', likerUserId),
+                {
+                    matchedAt,
+                    users: [user.id, likerUserId],
+                    matchedUserId: likerUserId,
+                    matchedUserName: likerName,
+                    matchedUserRole: likerRole,
+                    matchedUserProfile: likerProfile,
+                }
+            );
+
+            // Create match for liker
+            await setDoc(
+                doc(db, 'matches', likerUserId, 'matched', user.id),
+                {
+                    matchedAt,
+                    users: [user.id, likerUserId],
+                    matchedUserId: user.id,
+                    matchedUserName: myName,
+                    matchedUserRole: user.role,
+                    matchedUserProfile: user.profile || {},
+                }
+            );
+
+            // Clean up like docs (fire-and-forget)
+            Promise.all([
+                deleteDoc(doc(db, 'likes', user.id, 'incoming', likerUserId)).catch(() => { }),
+                deleteDoc(doc(db, 'likes', likerUserId, 'outgoing', user.id)).catch(() => { }),
+            ]);
+
+            console.log('✅ Match accepted:', likerUserId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error accepting match:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
+    // Refuse a match request (delete incoming like + record pass)
+    const refuseMatch = useCallback(async (likerUserId) => {
+        if (!user || !user.id) return { success: false };
+
+        try {
+            // Delete the incoming like
+            await deleteDoc(doc(db, 'likes', user.id, 'incoming', likerUserId));
+
+            // Record a pass so they don't show up in explore again
+            await setDoc(
+                doc(db, 'passes', user.id, 'passed', likerUserId),
+                {
+                    passedAt: new Date().toISOString(),
+                    passedUserId: likerUserId,
+                }
+            );
+
+            console.log('❌ Match refused:', likerUserId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error refusing match:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user]);
+
     // Generate a consistent chat ID for two users
     const getChatId = useCallback((userId1, userId2) => {
         // Sort IDs to get consistent chat ID regardless of who initiates
@@ -2026,6 +2165,9 @@ export const AuthProvider = ({ children }) => {
             likeProfile,
             passProfile,
             getMatches,
+            getIncomingLikes,
+            acceptMatch,
+            refuseMatch,
             getChatId,
             sendMessage,
             getChats,
