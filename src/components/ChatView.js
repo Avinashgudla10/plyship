@@ -943,9 +943,10 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                         }
                                         setActionLoading('otp');
                                         const result = await verifyMeetingOTP(activeMeeting.id, otpInput);
+                                        setActionLoading(null);
                                         if (result.success && result.bothConfirmed) {
-                                            alert('✅ Meeting confirmed! Payment transferred.');
                                             setOtpInput('');
+                                            alert('✅ Meeting confirmed! Payment transferred.');
                                         } else if (result.wrongOTP) {
                                             alert('❌ Incorrect code. Please check with the company.');
                                         } else if (result.insufficientBalance) {
@@ -953,8 +954,7 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                         } else if (result.error) {
                                             alert(result.error);
                                         }
-                                        await refreshMeetings();
-                                        setActionLoading(null);
+                                        refreshMeetings();
                                     }}
                                     disabled={actionLoading || otpInput.length !== 6}
                                     whileTap={{ scale: 0.95 }}
