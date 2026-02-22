@@ -1,72 +1,141 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, User, Eye, EyeOff, ArrowRight, Leaf, CheckCircle } from 'lucide-react';
+import { Phone, Mail, User, ArrowRight, ArrowLeft, Shield, CheckCircle } from 'lucide-react';
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 import Image from 'next/image';
 
 export default function Signup() {
     const router = useRouter();
-    const { user, loading, signup, selectRole } = useAuth();
+    const { user, loading, signupWithPhone, completeSignup, selectRole } = useAuth();
 
-    const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
-
-    const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+    const [formData, setFormData] = useState({ name: '', email: '', phone: '' });
+    const [otp, setOtp] = useState(['', '', '', '', '', '']);
+    const [step, setStep] = useState('form'); // 'form' or 'otp'
     const [showRoleSelection, setShowRoleSelection] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [countdown, setCountdown] = useState(0);
+    const otpRefs = useRef([]);
 
-    // Redirect if already logged in with complete profile or admin
     useEffect(() => {
         if (!loading && user) {
-            if (ADMIN_EMAILS.includes(user.email)) {
-                router.replace('/admin');
-                return;
-            }
             if (user.profileComplete) {
                 router.replace('/');
             }
         }
     }, [user, loading, router]);
 
-    const handleSubmit = async (e) => {
+    useEffect(() => {
+        if (countdown > 0) {
+            const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [countdown]);
+
+    const handleSendOTP = async (e) => {
         e.preventDefault();
         setError('');
-        if (formData.name && formData.email && formData.password) {
-            if (formData.password.length < 6) {
-                setError('Password must be at least 6 characters');
-                return;
-            }
-            setIsLoading(true);
-            const result = await signup(formData.name, formData.email, formData.password);
-            setIsLoading(false);
 
-            if (result.success) {
-                setShowRoleSelection(true);
-            } else {
-                setError(result.error || 'Signup failed. Please try again.');
-            }
+        if (!formData.name.trim()) {
+            setError('Please enter your name');
+            return;
+        }
+        if (!formData.email.trim() || !formData.email.includes('@')) {
+            setError('Please enter a valid email address');
+            return;
+        }
+        const cleanPhone = formData.phone.replace(/\s/g, '');
+        if (cleanPhone.length !== 10) {
+            setError('Please enter a valid 10-digit mobile number');
+            return;
+        }
+
+        setIsLoading(true);
+        const result = await signupWithPhone(formData.name, formData.email, cleanPhone, 'recaptcha-container');
+        setIsLoading(false);
+
+        if (result.success) {
+            setStep('otp');
+            setCountdown(30);
+            setTimeout(() => otpRefs.current[0]?.focus(), 100);
+        } else {
+            setError(result.error || 'Failed to send OTP. Please try again.');
+        }
+    };
+
+    const handleOTPChange = (index, value) => {
+        if (value.length > 1) value = value[value.length - 1];
+        if (!/^\d*$/.test(value)) return;
+
+        const newOtp = [...otp];
+        newOtp[index] = value;
+        setOtp(newOtp);
+
+        if (value && index < 5) {
+            otpRefs.current[index + 1]?.focus();
+        }
+
+        if (value && index === 5 && newOtp.every(d => d !== '')) {
+            handleVerifyOTP(newOtp.join(''));
+        }
+    };
+
+    const handleOTPKeyDown = (index, e) => {
+        if (e.key === 'Backspace' && !otp[index] && index > 0) {
+            otpRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleVerifyOTP = async (otpCode) => {
+        setError('');
+        const code = otpCode || otp.join('');
+        if (code.length !== 6) {
+            setError('Please enter the 6-digit OTP');
+            return;
+        }
+
+        setIsLoading(true);
+        const result = await completeSignup(code);
+        setIsLoading(false);
+
+        if (result.success) {
+            setShowRoleSelection(true);
+        } else {
+            setError(result.error || 'Invalid OTP. Please try again.');
+            setOtp(['', '', '', '', '', '']);
+            otpRefs.current[0]?.focus();
+        }
+    };
+
+    const handleResendOTP = async () => {
+        if (countdown > 0) return;
+        setError('');
+        setOtp(['', '', '', '', '', '']);
+        setIsLoading(true);
+        const cleanPhone = formData.phone.replace(/\s/g, '');
+        const result = await signupWithPhone(formData.name, formData.email, cleanPhone, 'recaptcha-container');
+        setIsLoading(false);
+        if (result.success) {
+            setCountdown(30);
+            otpRefs.current[0]?.focus();
+        } else {
+            setError(result.error || 'Failed to resend OTP.');
         }
     };
 
     const handleRoleSelect = (role) => {
         selectRole(role);
         setShowRoleSelection(false);
-        // Small delay to ensure React state update completes before navigation
-        // Use replace so back button doesn't go through signup flow
         setTimeout(() => {
             router.replace('/profile-setup');
         }, 100);
     };
 
-    const passwordStrength = formData.password.length >= 8 ? 'strong' : formData.password.length >= 4 ? 'medium' : 'weak';
-
-    // Show nothing while checking auth or if already logged in
     if (loading) return null;
     if (user && user.profileComplete) return null;
 
@@ -79,98 +148,55 @@ export default function Signup() {
             flexDirection: 'column',
             overflow: 'hidden'
         }}>
-            {/* Decorative Elements */}
+            {/* reCAPTCHA container */}
+            <div id="recaptcha-container"></div>
+
+            {/* Decorative */}
             <div style={{
-                position: 'absolute',
-                top: -80,
-                left: -80,
-                width: 250,
-                height: 250,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(134, 239, 172, 0.2) 0%, transparent 70%)',
+                position: 'absolute', top: -80, left: -80, width: 250, height: 250,
+                borderRadius: '50%', background: 'radial-gradient(circle, rgba(134, 239, 172, 0.2) 0%, transparent 70%)',
                 pointerEvents: 'none'
             }} />
             <div style={{
-                position: 'absolute',
-                bottom: '20%',
-                right: -60,
-                width: 180,
-                height: 180,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(74, 222, 128, 0.1) 0%, transparent 70%)',
+                position: 'absolute', bottom: '20%', right: -60, width: 180, height: 180,
+                borderRadius: '50%', background: 'radial-gradient(circle, rgba(74, 222, 128, 0.1) 0%, transparent 70%)',
                 pointerEvents: 'none'
             }} />
 
-            {/* Floating Elements */}
+            {/* Floating */}
             <motion.div
                 animate={{ y: [0, -10, 0], rotate: [0, -4, 0] }}
                 transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
                 style={{
-                    position: 'absolute',
-                    top: '14%',
-                    left: '10%',
-                    width: 50,
-                    height: 50,
-                    borderRadius: 16,
+                    position: 'absolute', top: '14%', left: '10%',
+                    width: 50, height: 50, borderRadius: 16,
                     background: 'rgba(167, 243, 208, 0.2)',
-                    border: '1px solid rgba(167, 243, 208, 0.4)',
-                    zIndex: 1
-                }}
-            />
-            <motion.div
-                animate={{ y: [0, 8, 0], rotate: [0, 5, 0] }}
-                transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
-                style={{
-                    position: 'absolute',
-                    top: '22%',
-                    right: '15%',
-                    width: 35,
-                    height: 35,
-                    borderRadius: 12,
-                    background: 'rgba(74, 222, 128, 0.15)',
-                    border: '1px solid rgba(74, 222, 128, 0.25)',
-                    zIndex: 1
+                    border: '1px solid rgba(167, 243, 208, 0.4)', zIndex: 1
                 }}
             />
 
-            {/* Header Section */}
+            {/* Header */}
             <motion.div
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6 }}
-                style={{
-                    flex: '0 0 auto',
-                    padding: '50px 32px 28px',
-                    position: 'relative',
-                    zIndex: 10
-                }}
+                style={{ flex: '0 0 auto', padding: '50px 32px 28px', position: 'relative', zIndex: 10 }}
             >
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    marginBottom: 28
-                }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
                     <Image src="/logo.png" alt="PlyShip" width={130} height={32} style={{ objectFit: 'contain' }} />
                 </div>
 
                 <h1 style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 32,
-                    fontWeight: 800,
-                    lineHeight: 1.1,
-                    marginBottom: 10,
-                    color: 'var(--text-primary)'
+                    fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 800,
+                    lineHeight: 1.1, marginBottom: 10, color: 'var(--text-primary)'
                 }}>
                     Create your<br />
                     <span style={{ color: 'var(--primary-hover)' }}>dream space</span>
                 </h1>
-                <p style={{
-                    color: 'var(--text-secondary)',
-                    fontSize: 15,
-                    lineHeight: 1.5
-                }}>
-                    Join thousands finding their perfect interior match
+                <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.5 }}>
+                    {step === 'form'
+                        ? 'Join thousands finding their perfect interior match'
+                        : `Enter the OTP sent to +91 ${formData.phone}`}
                 </p>
             </motion.div>
 
@@ -180,272 +206,293 @@ export default function Signup() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.2 }}
                 style={{
-                    flex: 1,
-                    background: 'white',
+                    flex: 1, background: 'white',
                     borderTop: '1px solid var(--border-light)',
-                    borderTopLeftRadius: 32,
-                    borderTopRightRadius: 32,
-                    padding: '32px 28px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    position: 'relative',
-                    zIndex: 20,
-                    overflowY: 'auto',
+                    borderTopLeftRadius: 32, borderTopRightRadius: 32,
+                    padding: '32px 28px', display: 'flex', flexDirection: 'column',
+                    position: 'relative', zIndex: 20, overflowY: 'auto',
                     boxShadow: '0 -8px 32px rgba(0,0,0,0.04)'
                 }}
             >
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                    {/* Name Input */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <label style={{
-                            fontSize: 12,
-                            fontWeight: 600,
-                            color: 'var(--text-tertiary)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                            marginLeft: 4
-                        }}>
-                            Full Name
-                        </label>
-                        <div style={{ position: 'relative' }}>
-                            <User size={20} style={{
-                                position: 'absolute',
-                                left: 16,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                color: 'var(--primary)'
-                            }} />
-                            <input
-                                type="text"
-                                placeholder="John Doe"
-                                value={formData.name}
-                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                style={{
-                                    width: '100%',
-                                    padding: '16px 20px 16px 52px',
-                                    borderRadius: 14,
-                                    border: '1px solid var(--border)',
-                                    background: 'var(--bg-secondary)',
-                                    color: 'var(--text-primary)',
-                                    fontSize: 16,
-                                    fontWeight: 500,
-                                    outline: 'none',
-                                    transition: 'all 0.2s'
-                                }}
-                            />
-                        </div>
-                    </div>
+                <AnimatePresence mode="wait">
+                    {step === 'form' ? (
+                        <motion.form
+                            key="form"
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            onSubmit={handleSendOTP}
+                            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+                        >
+                            {/* Name */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <label style={{
+                                    fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
+                                    textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4
+                                }}>Full Name</label>
+                                <div style={{ position: 'relative' }}>
+                                    <User size={20} style={{
+                                        position: 'absolute', left: 16, top: '50%',
+                                        transform: 'translateY(-50%)', color: 'var(--primary)'
+                                    }} />
+                                    <input
+                                        type="text"
+                                        placeholder="John Doe"
+                                        value={formData.name}
+                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                        style={{
+                                            width: '100%', padding: '16px 20px 16px 52px',
+                                            borderRadius: 14, border: '1px solid var(--border)',
+                                            background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                                            fontSize: 16, fontWeight: 500, outline: 'none'
+                                        }}
+                                    />
+                                </div>
+                            </div>
 
-                    {/* Email Input */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <label style={{
-                            fontSize: 12,
-                            fontWeight: 600,
-                            color: 'var(--text-tertiary)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                            marginLeft: 4
-                        }}>
-                            Email
-                        </label>
-                        <div style={{ position: 'relative' }}>
-                            <Mail size={20} style={{
-                                position: 'absolute',
-                                left: 16,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                color: 'var(--primary)'
-                            }} />
-                            <input
-                                type="email"
-                                placeholder="hello@example.com"
-                                value={formData.email}
-                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                style={{
-                                    width: '100%',
-                                    padding: '16px 20px 16px 52px',
-                                    borderRadius: 14,
-                                    border: '1px solid var(--border)',
-                                    background: 'var(--bg-secondary)',
-                                    color: 'var(--text-primary)',
-                                    fontSize: 16,
-                                    fontWeight: 500,
-                                    outline: 'none',
-                                    transition: 'all 0.2s'
-                                }}
-                            />
-                        </div>
-                    </div>
+                            {/* Email */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <label style={{
+                                    fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
+                                    textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4
+                                }}>Email Address</label>
+                                <div style={{ position: 'relative' }}>
+                                    <Mail size={20} style={{
+                                        position: 'absolute', left: 16, top: '50%',
+                                        transform: 'translateY(-50%)', color: 'var(--primary)'
+                                    }} />
+                                    <input
+                                        type="email"
+                                        placeholder="hello@example.com"
+                                        value={formData.email}
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                        style={{
+                                            width: '100%', padding: '16px 20px 16px 52px',
+                                            borderRadius: 14, border: '1px solid var(--border)',
+                                            background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                                            fontSize: 16, fontWeight: 500, outline: 'none'
+                                        }}
+                                    />
+                                </div>
+                            </div>
 
-                    {/* Password Input */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <label style={{
-                            fontSize: 12,
-                            fontWeight: 600,
-                            color: 'var(--text-tertiary)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                            marginLeft: 4
-                        }}>
-                            Password
-                        </label>
-                        <div style={{ position: 'relative' }}>
-                            <Lock size={20} style={{
-                                position: 'absolute',
-                                left: 16,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                color: 'var(--primary)'
-                            }} />
-                            <input
-                                type={showPassword ? "text" : "password"}
-                                placeholder="Create a strong password"
-                                value={formData.password}
-                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                            {/* Phone */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <label style={{
+                                    fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
+                                    textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4
+                                }}>Mobile Number</label>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <div style={{
+                                        padding: '16px 14px', borderRadius: 14,
+                                        border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                                        color: 'var(--text-primary)', fontSize: 16, fontWeight: 600,
+                                        display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0
+                                    }}>
+                                        🇮🇳 +91
+                                    </div>
+                                    <div style={{ position: 'relative', flex: 1 }}>
+                                        <Phone size={20} style={{
+                                            position: 'absolute', left: 16, top: '50%',
+                                            transform: 'translateY(-50%)', color: 'var(--primary)'
+                                        }} />
+                                        <input
+                                            type="tel"
+                                            placeholder="98765 43210"
+                                            value={formData.phone}
+                                            onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/[^\d\s]/g, '') })}
+                                            maxLength={12}
+                                            style={{
+                                                width: '100%', padding: '16px 20px 16px 52px',
+                                                borderRadius: 14, border: '1px solid var(--border)',
+                                                background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                                                fontSize: 16, fontWeight: 500, outline: 'none'
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {error && (
+                                <div style={{
+                                    padding: '12px 16px', borderRadius: 12,
+                                    background: '#FEF2F2', border: '1px solid #FECACA',
+                                    color: '#DC2626', fontSize: 14, fontWeight: 500
+                                }}>{error}</div>
+                            )}
+
+                            <motion.button
+                                type="submit"
+                                disabled={isLoading}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
                                 style={{
-                                    width: '100%',
-                                    padding: '16px 52px 16px 52px',
-                                    borderRadius: 14,
-                                    border: '1px solid var(--border)',
-                                    background: 'var(--bg-secondary)',
-                                    color: 'var(--text-primary)',
-                                    fontSize: 16,
-                                    fontWeight: 500,
-                                    outline: 'none',
-                                    transition: 'all 0.2s'
-                                }}
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                style={{
-                                    position: 'absolute',
-                                    right: 16,
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    padding: 4,
-                                    color: 'var(--text-muted)'
+                                    marginTop: 4, background: 'var(--gradient-primary)',
+                                    color: 'white', padding: '18px 24px', borderRadius: 16,
+                                    fontSize: 16, fontWeight: 700, display: 'flex',
+                                    justifyContent: 'center', alignItems: 'center', gap: 12,
+                                    boxShadow: 'var(--shadow-glow-primary)', border: 'none',
+                                    cursor: isLoading ? 'wait' : 'pointer',
+                                    opacity: isLoading ? 0.8 : 1
                                 }}
                             >
-                                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                            </button>
-                        </div>
-                        {formData.password && (
-                            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                                {[1, 2, 3].map((i) => (
-                                    <div key={i} style={{
-                                        flex: 1,
-                                        height: 3,
-                                        borderRadius: 2,
-                                        background: i <= (passwordStrength === 'strong' ? 3 : passwordStrength === 'medium' ? 2 : 1)
-                                            ? passwordStrength === 'strong' ? 'var(--success)' : passwordStrength === 'medium' ? 'var(--warning)' : 'var(--error)'
-                                            : 'var(--border)'
-                                    }} />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Error Message */}
-                    {error && (
-                        <div style={{
-                            padding: '12px 16px',
-                            borderRadius: 12,
-                            background: '#FEF2F2',
-                            border: '1px solid #FECACA',
-                            color: '#DC2626',
-                            fontSize: 14,
-                            fontWeight: 500
-                        }}>
-                            {error}
-                        </div>
-                    )}
-
-                    {/* Submit Button */}
-                    <motion.button
-                        type="submit"
-                        disabled={isLoading}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        style={{
-                            marginTop: 8,
-                            background: 'var(--gradient-primary)',
-                            color: 'white',
-                            padding: '18px 24px',
-                            borderRadius: 16,
-                            fontSize: 16,
-                            fontWeight: 700,
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            gap: 12,
-                            boxShadow: 'var(--shadow-glow-primary)',
-                            border: 'none',
-                            cursor: isLoading ? 'wait' : 'pointer',
-                            opacity: isLoading ? 0.8 : 1
-                        }}
-                    >
-                        {isLoading ? (
-                            <motion.div
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                {isLoading ? (
+                                    <motion.div
+                                        animate={{ rotate: 360 }}
+                                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                        style={{
+                                            width: 20, height: 20,
+                                            border: '2px solid rgba(255,255,255,0.3)',
+                                            borderTopColor: 'white', borderRadius: '50%'
+                                        }}
+                                    />
+                                ) : (
+                                    <>
+                                        Send OTP
+                                        <ArrowRight size={20} strokeWidth={2.5} />
+                                    </>
+                                )}
+                            </motion.button>
+                        </motion.form>
+                    ) : (
+                        <motion.div
+                            key="otp"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 20 }}
+                            style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
+                        >
+                            {/* Back */}
+                            <button
+                                onClick={() => { setStep('form'); setError(''); setOtp(['', '', '', '', '', '']); }}
                                 style={{
-                                    width: 20,
-                                    height: 20,
-                                    border: '2px solid rgba(255,255,255,0.3)',
-                                    borderTopColor: 'white',
-                                    borderRadius: '50%'
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    color: 'var(--text-secondary)', fontSize: 14, fontWeight: 500,
+                                    background: 'none', border: 'none', cursor: 'pointer', padding: 0
                                 }}
-                            />
-                        ) : (
-                            <>
-                                Get Started
-                                <ArrowRight size={20} strokeWidth={2.5} />
-                            </>
-                        )}
-                    </motion.button>
-                </form>
+                            >
+                                <ArrowLeft size={16} /> Change details
+                            </button>
 
-                {/* Features Pills */}
-                <div style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    justifyContent: 'center',
-                    gap: 10,
-                    margin: '24px 0'
-                }}>
-                    {['Free to use', 'Verified companies', 'Secure'].map((feature) => (
-                        <div key={feature} style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            padding: '8px 14px',
-                            borderRadius: 20,
-                            background: 'var(--pastel-green)',
-                            border: '1px solid var(--pastel-mint)',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            color: 'var(--text-secondary)'
-                        }}>
-                            <CheckCircle size={14} color="var(--success)" />
-                            {feature}
-                        </div>
-                    ))}
-                </div>
+                            {/* OTP Input */}
+                            <div>
+                                <label style={{
+                                    fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
+                                    textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4,
+                                    display: 'block', marginBottom: 12
+                                }}>Enter 6-digit OTP</label>
+                                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                                    {otp.map((digit, i) => (
+                                        <input
+                                            key={i}
+                                            ref={el => otpRefs.current[i] = el}
+                                            type="tel"
+                                            inputMode="numeric"
+                                            maxLength={1}
+                                            value={digit}
+                                            onChange={(e) => handleOTPChange(i, e.target.value)}
+                                            onKeyDown={(e) => handleOTPKeyDown(i, e)}
+                                            style={{
+                                                width: 48, height: 56, textAlign: 'center',
+                                                fontSize: 22, fontWeight: 700, borderRadius: 14,
+                                                border: `2px solid ${digit ? 'var(--primary)' : 'var(--border)'}`,
+                                                background: digit ? 'var(--pastel-green)' : 'var(--bg-secondary)',
+                                                outline: 'none', color: 'var(--text-primary)',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+
+                            {error && (
+                                <div style={{
+                                    padding: '12px 16px', borderRadius: 12,
+                                    background: '#FEF2F2', border: '1px solid #FECACA',
+                                    color: '#DC2626', fontSize: 14, fontWeight: 500
+                                }}>{error}</div>
+                            )}
+
+                            <motion.button
+                                onClick={() => handleVerifyOTP()}
+                                disabled={isLoading || otp.some(d => !d)}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                style={{
+                                    background: 'var(--gradient-primary)', color: 'white',
+                                    padding: '18px 24px', borderRadius: 16, fontSize: 16,
+                                    fontWeight: 700, display: 'flex', justifyContent: 'center',
+                                    alignItems: 'center', gap: 12,
+                                    boxShadow: 'var(--shadow-glow-primary)', border: 'none',
+                                    cursor: isLoading ? 'wait' : 'pointer',
+                                    opacity: (isLoading || otp.some(d => !d)) ? 0.6 : 1
+                                }}
+                            >
+                                {isLoading ? (
+                                    <motion.div
+                                        animate={{ rotate: 360 }}
+                                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                        style={{
+                                            width: 20, height: 20,
+                                            border: '2px solid rgba(255,255,255,0.3)',
+                                            borderTopColor: 'white', borderRadius: '50%'
+                                        }}
+                                    />
+                                ) : (
+                                    <>
+                                        Verify & Get Started
+                                        <Shield size={20} strokeWidth={2.5} />
+                                    </>
+                                )}
+                            </motion.button>
+
+                            {/* Resend */}
+                            <div style={{ textAlign: 'center', fontSize: 14, color: 'var(--text-secondary)' }}>
+                                {countdown > 0 ? (
+                                    <span>Resend OTP in <strong>{countdown}s</strong></span>
+                                ) : (
+                                    <button
+                                        onClick={handleResendOTP}
+                                        style={{
+                                            color: 'var(--primary-hover)', fontWeight: 700,
+                                            background: 'none', border: 'none', cursor: 'pointer',
+                                            fontSize: 14
+                                        }}
+                                    >Resend OTP</button>
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Feature Pills */}
+                {step === 'form' && (
+                    <div style={{
+                        display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
+                        gap: 10, margin: '20px 0'
+                    }}>
+                        {['Free to use', 'Verified companies', 'Secure'].map((feature) => (
+                            <div key={feature} style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                padding: '8px 14px', borderRadius: 20,
+                                background: 'var(--pastel-green)',
+                                border: '1px solid var(--pastel-mint)',
+                                fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)'
+                            }}>
+                                <CheckCircle size={14} color="var(--success)" />
+                                {feature}
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Footer */}
                 <div style={{
-                    marginTop: 'auto',
-                    paddingTop: 16,
-                    textAlign: 'center',
-                    fontSize: 15,
-                    color: 'var(--text-secondary)'
+                    marginTop: 'auto', paddingTop: 16, textAlign: 'center',
+                    fontSize: 15, color: 'var(--text-secondary)'
                 }}>
                     Already have an account?{' '}
-                    <Link href="/login" style={{
-                        color: 'var(--primary-hover)',
-                        fontWeight: 700
-                    }}>
+                    <Link href="/login" style={{ color: 'var(--primary-hover)', fontWeight: 700 }}>
                         Sign In
                     </Link>
                 </div>

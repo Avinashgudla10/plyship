@@ -129,12 +129,12 @@ export default function ProfileSetup() {
         maxBudget: '',
     });
 
-    const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
+    const ADMIN_PHONES = ['+918465834152'];
 
     useEffect(() => {
         if (!loading && user) {
             // Admin users go straight to dashboard
-            if (ADMIN_EMAILS.includes(user.email)) {
+            if (ADMIN_PHONES.includes(user.phone)) {
                 router.replace('/admin');
                 return;
             }

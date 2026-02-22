@@ -18,7 +18,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth } from '../../lib/firebase';
 
 // Admin emails that have access
-const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
+const ADMIN_PHONES = ['+918465834152'];
 
 // ============ TOAST COMPONENT ============
 function Toast({ message, type = 'success', onClose }) {
@@ -358,15 +358,15 @@ export default function AdminDashboard() {
             firestoreUnsubs.forEach(unsub => unsub());
             firestoreUnsubs = [];
 
-            const userEmail = firebaseUser?.email || localStorage.getItem('userEmail');
-            if (!userEmail || !ADMIN_EMAILS.includes(userEmail)) {
+            const userPhone = firebaseUser?.phoneNumber || localStorage.getItem('userPhone');
+            if (!userPhone || !ADMIN_PHONES.includes(userPhone)) {
                 setIsAdmin(false);
                 setLoading(false);
                 return;
             }
 
             setIsAdmin(true);
-            localStorage.setItem('userEmail', userEmail);
+            localStorage.setItem('userPhone', userPhone);
 
             // Real-time seekers listener
             firestoreUnsubs.push(onSnapshot(

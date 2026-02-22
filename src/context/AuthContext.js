@@ -4,12 +4,10 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useRouter } from 'next/navigation';
 import { db, auth, uploadImage, uploadImages, deleteUserStorage } from '../lib/firebase';
 import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
     signOut,
     onAuthStateChanged,
-    reauthenticateWithCredential,
-    EmailAuthProvider
+    RecaptchaVerifier,
+    signInWithPhoneNumber
 } from 'firebase/auth';
 import {
     doc,
@@ -37,6 +35,8 @@ export const AuthProvider = ({ children }) => {
 
     // Flag to prevent auth listener from overwriting state during onboarding
     const isOnboarding = useRef(false);
+    const confirmationResultRef = useRef(null);
+    const recaptchaVerifierRef = useRef(null);
 
     // Listen for auth state changes
     useEffect(() => {
@@ -76,13 +76,14 @@ export const AuthProvider = ({ children }) => {
                             // New user, just signed up but no profile yet
                             setUser({
                                 id: firebaseUser.uid,
-                                email: firebaseUser.email,
+                                email: firebaseUser.email || null,
+                                phone: firebaseUser.phoneNumber || null,
                                 role: null,
                                 profileComplete: false,
                                 profile: null
                             });
-                            localStorage.setItem('userEmail', firebaseUser.email);
-                            console.log('🆕 New user, no profile yet:', firebaseUser.email);
+                            localStorage.setItem('userPhone', firebaseUser.phoneNumber || '');
+                            console.log('🆕 New user, no profile yet:', firebaseUser.phoneNumber || firebaseUser.email);
                         }
                     }
                 } catch (error) {
@@ -105,40 +106,112 @@ export const AuthProvider = ({ children }) => {
         return () => unsubscribe();
     }, []);
 
-    const login = async (email, password) => {
+    // Setup invisible reCAPTCHA
+    const setupRecaptcha = (buttonId) => {
+        if (recaptchaVerifierRef.current) {
+            recaptchaVerifierRef.current.clear();
+        }
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, buttonId, {
+            size: 'invisible',
+            callback: () => {
+                console.log('✅ reCAPTCHA solved');
+            },
+        });
+        return recaptchaVerifierRef.current;
+    };
+
+    // Send OTP to phone number
+    const sendOTP = async (phoneNumber, buttonId = 'recaptcha-container') => {
         try {
-            await signInWithEmailAndPassword(auth, email, password);
-            console.log('✅ Logged in:', email);
+            const appVerifier = setupRecaptcha(buttonId);
+            const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+            const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
+            confirmationResultRef.current = confirmationResult;
+            console.log('✅ OTP sent to:', formattedPhone);
             return { success: true };
         } catch (error) {
-            console.error('Login error:', error.message);
+            console.error('OTP send error:', error.message);
+            // Reset recaptcha on error
+            if (recaptchaVerifierRef.current) {
+                recaptchaVerifierRef.current.clear();
+                recaptchaVerifierRef.current = null;
+            }
             return { success: false, error: error.message };
         }
     };
 
-    const signup = async (name, email, password) => {
+    // Verify OTP code
+    const verifyOTP = async (otpCode) => {
         try {
-            // Set onboarding flag to prevent auth listener from interfering
+            if (!confirmationResultRef.current) {
+                return { success: false, error: 'No OTP request found. Please send OTP again.' };
+            }
+            const result = await confirmationResultRef.current.confirm(otpCode);
+            console.log('✅ OTP verified, user:', result.user.uid);
+            return { success: true, user: result.user };
+        } catch (error) {
+            console.error('OTP verify error:', error.message);
+            return { success: false, error: 'Invalid OTP. Please try again.' };
+        }
+    };
+
+    // Signup with phone — stores name and email before OTP verification
+    const signupWithPhone = async (name, email, phoneNumber, buttonId = 'recaptcha-container') => {
+        try {
             isOnboarding.current = true;
+            const result = await sendOTP(phoneNumber, buttonId);
+            if (!result.success) {
+                isOnboarding.current = false;
+                return result;
+            }
+            // Store signup data temporarily to use after OTP verification
+            localStorage.setItem('signupData', JSON.stringify({ name, email, phone: phoneNumber }));
+            return { success: true };
+        } catch (error) {
+            console.error('Signup error:', error.message);
+            isOnboarding.current = false;
+            return { success: false, error: error.message };
+        }
+    };
 
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            console.log('✅ Signed up:', email, 'UID:', userCredential.user.uid);
+    // Complete signup after OTP verification
+    const completeSignup = async (otpCode) => {
+        try {
+            const result = await verifyOTP(otpCode);
+            if (!result.success) return result;
 
-            // Set initial user state (profile will be created after role selection)
+            const signupDataStr = localStorage.getItem('signupData');
+            const signupData = signupDataStr ? JSON.parse(signupDataStr) : {};
+
             setUser({
-                id: userCredential.user.uid,
-                name: name,
-                email: email,
+                id: result.user.uid,
+                name: signupData.name || '',
+                email: signupData.email || '',
+                phone: result.user.phoneNumber || signupData.phone || '',
                 role: null,
                 profileComplete: false,
                 profile: null
             });
 
             setLoading(false);
+            localStorage.removeItem('signupData');
             return { success: true };
         } catch (error) {
-            console.error('Signup error:', error.message);
+            console.error('Complete signup error:', error.message);
             isOnboarding.current = false;
+            return { success: false, error: error.message };
+        }
+    };
+
+    // Login with phone OTP verification
+    const loginVerifyOTP = async (otpCode) => {
+        try {
+            const result = await verifyOTP(otpCode);
+            if (!result.success) return result;
+            console.log('✅ Logged in via OTP:', result.user.phoneNumber);
+            return { success: true };
+        } catch (error) {
+            console.error('Login OTP error:', error.message);
             return { success: false, error: error.message };
         }
     };
@@ -2219,12 +2292,9 @@ export const AuthProvider = ({ children }) => {
             }
             console.log('✅ Deleted user document');
 
-            // 10. Reauthenticate and delete Firebase Auth account
+            // 10. Delete Firebase Auth account
             const currentUser = auth.currentUser;
-            if (currentUser && currentUser.email && password) {
-                // Reauthenticate before deleting
-                const credential = EmailAuthProvider.credential(currentUser.email, password);
-                await reauthenticateWithCredential(currentUser, credential);
+            if (currentUser) {
                 await currentUser.delete();
                 console.log('✅ Deleted Firebase Auth account');
             }
@@ -2314,8 +2384,10 @@ export const AuthProvider = ({ children }) => {
         <AuthContext.Provider value={{
             user,
             loading,
-            login,
-            signup,
+            sendOTP,
+            loginVerifyOTP,
+            signupWithPhone,
+            completeSignup,
             selectRole,
             completeProfile,
             getSwipeProfiles,

@@ -23,7 +23,7 @@ import ProjectsView from '../components/ProjectsView';
 import LandingPage from '../components/LandingPage';
 import { Leaf, Compass, Heart, MessageCircle, User, RefreshCw } from 'lucide-react';
 
-const ADMIN_EMAILS = ['avinashgudla10@gmail.com'];
+const ADMIN_PHONES = ['+918465834152'];
 
 export default function Home() {
   const router = useRouter();
@@ -43,7 +43,7 @@ export default function Home() {
   useEffect(() => {
     if (!loading && user) {
       // Admin users go straight to dashboard
-      if (ADMIN_EMAILS.includes(user.email)) {
+      if (ADMIN_PHONES.includes(user.phone)) {
         router.replace('/admin');
         return;
       }

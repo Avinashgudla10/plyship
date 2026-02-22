@@ -792,18 +792,14 @@ export function SettingsView({ onBack }) {
         );
 
         if (confirmed) {
-            const password = prompt('Enter your password to confirm account deletion:');
-            if (password) {
+            const typed = prompt('Type DELETE to confirm account deletion:');
+            if (typed === 'DELETE') {
                 setDeleting(true);
-                const result = await deleteAccount(password);
+                const result = await deleteAccount();
                 if (result.success) {
                     alert('✅ Your account has been completely deleted.');
                 } else {
-                    if (result.error.includes('wrong-password') || result.error.includes('invalid-credential')) {
-                        alert('❌ Incorrect password. Please try again.');
-                    } else {
-                        alert('❌ Error: ' + result.error);
-                    }
+                    alert('❌ Error: ' + result.error);
                     setDeleting(false);
                 }
             } else {
