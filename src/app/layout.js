@@ -3,7 +3,7 @@ import { AuthProvider } from '../context/AuthContext';
 
 export const metadata = {
   title: 'PLYSHIP',
-  description: 'Premium Interior Design Matching Platform',
+  description: 'Connect Home Interior Seekers with Interior Companies',
   manifest: '/manifest.json',
   icons: {
     icon: '/favicon.png',

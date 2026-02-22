@@ -42,7 +42,7 @@ export default function TermsPage() {
                         <p>By accessing or using Plyship, you agree to be bound by these Terms of Service. If you do not agree, please do not use our services.</p>
 
                         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111', marginTop: 32, marginBottom: 12 }}>2. Description of Service</h2>
-                        <p>Plyship is a platform that connects interior design companies with interior designers. We facilitate:</p>
+                        <p>Plyship is a platform that connects home interior seekers with interior companies. We facilitate:</p>
                         <ul style={{ marginLeft: 20, marginTop: 8 }}>
                             <li>Profile creation and matching</li>
                             <li>In-app messaging and communication</li>
@@ -55,8 +55,8 @@ export default function TermsPage() {
 
                         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111', marginTop: 32, marginBottom: 12 }}>4. Payment Terms</h2>
                         <ul style={{ marginLeft: 20, marginTop: 8 }}>
-                            <li>Companies pay ₹500 per confirmed meeting with a designer</li>
-                            <li>Designers receive ₹500 for each confirmed meeting</li>
+                            <li>Companies pay ₹500 per confirmed meeting with a seeker</li>
+                            <li>Seekers receive ₹250 for each confirmed meeting</li>
                             <li>Payments are processed through Razorpay</li>
                             <li>Withdrawals are processed within 3-5 business days</li>
                         </ul>

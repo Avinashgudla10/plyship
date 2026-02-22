@@ -41,7 +41,7 @@ export default function HowItWorksPage() {
                 >
                     <h1 style={{ fontSize: 42, fontWeight: 800, color: '#111', marginBottom: 16 }}>How Plyship Works</h1>
                     <p style={{ fontSize: 18, color: '#666', lineHeight: 1.7 }}>
-                        A simple, transparent process to connect companies with designers
+                        A simple, transparent process to connect interior seekers with companies
                     </p>
                 </motion.div>
             </section>
@@ -56,11 +56,11 @@ export default function HowItWorksPage() {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                         {[
-                            { step: 1, icon: Users, title: 'Create Your Company Profile', desc: "Sign up and tell us about your company, the type of designers you're looking for, and your project needs." },
-                            { step: 2, icon: Heart, title: 'Browse & Match with Designers', desc: "Swipe through designer profiles. When you like someone, swipe right. If they like you back, it's a match!" },
+                            { step: 1, icon: Users, title: 'Create Your Company Profile', desc: "Sign up and tell us about your company, the services you offer, and the type of interior projects you handle." },
+                            { step: 2, icon: Heart, title: 'Browse & Match with Seekers', desc: "Swipe through seeker profiles. When you like someone, swipe right. If they like you back, it's a match!" },
                             { step: 3, icon: MessageCircle, title: 'Chat & Schedule Meetings', desc: 'Start a conversation with your matches. Schedule meetings directly in the app to discuss projects.' },
                             { step: 4, icon: Wallet, title: 'Pay Per Meeting (₹500)', desc: 'Add funds to your wallet. ₹500 is automatically deducted when both parties confirm a meeting took place.' },
-                            { step: 5, icon: CheckCircle, title: 'Start Your Project', desc: 'Found the right designer? Start working together on your interior projects!' },
+                            { step: 5, icon: CheckCircle, title: 'Start Your Project', desc: 'Found the right client? Start working together on their home interior project!' },
                         ].map((item, i) => (
                             <motion.div
                                 key={i}
@@ -100,21 +100,21 @@ export default function HowItWorksPage() {
                 </div>
             </section>
 
-            {/* For Designers */}
+            {/* For Seekers */}
             <section style={{ padding: '60px 24px', background: '#F9FAFB' }}>
                 <div style={{ maxWidth: 900, margin: '0 auto' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
                         <Palette size={24} color="#22C55E" />
-                        <h2 style={{ fontSize: 28, fontWeight: 700, color: '#111' }}>For Interior Designers</h2>
+                        <h2 style={{ fontSize: 28, fontWeight: 700, color: '#111' }}>For Interior Seekers</h2>
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                         {[
-                            { step: 1, icon: Users, title: 'Build Your Portfolio', desc: 'Create a stunning profile showcasing your best work, skills, and experience.' },
-                            { step: 2, icon: Heart, title: 'Get Discovered by Companies', desc: 'Companies browse designer profiles. When you both like each other, you match and can start chatting.' },
-                            { step: 3, icon: Calendar, title: 'Attend Meetings', desc: 'Schedule and attend meetings with companies. Discuss projects, showcase your expertise.' },
-                            { step: 4, icon: Wallet, title: 'Earn ₹500 Per Meeting', desc: 'For every confirmed meeting, you earn ₹500. Money is added to your wallet automatically.' },
-                            { step: 5, icon: CheckCircle, title: 'Withdraw Your Earnings', desc: 'Once you have ₹500+, withdraw to your bank account anytime via WhatsApp request.' },
+                            { step: 1, icon: Users, title: 'Create Your Profile', desc: 'Sign up and tell us about your home interior needs, preferred styles, budget, and location.' },
+                            { step: 2, icon: Heart, title: 'Get Discovered by Companies', desc: 'Companies browse seeker profiles. When you both like each other, you match and can start chatting.' },
+                            { step: 3, icon: Calendar, title: 'Attend Meetings', desc: 'Schedule and attend meetings with companies. Discuss your project requirements and get proposals.' },
+                            { step: 4, icon: Wallet, title: 'Earn ₹250 Per Meeting', desc: 'For every confirmed meeting, you earn ₹250. Money is added to your wallet automatically.' },
+                            { step: 5, icon: CheckCircle, title: 'Withdraw Your Earnings', desc: 'Once you have ₹250+, withdraw to your bank account anytime via WhatsApp request.' },
                         ].map((item, i) => (
                             <motion.div
                                 key={i}
@@ -159,7 +159,7 @@ export default function HowItWorksPage() {
                 <div style={{ maxWidth: 600, margin: '0 auto' }}>
                     <h2 style={{ fontSize: 32, fontWeight: 800, color: 'white', marginBottom: 16 }}>Ready to Get Started?</h2>
                     <p style={{ fontSize: 17, color: 'rgba(255,255,255,0.9)', marginBottom: 24 }}>
-                        Join thousands of companies and designers already on Plyship
+                        Join thousands of companies and interior seekers already on Plyship
                     </p>
                     <Link href="/signup" style={{
                         display: 'inline-flex',

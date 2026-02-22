@@ -51,7 +51,7 @@ export default function PrivacyPage() {
                         <p>We use the information we collect to:</p>
                         <ul style={{ marginLeft: 20, marginTop: 8 }}>
                             <li>Provide, maintain, and improve our services</li>
-                            <li>Match companies with designers based on preferences</li>
+                            <li>Match seekers with companies based on preferences</li>
                             <li>Process transactions and send related information</li>
                             <li>Send technical notices and support messages</li>
                             <li>Respond to your comments and questions</li>

@@ -41,7 +41,7 @@ export default function AboutPage() {
                 >
                     <h1 style={{ fontSize: 42, fontWeight: 800, color: '#111', marginBottom: 16 }}>About Plyship</h1>
                     <p style={{ fontSize: 18, color: '#666', lineHeight: 1.7 }}>
-                        We're building the future of interior design collaboration in India
+                        We're building the future of home interior collaboration in India
                     </p>
                 </motion.div>
             </section>
@@ -51,17 +51,17 @@ export default function AboutPage() {
                 <div style={{ maxWidth: 800, margin: '0 auto' }}>
                     <h2 style={{ fontSize: 28, fontWeight: 700, color: '#111', marginBottom: 20 }}>Our Story</h2>
                     <p style={{ fontSize: 16, color: '#555', lineHeight: 1.8, marginBottom: 16 }}>
-                        Plyship was born from a simple observation: interior companies struggle to find talented designers,
-                        while skilled designers struggle to find quality projects. Traditional hiring is slow, expensive, and often frustrating for both sides.
+                        Plyship was born from a simple observation: people looking for home interiors struggle to find reliable companies,
+                        while interior companies struggle to find quality leads. Traditional discovery is slow, expensive, and often frustrating for both sides.
                     </p>
                     <p style={{ fontSize: 16, color: '#555', lineHeight: 1.8, marginBottom: 16 }}>
                         We created Plyship to solve this problem. Our platform uses a simple swipe-to-match system
-                        (inspired by dating apps) to connect companies with designers instantly. When both parties like each other,
+                        (inspired by dating apps) to connect home interior seekers with companies instantly. When both parties like each other,
                         a match is made, and collaboration begins.
                     </p>
                     <p style={{ fontSize: 16, color: '#555', lineHeight: 1.8 }}>
-                        Our unique ₹500-per-meeting model ensures designers are compensated for their time,
-                        while companies only pay when they actually meet with candidates. It's a win-win.
+                        Our unique ₹500-per-meeting model ensures seekers are compensated for their time,
+                        while companies only pay when they actually meet with potential clients. It's a win-win.
                     </p>
                 </div>
             </section>
@@ -72,7 +72,7 @@ export default function AboutPage() {
                     <h2 style={{ fontSize: 28, fontWeight: 700, color: '#111', marginBottom: 40, textAlign: 'center' }}>Our Values</h2>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 24 }}>
                         {[
-                            { icon: Users, title: 'Community First', desc: 'We build for our community of designers and companies.' },
+                            { icon: Users, title: 'Community First', desc: 'We build for our community of seekers and companies.' },
                             { icon: Target, title: 'Simplicity', desc: 'Complex problems deserve simple, elegant solutions.' },
                             { icon: Award, title: 'Quality', desc: 'We maintain high standards for everyone on our platform.' },
                             { icon: Heart, title: 'Fairness', desc: 'Everyone deserves fair compensation for their work.' },

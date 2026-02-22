@@ -294,7 +294,7 @@ function HeroSection() {
                     }}>
                         <Zap size={16} color="#22C55E" />
                         <span style={{ fontSize: 14, fontWeight: 600, color: '#16A34A' }}>
-                            India's #1 Interior Design Marketplace
+                            India's #1 Home Interior Matching Platform
                         </span>
                     </div>
 
@@ -390,7 +390,7 @@ function StatItem({ value, label }) {
 // ============ HOW IT WORKS ============
 function HowItWorksSection() {
     const steps = [
-        { icon: Users, title: 'Create Profile', desc: 'Sign up as a Company or Designer. Build your portfolio and showcase your expertise.' },
+        { icon: Users, title: 'Create Profile', desc: 'Sign up as a Company or Interior Seeker. Build your profile and showcase what you need.' },
         { icon: Target, title: 'Swipe & Match', desc: 'Browse profiles and swipe right to connect. When both parties match, the magic begins.' },
         { icon: Handshake, title: 'Meet & Collaborate', desc: 'Schedule meetings, discuss projects, and start working together on amazing interiors.' },
     ];
@@ -591,7 +591,7 @@ function ForSeekersSection() {
                             <span style={{ fontSize: 14, fontWeight: 600, color: '#16A34A' }}>For Interior Seekers</span>
                         </div>
                         <h2 style={{ fontSize: 36, fontWeight: 800, color: '#111', marginBottom: 16 }}>
-                            Find Your Perfect Interior Partner
+                            Find Your Perfect Interior Company
                         </h2>
                         <p style={{ fontSize: 17, color: '#666', marginBottom: 24, lineHeight: 1.6 }}>
                             Looking to renovate your home? Match with interior companies that understand your vision and budget.
@@ -742,7 +742,7 @@ function CTASection() {
                         Ready to Transform Your Business?
                     </h2>
                     <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.9)', marginBottom: 32 }}>
-                        Join thousands of companies and designers already growing with Plyship.
+                        Join thousands of companies and interior seekers already growing with Plyship.
                     </p>
                     <Link href="/signup" style={{
                         display: 'inline-flex',
@@ -777,7 +777,7 @@ function Footer() {
                             <Image src="/logo.png" alt="PlyShip" width={110} height={28} style={{ objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
                         </div>
                         <p style={{ fontSize: 14, color: '#888', lineHeight: 1.6 }}>
-                            Connecting interior companies with talented designers across India.
+                            Connecting interior companies with home interior seekers across India.
                         </p>
                     </div>
 
