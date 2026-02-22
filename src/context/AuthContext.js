@@ -1250,39 +1250,40 @@ export const AuthProvider = ({ children }) => {
                 return { success: true };
             });
 
-            // Log transactions (outside atomic transaction for simplicity)
-            await addDoc(collection(db, 'transactions'), {
-                userId: companyId,
-                type: 'DEBIT',
-                amount: MEETING_FEE,
-                reason: 'MEETING_FEE',
-                relatedMeetingId: meetingId,
-                relatedUserId: seekerId,
-                status: 'COMPLETED',
-                createdAt: new Date().toISOString(),
-            });
-
-            await addDoc(collection(db, 'transactions'), {
-                userId: seekerId,
-                type: 'LOCK',
-                amount: SEEKER_SHARE,
-                reason: 'MEETING_EARNINGS',
-                relatedMeetingId: meetingId,
-                relatedUserId: companyId,
-                status: 'COMPLETED',
-                createdAt: new Date().toISOString(),
-            });
-
-            await addDoc(collection(db, 'transactions'), {
-                userId: ADMIN_WALLET_ID,
-                type: 'CREDIT',
-                amount: ADMIN_SHARE,
-                reason: 'ADMIN_COMMISSION',
-                relatedMeetingId: meetingId,
-                relatedUserId: companyId,
-                status: 'COMPLETED',
-                createdAt: new Date().toISOString(),
-            });
+            // Log transactions in parallel (independent writes, no need to wait sequentially)
+            const now = new Date().toISOString();
+            await Promise.all([
+                addDoc(collection(db, 'transactions'), {
+                    userId: companyId,
+                    type: 'DEBIT',
+                    amount: MEETING_FEE,
+                    reason: 'MEETING_FEE',
+                    relatedMeetingId: meetingId,
+                    relatedUserId: seekerId,
+                    status: 'COMPLETED',
+                    createdAt: now,
+                }),
+                addDoc(collection(db, 'transactions'), {
+                    userId: seekerId,
+                    type: 'LOCK',
+                    amount: SEEKER_SHARE,
+                    reason: 'MEETING_EARNINGS',
+                    relatedMeetingId: meetingId,
+                    relatedUserId: companyId,
+                    status: 'COMPLETED',
+                    createdAt: now,
+                }),
+                addDoc(collection(db, 'transactions'), {
+                    userId: ADMIN_WALLET_ID,
+                    type: 'CREDIT',
+                    amount: ADMIN_SHARE,
+                    reason: 'ADMIN_COMMISSION',
+                    relatedMeetingId: meetingId,
+                    relatedUserId: companyId,
+                    status: 'COMPLETED',
+                    createdAt: now,
+                }),
+            ]);
 
             console.log('💰 Payment processed: ₹500 split — ₹250 to seeker, ₹250 to admin');
             return { success: true, bothConfirmed: true, paymentProcessed: true };
