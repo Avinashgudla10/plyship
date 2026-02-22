@@ -99,7 +99,7 @@ export default function ProfileSetup() {
     // Seeker form data
     const [seekerData, setSeekerData] = useState({
         name: user?.name || '',
-        phone: '',
+        email: '',
         avatar: null,
         city: '',
         locality: '',
@@ -115,8 +115,7 @@ export default function ProfileSetup() {
         companyName: '',
         tagline: '',
         avatar: null,
-        phone: '',
-        email: user?.email || '',
+        email: '',
         yearsInBusiness: '',
         city: '',
         serviceAreas: [],
@@ -156,10 +155,7 @@ export default function ProfileSetup() {
                 if (!seekerData.name || seekerData.name.trim().length < 2) {
                     newErrors.name = 'Name must be at least 2 characters';
                 }
-                const phoneDigits = seekerData.phone.replace(/\D/g, '');
-                if (!phoneDigits || phoneDigits.length !== 10) {
-                    newErrors.phone = 'Enter a valid 10-digit phone number';
-                }
+                // Email is optional, no validation needed
                 if (!seekerData.propertyType) {
                     newErrors.propertyType = 'Please select a property type';
                 }
@@ -188,10 +184,7 @@ export default function ProfileSetup() {
                 if (!companyData.companyName || companyData.companyName.trim().length < 2) {
                     newErrors.companyName = 'Company name must be at least 2 characters';
                 }
-                const phoneDigits = companyData.phone.replace(/\D/g, '');
-                if (!phoneDigits || phoneDigits.length !== 10) {
-                    newErrors.phone = 'Enter a valid 10-digit phone number';
-                }
+                // Email is optional, no validation needed
             } else if (currentStep === 1) {
                 if (!companyData.services || companyData.services.length === 0) {
                     newErrors.services = 'Select at least one service';
@@ -465,7 +458,7 @@ function SeekerBasicInfo({ data, setData, errors }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <InputField label="Full Name" value={data.name} onChange={(v) => setData({ ...data, name: v })} placeholder="Your name" error={errors?.name} />
-                <PhoneField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} error={errors?.phone} />
+                <InputField label="Email Address (Optional)" value={data.email} onChange={(v) => setData({ ...data, email: v })} placeholder="hello@example.com" type="email" />
 
                 <div>
                     <label style={labelStyle}>Property Type</label>
@@ -604,7 +597,7 @@ function CompanyBasicInfo({ data, setData, errors }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <InputField label="Company Name" value={data.companyName} onChange={(v) => setData({ ...data, companyName: v })} placeholder="Your company name" error={errors?.companyName} />
                 <InputField label="Tagline" value={data.tagline} onChange={(v) => setData({ ...data, tagline: v })} placeholder="e.g., Modern designs for modern living" />
-                <PhoneField label="Phone Number" value={data.phone} onChange={(v) => setData({ ...data, phone: v })} error={errors?.phone} />
+                <InputField label="Email Address (Optional)" value={data.email} onChange={(v) => setData({ ...data, email: v })} placeholder="hello@example.com" type="email" />
                 <InputField label="Years in Business" value={data.yearsInBusiness} onChange={(v) => setData({ ...data, yearsInBusiness: v })} placeholder="e.g., 5" type="number" />
             </div>
         </div>

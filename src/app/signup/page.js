@@ -4,18 +4,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Phone, Mail, User, ArrowRight, ArrowLeft, Shield, CheckCircle } from 'lucide-react';
+import { Phone, ArrowRight, ArrowLeft, Shield, CheckCircle } from 'lucide-react';
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 import Image from 'next/image';
 
 export default function Signup() {
     const router = useRouter();
-    const { user, loading, signupWithPhone, completeSignup, selectRole } = useAuth();
+    const { user, loading, sendOTP, completeSignup, selectRole } = useAuth();
 
-    const [formData, setFormData] = useState({ name: '', email: '', phone: '' });
+    const [phone, setPhone] = useState('');
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
-    const [step, setStep] = useState('form'); // 'form' or 'otp'
+    const [step, setStep] = useState('phone'); // 'phone' or 'otp'
     const [showRoleSelection, setShowRoleSelection] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -40,26 +40,19 @@ export default function Signup() {
     const handleSendOTP = async (e) => {
         e.preventDefault();
         setError('');
-
-        if (!formData.name.trim()) {
-            setError('Please enter your name');
-            return;
-        }
-        if (!formData.email.trim() || !formData.email.includes('@')) {
-            setError('Please enter a valid email address');
-            return;
-        }
-        const cleanPhone = formData.phone.replace(/\s/g, '');
+        const cleanPhone = phone.replace(/\s/g, '');
         if (cleanPhone.length !== 10) {
             setError('Please enter a valid 10-digit mobile number');
             return;
         }
 
         setIsLoading(true);
-        const result = await signupWithPhone(formData.name, formData.email, cleanPhone, 'recaptcha-container');
+        const result = await sendOTP(cleanPhone, 'recaptcha-container');
         setIsLoading(false);
 
         if (result.success) {
+            // Store phone for after OTP verification
+            localStorage.setItem('signupPhone', cleanPhone);
             setStep('otp');
             setCountdown(30);
             setTimeout(() => otpRefs.current[0]?.focus(), 100);
@@ -117,8 +110,8 @@ export default function Signup() {
         setError('');
         setOtp(['', '', '', '', '', '']);
         setIsLoading(true);
-        const cleanPhone = formData.phone.replace(/\s/g, '');
-        const result = await signupWithPhone(formData.name, formData.email, cleanPhone, 'recaptcha-container');
+        const cleanPhone = phone.replace(/\s/g, '');
+        const result = await sendOTP(cleanPhone, 'recaptcha-container');
         setIsLoading(false);
         if (result.success) {
             setCountdown(30);
@@ -180,23 +173,23 @@ export default function Signup() {
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6 }}
-                style={{ flex: '0 0 auto', padding: '50px 32px 28px', position: 'relative', zIndex: 10 }}
+                style={{ flex: '0 0 auto', padding: '60px 32px 40px', position: 'relative', zIndex: 10 }}
             >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-                    <Image src="/logo.png" alt="PlyShip" width={130} height={32} style={{ objectFit: 'contain' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
+                    <Image src="/logo.png" alt="PlyShip" width={140} height={36} style={{ objectFit: 'contain' }} />
                 </div>
 
                 <h1 style={{
-                    fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 800,
-                    lineHeight: 1.1, marginBottom: 10, color: 'var(--text-primary)'
+                    fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 800,
+                    lineHeight: 1.1, marginBottom: 12, color: 'var(--text-primary)'
                 }}>
                     Create your<br />
                     <span style={{ color: 'var(--primary-hover)' }}>dream space</span>
                 </h1>
-                <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.5 }}>
-                    {step === 'form'
-                        ? 'Join thousands finding their perfect interior match'
-                        : `Enter the OTP sent to +91 ${formData.phone}`}
+                <p style={{ color: 'var(--text-secondary)', fontSize: 16, lineHeight: 1.5 }}>
+                    {step === 'phone'
+                        ? 'Enter your mobile number to get started'
+                        : `Enter the OTP sent to +91 ${phone}`}
                 </p>
             </motion.div>
 
@@ -209,74 +202,22 @@ export default function Signup() {
                     flex: 1, background: 'white',
                     borderTop: '1px solid var(--border-light)',
                     borderTopLeftRadius: 32, borderTopRightRadius: 32,
-                    padding: '32px 28px', display: 'flex', flexDirection: 'column',
-                    position: 'relative', zIndex: 20, overflowY: 'auto',
+                    padding: '40px 28px', display: 'flex', flexDirection: 'column',
+                    position: 'relative', zIndex: 20,
                     boxShadow: '0 -8px 32px rgba(0,0,0,0.04)'
                 }}
             >
                 <AnimatePresence mode="wait">
-                    {step === 'form' ? (
+                    {step === 'phone' ? (
                         <motion.form
-                            key="form"
+                            key="phone"
                             initial={{ opacity: 0, x: -20 }}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: -20 }}
                             onSubmit={handleSendOTP}
-                            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+                            style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
                         >
-                            {/* Name */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                <label style={{
-                                    fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
-                                    textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4
-                                }}>Full Name</label>
-                                <div style={{ position: 'relative' }}>
-                                    <User size={20} style={{
-                                        position: 'absolute', left: 16, top: '50%',
-                                        transform: 'translateY(-50%)', color: 'var(--primary)'
-                                    }} />
-                                    <input
-                                        type="text"
-                                        placeholder="John Doe"
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                        style={{
-                                            width: '100%', padding: '16px 20px 16px 52px',
-                                            borderRadius: 14, border: '1px solid var(--border)',
-                                            background: 'var(--bg-secondary)', color: 'var(--text-primary)',
-                                            fontSize: 16, fontWeight: 500, outline: 'none'
-                                        }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Email */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                <label style={{
-                                    fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
-                                    textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4
-                                }}>Email Address</label>
-                                <div style={{ position: 'relative' }}>
-                                    <Mail size={20} style={{
-                                        position: 'absolute', left: 16, top: '50%',
-                                        transform: 'translateY(-50%)', color: 'var(--primary)'
-                                    }} />
-                                    <input
-                                        type="email"
-                                        placeholder="hello@example.com"
-                                        value={formData.email}
-                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                        style={{
-                                            width: '100%', padding: '16px 20px 16px 52px',
-                                            borderRadius: 14, border: '1px solid var(--border)',
-                                            background: 'var(--bg-secondary)', color: 'var(--text-primary)',
-                                            fontSize: 16, fontWeight: 500, outline: 'none'
-                                        }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Phone */}
+                            {/* Phone Input */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <label style={{
                                     fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)',
@@ -284,7 +225,7 @@ export default function Signup() {
                                 }}>Mobile Number</label>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <div style={{
-                                        padding: '16px 14px', borderRadius: 14,
+                                        padding: '18px 14px', borderRadius: 16,
                                         border: '1px solid var(--border)', background: 'var(--bg-secondary)',
                                         color: 'var(--text-primary)', fontSize: 16, fontWeight: 600,
                                         display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0
@@ -299,12 +240,12 @@ export default function Signup() {
                                         <input
                                             type="tel"
                                             placeholder="98765 43210"
-                                            value={formData.phone}
-                                            onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/[^\d\s]/g, '') })}
+                                            value={phone}
+                                            onChange={(e) => setPhone(e.target.value.replace(/[^\d\s]/g, ''))}
                                             maxLength={12}
                                             style={{
-                                                width: '100%', padding: '16px 20px 16px 52px',
-                                                borderRadius: 14, border: '1px solid var(--border)',
+                                                width: '100%', padding: '18px 20px 18px 52px',
+                                                borderRadius: 16, border: '1px solid var(--border)',
                                                 background: 'var(--bg-secondary)', color: 'var(--text-primary)',
                                                 fontSize: 16, fontWeight: 500, outline: 'none'
                                             }}
@@ -327,7 +268,7 @@ export default function Signup() {
                                 whileHover={{ scale: 1.02 }}
                                 whileTap={{ scale: 0.98 }}
                                 style={{
-                                    marginTop: 4, background: 'var(--gradient-primary)',
+                                    marginTop: 8, background: 'var(--gradient-primary)',
                                     color: 'white', padding: '18px 24px', borderRadius: 16,
                                     fontSize: 16, fontWeight: 700, display: 'flex',
                                     justifyContent: 'center', alignItems: 'center', gap: 12,
@@ -353,6 +294,25 @@ export default function Signup() {
                                     </>
                                 )}
                             </motion.button>
+
+                            {/* Feature Pills */}
+                            <div style={{
+                                display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
+                                gap: 10, marginTop: 8
+                            }}>
+                                {['Free to use', 'Verified companies', 'Secure'].map((feature) => (
+                                    <div key={feature} style={{
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        padding: '8px 14px', borderRadius: 20,
+                                        background: 'var(--pastel-green)',
+                                        border: '1px solid var(--pastel-mint)',
+                                        fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)'
+                                    }}>
+                                        <CheckCircle size={14} color="var(--success)" />
+                                        {feature}
+                                    </div>
+                                ))}
+                            </div>
                         </motion.form>
                     ) : (
                         <motion.div
@@ -364,14 +324,14 @@ export default function Signup() {
                         >
                             {/* Back */}
                             <button
-                                onClick={() => { setStep('form'); setError(''); setOtp(['', '', '', '', '', '']); }}
+                                onClick={() => { setStep('phone'); setError(''); setOtp(['', '', '', '', '', '']); }}
                                 style={{
                                     display: 'flex', alignItems: 'center', gap: 6,
                                     color: 'var(--text-secondary)', fontSize: 14, fontWeight: 500,
                                     background: 'none', border: 'none', cursor: 'pointer', padding: 0
                                 }}
                             >
-                                <ArrowLeft size={16} /> Change details
+                                <ArrowLeft size={16} /> Change number
                             </button>
 
                             {/* OTP Input */}
@@ -465,30 +425,9 @@ export default function Signup() {
                     )}
                 </AnimatePresence>
 
-                {/* Feature Pills */}
-                {step === 'form' && (
-                    <div style={{
-                        display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
-                        gap: 10, margin: '20px 0'
-                    }}>
-                        {['Free to use', 'Verified companies', 'Secure'].map((feature) => (
-                            <div key={feature} style={{
-                                display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '8px 14px', borderRadius: 20,
-                                background: 'var(--pastel-green)',
-                                border: '1px solid var(--pastel-mint)',
-                                fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)'
-                            }}>
-                                <CheckCircle size={14} color="var(--success)" />
-                                {feature}
-                            </div>
-                        ))}
-                    </div>
-                )}
-
                 {/* Footer */}
                 <div style={{
-                    marginTop: 'auto', paddingTop: 16, textAlign: 'center',
+                    marginTop: 'auto', paddingTop: 24, textAlign: 'center',
                     fontSize: 15, color: 'var(--text-secondary)'
                 }}>
                     Already have an account?{' '}

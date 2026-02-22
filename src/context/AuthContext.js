@@ -155,8 +155,8 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Signup with phone — stores name and email before OTP verification
-    const signupWithPhone = async (name, email, phoneNumber, buttonId = 'recaptcha-container') => {
+    // Signup with phone — just sends OTP, no name/email needed at signup
+    const signupWithPhone = async (phoneNumber, buttonId = 'recaptcha-container') => {
         try {
             isOnboarding.current = true;
             const result = await sendOTP(phoneNumber, buttonId);
@@ -164,8 +164,6 @@ export const AuthProvider = ({ children }) => {
                 isOnboarding.current = false;
                 return result;
             }
-            // Store signup data temporarily to use after OTP verification
-            localStorage.setItem('signupData', JSON.stringify({ name, email, phone: phoneNumber }));
             return { success: true };
         } catch (error) {
             console.error('Signup error:', error.message);
@@ -180,21 +178,17 @@ export const AuthProvider = ({ children }) => {
             const result = await verifyOTP(otpCode);
             if (!result.success) return result;
 
-            const signupDataStr = localStorage.getItem('signupData');
-            const signupData = signupDataStr ? JSON.parse(signupDataStr) : {};
-
             setUser({
                 id: result.user.uid,
-                name: signupData.name || '',
-                email: signupData.email || '',
-                phone: result.user.phoneNumber || signupData.phone || '',
+                name: '',
+                email: '',
+                phone: result.user.phoneNumber || '',
                 role: null,
                 profileComplete: false,
                 profile: null
             });
 
             setLoading(false);
-            localStorage.removeItem('signupData');
             return { success: true };
         } catch (error) {
             console.error('Complete signup error:', error.message);
