@@ -636,6 +636,16 @@ export const AuthProvider = ({ children }) => {
             }, { merge: true });
 
             console.log('✅ Message sent');
+
+            // Notify recipient about new message (fire-and-forget)
+            const senderName = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
+            createNotification(otherUserId, {
+                type: 'message',
+                title: '💬 New Message',
+                message: `${senderName}: ${messageText.trim().substring(0, 50)}${messageText.trim().length > 50 ? '...' : ''}`,
+                data: { chatId, senderId: user.id },
+            });
+
             return { success: true };
         } catch (error) {
             console.error('❌ Error sending message:', error);
@@ -899,6 +909,15 @@ export const AuthProvider = ({ children }) => {
             });
 
             console.log('💰 Wallet topped up:', amount, 'New balance:', newBalance);
+
+            // Notify user about successful top-up
+            createNotification(user.id, {
+                type: 'wallet_credit',
+                title: '💰 Wallet Topped Up!',
+                message: `₹${amount} added to your wallet. New balance: ₹${newBalance}`,
+                data: { amount, newBalance },
+            });
+
             return { success: true, newBalance };
         } catch (error) {
             console.error('❌ Error topping up wallet:', error);
@@ -1086,6 +1105,33 @@ export const AuthProvider = ({ children }) => {
             });
 
             console.log('✅ Meeting accepted:', meetingId);
+
+            // Notify requester that meeting was accepted
+            const otherPartyId = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
+            const myNameMeeting = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
+            createNotification(otherPartyId, {
+                type: 'meeting_accepted',
+                title: '✅ Meeting Accepted!',
+                message: `${myNameMeeting} accepted your meeting request`,
+                data: { meetingId },
+            });
+
+            // Notify company to share OTP with seeker
+            createNotification(meeting.companyId, {
+                type: 'meeting_otp',
+                title: '🔐 Share OTP with Seeker',
+                message: `Your meeting OTP is ${meetingOTP}. Share it with the seeker when you meet.`,
+                data: { meetingId, otp: meetingOTP },
+            });
+
+            // Notify seeker to collect OTP from company
+            createNotification(meeting.seekerId, {
+                type: 'meeting_otp',
+                title: '🔐 Collect OTP at Meeting',
+                message: 'Ask the company for the 6-digit OTP when you meet, and enter it to confirm.',
+                data: { meetingId },
+            });
+
             return { success: true };
         } catch (error) {
             console.error('❌ Error accepting meeting:', error);
@@ -1124,6 +1170,17 @@ export const AuthProvider = ({ children }) => {
             });
 
             console.log('❌ Meeting declined:', meetingId);
+
+            // Notify the other party
+            const otherPartyDecline = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
+            const myNameDecline = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
+            createNotification(otherPartyDecline, {
+                type: 'meeting_declined',
+                title: '❌ Meeting Declined',
+                message: `${myNameDecline} declined the meeting request${reason ? ': ' + reason : ''}`,
+                data: { meetingId },
+            });
+
             return { success: true };
         } catch (error) {
             console.error('❌ Error declining meeting:', error);
