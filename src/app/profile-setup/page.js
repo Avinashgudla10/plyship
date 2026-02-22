@@ -284,16 +284,8 @@ export default function ProfileSetup() {
                     marginBottom: 16,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 10,
-                            overflow: 'hidden',
-                        }}>
-                            <Image src="/favicon.png" alt="PlyShip" width={36} height={36} />
-                        </div>
                         <div>
-                            <Image src="/logo.png" alt="PlyShip" width={90} height={22} style={{ objectFit: 'contain' }} />
+                            <Image src="/logo.png" alt="PlyShip" width={100} height={26} style={{ objectFit: 'contain' }} />
                             <span style={{
                                 fontSize: 12,
                                 color: 'var(--text-muted)',

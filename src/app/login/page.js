@@ -151,15 +151,7 @@ export default function Login() {
                     gap: 12,
                     marginBottom: 32
                 }}>
-                    <div style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 14,
-                        overflow: 'hidden',
-                    }}>
-                        <Image src="/favicon.png" alt="PlyShip" width={48} height={48} />
-                    </div>
-                    <Image src="/logo.png" alt="PlyShip" width={120} height={30} style={{ objectFit: 'contain' }} />
+                    <Image src="/logo.png" alt="PlyShip" width={140} height={36} style={{ objectFit: 'contain' }} />
                 </div>
 
                 <h1 style={{

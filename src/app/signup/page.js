@@ -151,15 +151,7 @@ export default function Signup() {
                     gap: 12,
                     marginBottom: 28
                 }}>
-                    <div style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 13,
-                        overflow: 'hidden',
-                    }}>
-                        <Image src="/favicon.png" alt="PlyShip" width={44} height={44} />
-                    </div>
-                    <Image src="/logo.png" alt="PlyShip" width={110} height={28} style={{ objectFit: 'contain' }} />
+                    <Image src="/logo.png" alt="PlyShip" width={130} height={32} style={{ objectFit: 'contain' }} />
                 </div>
 
                 <h1 style={{

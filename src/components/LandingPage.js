@@ -59,9 +59,8 @@ function Navbar() {
                     justifyContent: 'space-between',
                 }}>
                     {/* Logo */}
-                    <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Image src="/favicon.png" alt="PlyShip" width={36} height={36} style={{ borderRadius: 8 }} />
-                        <Image src="/logo.png" alt="PlyShip" width={120} height={30} style={{ objectFit: 'contain' }} />
+                    <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+                        <Image src="/logo.png" alt="PlyShip" width={140} height={36} style={{ objectFit: 'contain' }} />
                     </Link>
 
                     {/* Desktop Nav */}
@@ -774,9 +773,8 @@ function Footer() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 40, marginBottom: 40 }}>
                     {/* Brand */}
                     <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                            <Image src="/favicon.png" alt="PlyShip" width={32} height={32} style={{ borderRadius: 8 }} />
-                            <Image src="/logo.png" alt="PlyShip" width={100} height={26} style={{ objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+                            <Image src="/logo.png" alt="PlyShip" width={110} height={28} style={{ objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
                         </div>
                         <p style={{ fontSize: 14, color: '#888', lineHeight: 1.6 }}>
                             Connecting interior companies with talented designers across India.
