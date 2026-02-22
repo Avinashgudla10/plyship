@@ -134,9 +134,8 @@ export default function ProfileView({ onNavigate }) {
                     marginTop: 20,
                 }}>
                     {[
-                        { label: 'Matches', value: '0', icon: Heart },
-                        { label: 'Messages', value: '0', icon: MessageCircle },
-                        { label: 'Views', value: '0', icon: Star },
+                        { label: 'Matches', value: '-', icon: Heart },
+                        { label: 'Messages', value: '-', icon: MessageCircle },
                     ].map((stat) => (
                         <div key={stat.label} style={{
                             flex: 1,
@@ -761,27 +760,22 @@ export function NotificationsView({ onBack }) {
 
 // Privacy & Security Page
 export function PrivacyView({ onBack }) {
-    const [settings, setSettings] = useState({
-        showOnline: true,
-        showDistance: true,
-        hideProfile: false,
-    });
-
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
             <PageHeader title="Privacy & Security" onBack={onBack} />
             <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.6 }}>
+                    Your data is protected with industry-standard encryption. We never share your personal information with third parties without your consent.
+                </p>
+
                 <div style={{ background: 'white', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
-                    <ToggleSetting label="Show Online Status" value={settings.showOnline} onChange={(v) => setSettings({ ...settings, showOnline: v })} />
-                    <ToggleSetting label="Show Distance" value={settings.showDistance} onChange={(v) => setSettings({ ...settings, showDistance: v })} />
-                    <ToggleSetting label="Hide My Profile" value={settings.hideProfile} onChange={(v) => setSettings({ ...settings, hideProfile: v })} isLast />
+                    <MenuItem label="View Privacy Policy" onClick={() => window.open('/privacy', '_blank')} />
+                    <MenuItem label="View Terms of Service" onClick={() => window.open('/terms', '_blank')} isLast />
                 </div>
 
-                <div style={{ background: 'white', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-light)', marginTop: 16 }}>
-                    <MenuItem label="Change Password" />
-                    <MenuItem label="Two-Factor Authentication" />
-                    <MenuItem label="Blocked Accounts" isLast />
-                </div>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 16, textAlign: 'center' }}>
+                    For account security concerns, contact support via Help & Support.
+                </p>
             </div>
         </div>
     );
@@ -790,11 +784,6 @@ export function PrivacyView({ onBack }) {
 // App Settings Page
 export function SettingsView({ onBack }) {
     const { deleteAccount } = useAuth();
-    const [settings, setSettings] = useState({
-        pushNotifications: true,
-        emailNotifications: false,
-        darkMode: false,
-    });
     const [deleting, setDeleting] = useState(false);
 
     const handleDeleteAccount = async () => {
@@ -827,21 +816,22 @@ export function SettingsView({ onBack }) {
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
             <PageHeader title="App Settings" onBack={onBack} />
             <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, marginLeft: 4 }}>NOTIFICATIONS</p>
+                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, marginLeft: 4 }}>APP INFO</p>
                 <div style={{ background: 'white', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-light)', marginBottom: 20 }}>
-                    <ToggleSetting label="Push Notifications" value={settings.pushNotifications} onChange={(v) => setSettings({ ...settings, pushNotifications: v })} />
-                    <ToggleSetting label="Email Notifications" value={settings.emailNotifications} onChange={(v) => setSettings({ ...settings, emailNotifications: v })} isLast />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: '1px solid var(--border-light)' }}>
+                        <span style={{ fontSize: 15, color: 'var(--text-primary)' }}>Version</span>
+                        <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>1.0.0</span>
+                    </div>
+                    <MenuItem label="Clear App Cache" onClick={() => {
+                        if (typeof window !== 'undefined' && window.caches) {
+                            caches.keys().then(names => names.forEach(name => caches.delete(name)));
+                        }
+                        alert('✅ Cache cleared successfully!');
+                    }} isLast />
                 </div>
 
-                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, marginLeft: 4 }}>APPEARANCE</p>
-                <div style={{ background: 'white', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-light)', marginBottom: 20 }}>
-                    <ToggleSetting label="Dark Mode" value={settings.darkMode} onChange={(v) => setSettings({ ...settings, darkMode: v })} isLast />
-                </div>
-
-                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, marginLeft: 4 }}>DATA</p>
+                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, marginLeft: 4 }}>DANGER ZONE</p>
                 <div style={{ background: 'white', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
-                    <MenuItem label="Clear Cache" />
-                    <MenuItem label="Export My Data" />
                     <MenuItem
                         label={deleting ? "Deleting..." : "Delete Account"}
                         color="var(--error)"
@@ -858,8 +848,10 @@ export function SettingsView({ onBack }) {
 // Help & Support Page
 export function HelpView({ onBack }) {
     const faqs = [
-        { q: 'How do I get more matches?', a: 'Swipe right on profiles you like! Complete your profile to get more visibility.' },
-        { q: 'How do I contact support?', a: 'Email us at support@plyship.com or use the chat below.' },
+        { q: 'How do I get more matches?', a: 'Swipe right on profiles you like! Complete your profile fully to get more visibility.' },
+        { q: 'How does the meeting payment work?', a: 'When a meeting is confirmed via OTP, ₹500 is deducted from the company\'s wallet. The seeker receives ₹250 as locked earnings.' },
+        { q: 'How do I withdraw my earnings?', a: 'Go to your Wallet page and tap "Withdraw". Withdrawals are processed within 3-5 business days.' },
+        { q: 'What is the OTP for meetings?', a: 'When a meeting is accepted, the company receives a 6-digit OTP. When you meet in person, the seeker enters this OTP to confirm the meeting happened.' },
         { q: 'Is my data secure?', a: 'Yes! We use industry-standard encryption to protect your data.' },
     ];
 
@@ -878,6 +870,7 @@ export function HelpView({ onBack }) {
                 </div>
 
                 <motion.button
+                    onClick={() => window.open('https://wa.me/918465834152?text=Hi%20Plyship%20Support%2C%20I%20need%20help%20with...', '_blank')}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     style={{
@@ -893,8 +886,12 @@ export function HelpView({ onBack }) {
                         boxShadow: 'var(--shadow-glow-soft)',
                     }}
                 >
-                    Contact Support
+                    💬 Contact Support via WhatsApp
                 </motion.button>
+
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12, textAlign: 'center' }}>
+                    Or call us at +91 8465834152
+                </p>
             </div>
         </div>
     );
