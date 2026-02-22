@@ -21,13 +21,13 @@ import WalletView from '../components/WalletView';
 import MeetingsView from '../components/MeetingsView';
 import ProjectsView from '../components/ProjectsView';
 import LandingPage from '../components/LandingPage';
-import { Leaf, Compass, Heart, MessageCircle, User, RefreshCw } from 'lucide-react';
+import { Leaf, Compass, Heart, MessageCircle, User, RefreshCw, LogOut } from 'lucide-react';
 
 const ADMIN_PHONES = ['+918465834152'];
 
 export default function Home() {
   const router = useRouter();
-  const { user, loading, getSwipeProfiles, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats } = useAuth();
+  const { user, loading, getSwipeProfiles, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats, impersonateUser, exitImpersonation, isImpersonating } = useAuth();
   const [match, setMatch] = useState(null);
   const [detailProfile, setDetailProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('explore');
@@ -41,20 +41,34 @@ export default function Home() {
 
   // Redirect logic for admin and incomplete profiles
   useEffect(() => {
-    if (!loading && user) {
+    if (!loading && user && !isImpersonating) {
       // Admin users go straight to dashboard
       if (ADMIN_PHONES.includes(user.phone)) {
-        router.replace('/admin');
-        return;
+        // Don't redirect if impersonate param is present
+        const params = new URLSearchParams(window.location.search);
+        if (!params.get('impersonate')) {
+          router.replace('/admin');
+          return;
+        }
       }
       if (!user.role) {
-        // User logged in but no role - they need to signup properly
         router.push('/signup');
       } else if (!user.profileComplete) {
         router.push('/profile-setup');
       }
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, isImpersonating]);
+
+  // Handle admin impersonation via URL param
+  useEffect(() => {
+    if (!loading && user && !isImpersonating && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const impersonateId = params.get('impersonate');
+      if (impersonateId) {
+        impersonateUser(impersonateId);
+      }
+    }
+  }, [loading, user]);
 
   // Load profiles when user is ready or when switching to explore tab
   useEffect(() => {
@@ -382,6 +396,40 @@ export default function Home() {
       flexDirection: 'column',
       overflow: 'hidden',
     }}>
+
+      {/* Impersonation Banner */}
+      {isImpersonating && (
+        <div style={{
+          background: 'linear-gradient(90deg, #FEE2E2 0%, #FECACA 100%)',
+          padding: '10px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '2px solid #F87171',
+          zIndex: 100,
+          flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#991B1B' }}>
+            👤 Viewing as: {user?.name || user?.profile?.name || user?.profile?.companyName || 'User'}
+          </span>
+          <button
+            onClick={() => {
+              exitImpersonation();
+              window.close();
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8,
+              background: '#DC2626', color: 'white',
+              border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 700,
+            }}
+          >
+            <LogOut size={14} />
+            Exit
+          </button>
+        </div>
+      )}
 
       {/* Minimal Top Header */}
       {!isFullScreen && (

@@ -37,6 +37,8 @@ export const AuthProvider = ({ children }) => {
     const isOnboarding = useRef(false);
     const confirmationResultRef = useRef(null);
     const recaptchaVerifierRef = useRef(null);
+    const [isImpersonating, setIsImpersonating] = useState(false);
+    const adminUserRef = useRef(null);
 
     // Listen for auth state changes
     useEffect(() => {
@@ -2170,6 +2172,48 @@ export const AuthProvider = ({ children }) => {
 
     // ============ ACCOUNT FUNCTIONS ============
 
+    // Admin impersonation — view the app as another user
+    const impersonateUser = async (targetUserId) => {
+        try {
+            // Save current admin user
+            adminUserRef.current = { ...user };
+
+            // Try seekers first
+            let userDoc = await getDoc(doc(db, 'seekers', targetUserId));
+            if (userDoc.exists()) {
+                const userData = { id: targetUserId, ...userDoc.data() };
+                setUser(userData);
+                setIsImpersonating(true);
+                console.log('👤 Impersonating user:', userData.name || userData.email || targetUserId);
+                return { success: true };
+            }
+
+            // Try companies
+            userDoc = await getDoc(doc(db, 'companies', targetUserId));
+            if (userDoc.exists()) {
+                const userData = { id: targetUserId, ...userDoc.data() };
+                setUser(userData);
+                setIsImpersonating(true);
+                console.log('👤 Impersonating company:', userData.profile?.companyName || targetUserId);
+                return { success: true };
+            }
+
+            return { success: false, error: 'User not found in Firestore' };
+        } catch (error) {
+            console.error('Impersonation error:', error);
+            return { success: false, error: error.message };
+        }
+    };
+
+    const exitImpersonation = () => {
+        if (adminUserRef.current) {
+            setUser(adminUserRef.current);
+            adminUserRef.current = null;
+            setIsImpersonating(false);
+            console.log('👤 Exited impersonation, restored admin');
+        }
+    };
+
     // Delete account and all associated data (requires password for reauthentication)
     const deleteAccount = async (password) => {
         if (!user || !user.id) {
@@ -2423,6 +2467,9 @@ export const AuthProvider = ({ children }) => {
             createNotification,
             getNotifications,
             markNotificationsRead,
+            impersonateUser,
+            exitImpersonation,
+            isImpersonating,
             logout
         }}>
             {children}

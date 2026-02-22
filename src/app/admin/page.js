@@ -7,7 +7,7 @@ import {
     Users, Building2, Palette, Calendar, Wallet, ArrowLeft,
     TrendingUp, DollarSign, MessageCircle, CheckCircle, XCircle,
     Clock, Search, RefreshCw, Eye, Filter, Download, Zap,
-    Pencil, Trash2, X, Save, AlertTriangle, LogOut, Banknote
+    Pencil, Trash2, X, Save, AlertTriangle, LogOut, Banknote, LogIn
 } from 'lucide-react';
 import {
     collection, getDocs, query, orderBy, limit, where,
@@ -910,6 +910,11 @@ export default function AdminDashboard() {
                         onEdit={(user) => setEditingItem({ type: 'user', data: user })}
                         onDelete={(user) => setConfirmDelete({ type: 'user', data: user })}
                         onView={(user) => setViewingUser(user)}
+                        onLoginAs={(user) => {
+                            if (confirm(`Login as "${user.profile?.name || user.profile?.companyName || user.id}"? You will view the app as this user.`)) {
+                                window.open(`/?impersonate=${user.id}`, '_blank');
+                            }
+                        }}
                     />
                 )}
                 {activeTab === 'meetings' && (
@@ -1510,7 +1515,7 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
 }
 
 // ============ USERS TAB ============
-function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView }) {
+function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView, onLoginAs }) {
     const filtered = users.filter(u =>
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.profile?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1625,6 +1630,12 @@ function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView }
                                             background: '#FEF2F2', cursor: 'pointer', display: 'flex', alignItems: 'center',
                                         }} title="Delete">
                                             <Trash2 size={15} color="#EF4444" />
+                                        </button>
+                                        <button onClick={() => onLoginAs(user)} style={{
+                                            padding: '6px 8px', borderRadius: 8, border: '1px solid #D1FAE5',
+                                            background: '#ECFDF5', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                        }} title="Login as this user">
+                                            <LogIn size={15} color="#059669" />
                                         </button>
                                     </div>
                                 </td>
