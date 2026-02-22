@@ -670,37 +670,90 @@ export function LikedProfilesView({ onBack, likedProfiles = [] }) {
 
 // Notifications Page
 export function NotificationsView({ onBack }) {
-    const notifications = [
-        { id: 1, type: 'match', title: 'New Match!', message: 'You matched with MVK Interiors', time: '2 min ago', unread: true },
-        { id: 2, type: 'message', title: 'New Message', message: 'Hello! Thanks for connecting...', time: '1 hour ago', unread: true },
-        { id: 3, type: 'like', title: 'Someone liked you', message: 'A new company is interested in you', time: '3 hours ago', unread: false },
-    ];
+    const { getNotifications, markNotificationsRead } = useAuth();
+    const [notifications, setNotifications] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    React.useEffect(() => {
+        const load = async () => {
+            const notifs = await getNotifications();
+            setNotifications(notifs);
+            setLoading(false);
+            // Mark all as read when viewing
+            markNotificationsRead();
+        };
+        load();
+    }, [getNotifications, markNotificationsRead]);
+
+    const getIcon = (type) => {
+        const icons = {
+            like: '\u2764\ufe0f',
+            match_accepted: '\ud83c\udf89',
+            match_request: '\ud83d\udc8c',
+            message: '\ud83d\udcac',
+            meeting_scheduled: '\ud83d\udcc5',
+            meeting_otp: '\ud83d\udd10',
+            meeting_confirmed: '\u2705',
+            wallet_credit: '\ud83d\udcb0',
+            wallet_debit: '\ud83d\udcb3',
+        };
+        return icons[type] || '\ud83d\udd14';
+    };
+
+    const timeAgo = (dateStr) => {
+        const now = new Date();
+        const date = new Date(dateStr);
+        const diff = Math.floor((now - date) / 1000);
+        if (diff < 60) return 'Just now';
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+        return date.toLocaleDateString();
+    };
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
             <PageHeader title="Notifications" onBack={onBack} />
             <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {notifications.map((notif) => (
-                        <motion.div
-                            key={notif.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            style={{
-                                padding: 16,
-                                borderRadius: 14,
-                                background: notif.unread ? 'white' : 'var(--bg-secondary)',
-                                border: `1px solid ${notif.unread ? 'var(--primary)' : 'var(--border-light)'}`,
-                            }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                <h4 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{notif.title}</h4>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{notif.time}</span>
-                            </div>
-                            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{notif.message}</p>
-                        </motion.div>
-                    ))}
-                </div>
+                {loading ? (
+                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 14 }}>Loading...</div>
+                ) : notifications.length === 0 ? (
+                    <EmptyState icon={Bell} title="No notifications" subtitle="You're all caught up!" />
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {notifications.map((notif) => (
+                            <motion.div
+                                key={notif.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                style={{
+                                    padding: 16,
+                                    borderRadius: 14,
+                                    background: notif.read ? 'var(--bg-secondary)' : 'white',
+                                    border: `1px solid ${notif.read ? 'var(--border-light)' : 'var(--primary)'}`,
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 12,
+                                }}
+                            >
+                                <span style={{ fontSize: 22, flexShrink: 0, marginTop: 2 }}>{getIcon(notif.type)}</span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                        <h4 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{notif.title}</h4>
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{timeAgo(notif.createdAt)}</span>
+                                    </div>
+                                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{notif.message}</p>
+                                </div>
+                                {!notif.read && (
+                                    <div style={{
+                                        width: 8, height: 8, borderRadius: '50%',
+                                        background: 'var(--primary)', flexShrink: 0, marginTop: 6,
+                                    }} />
+                                )}
+                            </motion.div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

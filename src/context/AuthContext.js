@@ -383,6 +383,15 @@ export const AuthProvider = ({ children }) => {
                 return { success: true, isMatch: true };
             }
 
+            // Notify target user about the like (fire-and-forget)
+            const myName = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
+            createNotification(targetProfile.id, {
+                type: 'like',
+                title: '❤️ New Like!',
+                message: `${myName} liked your profile`,
+                data: { userId: user.id },
+            });
+
             return { success: true, isMatch: false };
         } catch (error) {
             console.error('❌ Error liking profile:', error);
@@ -550,6 +559,15 @@ export const AuthProvider = ({ children }) => {
                 deleteDoc(doc(db, 'likes', user.id, 'incoming', likerUserId)).catch(() => { }),
                 deleteDoc(doc(db, 'likes', likerUserId, 'outgoing', user.id)).catch(() => { }),
             ]);
+
+            // Notify the liker that their match was accepted
+            const myName2 = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
+            createNotification(likerUserId, {
+                type: 'match_accepted',
+                title: '🎉 Match Accepted!',
+                message: `${myName2} accepted your match request. You can now chat!`,
+                data: { userId: user.id },
+            });
 
             console.log('✅ Match accepted:', likerUserId);
             return { success: true };
@@ -928,6 +946,16 @@ export const AuthProvider = ({ children }) => {
 
             const meetingRef = await addDoc(collection(db, 'meetings'), meetingData);
             console.log('✅ Meeting created:', meetingRef.id, meetingData);
+
+            // Notify the other party about the meeting request
+            const otherUserId = user.id === companyId ? seekerId : companyId;
+            const myName3 = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
+            createNotification(otherUserId, {
+                type: 'meeting_scheduled',
+                title: '📅 New Meeting Request',
+                message: `${myName3} wants to schedule a meeting with you`,
+                data: { meetingId: meetingRef.id },
+            });
 
             return { success: true, meetingId: meetingRef.id };
         } catch (error) {
@@ -1425,6 +1453,21 @@ export const AuthProvider = ({ children }) => {
             ]);
 
             console.log('💰 Payment processed: ₹500 split — ₹250 to seeker, ₹250 to admin');
+
+            // Notify both about payment
+            createNotification(companyId, {
+                type: 'wallet_debit',
+                title: '💳 Meeting Payment',
+                message: `₹${MEETING_FEE} debited for confirmed meeting`,
+                data: { meetingId },
+            });
+            createNotification(seekerId, {
+                type: 'wallet_credit',
+                title: '💰 Earnings Received!',
+                message: `₹${SEEKER_SHARE} added to your locked balance for the meeting`,
+                data: { meetingId },
+            });
+
             return { success: true, bothConfirmed: true, paymentProcessed: true };
         } catch (error) {
             console.error('❌ Error processing payment:', error);
@@ -2153,6 +2196,63 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    // ============ IN-APP NOTIFICATIONS ============
+
+    // Create a notification for a user
+    const createNotification = useCallback(async (targetUserId, { type, title, message, data = {} }) => {
+        try {
+            await addDoc(collection(db, 'notifications', targetUserId, 'items'), {
+                type,
+                title,
+                message,
+                data,
+                read: false,
+                createdAt: new Date().toISOString(),
+            });
+        } catch (error) {
+            console.error('❌ Error creating notification:', error);
+        }
+    }, []);
+
+    // Get all notifications for current user
+    const getNotifications = useCallback(async () => {
+        if (!user || !user.id) return [];
+        try {
+            const snap = await getDocs(
+                query(
+                    collection(db, 'notifications', user.id, 'items'),
+                    orderBy('createdAt', 'desc')
+                )
+            );
+            const notifs = [];
+            snap.forEach((d) => notifs.push({ id: d.id, ...d.data() }));
+            return notifs;
+        } catch (error) {
+            console.error('❌ Error fetching notifications:', error);
+            return [];
+        }
+    }, [user]);
+
+    // Mark all notifications as read
+    const markNotificationsRead = useCallback(async () => {
+        if (!user || !user.id) return;
+        try {
+            const snap = await getDocs(
+                query(
+                    collection(db, 'notifications', user.id, 'items'),
+                    where('read', '==', false)
+                )
+            );
+            const batch = [];
+            snap.forEach((d) => {
+                batch.push(updateDoc(doc(db, 'notifications', user.id, 'items', d.id), { read: true }));
+            });
+            await Promise.all(batch);
+        } catch (error) {
+            console.error('❌ Error marking notifications read:', error);
+        }
+    }, [user]);
+
     return (
         <AuthContext.Provider value={{
             user,
@@ -2197,6 +2297,9 @@ export const AuthProvider = ({ children }) => {
             getCompanyReviews,
             hasReviewed,
             deleteAccount,
+            createNotification,
+            getNotifications,
+            markNotificationsRead,
             logout
         }}>
             {children}
