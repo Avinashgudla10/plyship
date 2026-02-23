@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
     Wallet, ArrowLeft, Plus, ArrowDownLeft, ArrowUpRight,
     Clock, CheckCircle, AlertCircle, Lock, Unlock, CreditCard,
@@ -286,6 +287,7 @@ function TopUpModal({ onClose, onSuccess }) {
 // ============ COMPANY WALLET VIEW ============
 function CompanyWalletView({ onBack }) {
     const { getWallet, getTransactions } = useAuth();
+    const { showToast } = useToast();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -416,7 +418,7 @@ function CompanyWalletView({ onBack }) {
                     <TopUpModal
                         onClose={() => setShowTopUp(false)}
                         onSuccess={(amount) => {
-                            alert(`✅ Wallet topped up with ₹${amount}!`);
+                            showToast(`Wallet topped up with ₹${amount}!`, 'success');
                             loadWalletData();
                         }}
                     />
@@ -429,6 +431,7 @@ function CompanyWalletView({ onBack }) {
 // ============ SEEKER WALLET VIEW ============
 function SeekerWalletView({ onBack }) {
     const { user, getWallet, getTransactions, getProjects, requestWithdrawal } = useAuth();
+    const { showToast } = useToast();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [hasConfirmedProject, setHasConfirmedProject] = useState(false);
@@ -470,7 +473,7 @@ function SeekerWalletView({ onBack }) {
         // Create withdrawal record in Firestore for admin tracking
         const result = await requestWithdrawal(availableBalance);
         if (!result.success) {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
             return;
         }
 

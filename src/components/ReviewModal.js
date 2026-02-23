@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Star, Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -16,6 +17,7 @@ export default function ReviewModal({
     onSuccess
 }) {
     const { submitReview, user } = useAuth();
+    const { showToast } = useToast();
     const [rating, setRating] = useState(0);
     const [hoveredRating, setHoveredRating] = useState(0);
     const [comment, setComment] = useState('');
@@ -50,7 +52,7 @@ export default function ReviewModal({
 
     const handleSubmit = async () => {
         if (rating === 0) {
-            alert('Please select a rating');
+            showToast('Please select a rating', 'warning');
             return;
         }
 
@@ -59,11 +61,11 @@ export default function ReviewModal({
         setSubmitting(false);
 
         if (result.success) {
-            alert(result.updated ? '✅ Review updated!' : '✅ Thank you for your review!');
+            showToast(result.updated ? 'Review updated!' : 'Thank you for your review!', 'success');
             onSuccess?.();
             onClose();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
     };
 

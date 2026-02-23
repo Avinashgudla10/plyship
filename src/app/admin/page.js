@@ -911,9 +911,7 @@ export default function AdminDashboard() {
                         onDelete={(user) => setConfirmDelete({ type: 'user', data: user })}
                         onView={(user) => setViewingUser(user)}
                         onLoginAs={(user) => {
-                            if (confirm(`Login as "${user.profile?.name || user.profile?.companyName || user.id}"? You will view the app as this user.`)) {
-                                window.open(`/?impersonate=${user.id}`, '_blank');
-                            }
+                            window.open(`/?impersonate=${user.id}`, '_blank');
                         }}
                     />
                 )}

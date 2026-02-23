@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { subscribeToMessages } from '../lib/firebase';
 import { StartProjectModal } from './ProjectsView';
 import { ScheduleMeetingModal } from './MeetingsView';
@@ -318,6 +319,7 @@ export function ChatView({ chat, onBack, onNavigate }) {
         getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP,
         getProjects, acceptProject, declineProject
     } = useAuth();
+    const { showToast, showConfirm } = useToast();
     const [message, setMessage] = useState('');
     const [messages, setMessages] = useState([]);
     const [sending, setSending] = useState(false);
@@ -780,10 +782,10 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                                 if (result.success) {
                                                     await refreshMeetings();
                                                 } else if (result.expired) {
-                                                    alert('This meeting has expired. Please reschedule.');
+                                                    showToast('This meeting has expired. Please reschedule.', 'warning');
                                                     await refreshMeetings();
                                                 } else if (result.error) {
-                                                    alert(result.error);
+                                                    showToast(result.error, 'error');
                                                 }
                                                 setActionLoading(null);
                                             }}
@@ -938,7 +940,7 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                 <motion.button
                                     onClick={async () => {
                                         if (otpInput.length !== 6) {
-                                            alert('Please enter all 6 digits');
+                                            showToast('Please enter all 6 digits', 'warning');
                                             return;
                                         }
                                         setActionLoading('otp');
@@ -946,13 +948,13 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                         setActionLoading(null);
                                         if (result.success && result.bothConfirmed) {
                                             setOtpInput('');
-                                            alert('✅ Meeting confirmed! Payment transferred.');
+                                            showToast('Meeting confirmed! Payment transferred.', 'success');
                                         } else if (result.wrongOTP) {
-                                            alert('❌ Incorrect code. Please check with the company.');
+                                            showToast('Incorrect code. Please check with the company.', 'error');
                                         } else if (result.insufficientBalance) {
-                                            alert('⚠️ Company has insufficient wallet balance.');
+                                            showToast('Company has insufficient wallet balance.', 'warning');
                                         } else if (result.error) {
-                                            alert(result.error);
+                                            showToast(result.error, 'error');
                                         }
                                         refreshMeetings();
                                     }}
@@ -1007,7 +1009,8 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                 </div>
                                 <motion.button
                                     onClick={async () => {
-                                        if (confirm('Are you sure you want to cancel this meeting?')) {
+                                        const yes = await showConfirm('Are you sure you want to cancel this meeting?', 'Cancel Meeting');
+                                        if (yes) {
                                             setActionLoading('cancel');
                                             await cancelMeeting(activeMeeting.id);
                                             await refreshMeetings();
@@ -1115,10 +1118,10 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                             setActionLoading('acceptProject');
                                             const result = await acceptProject(activeProject.id);
                                             if (result.success) {
-                                                alert('✅ Project accepted! Wallet unlocked for withdrawals.');
+                                                showToast('Project accepted! Wallet unlocked for withdrawals.', 'success');
                                                 await refreshProjects();
                                             } else {
-                                                alert('Error: ' + result.error);
+                                                showToast(result.error, 'error');
                                             }
                                             setActionLoading(null);
                                         }}
@@ -1140,7 +1143,7 @@ export function ChatView({ chat, onBack, onNavigate }) {
                                             if (result.success) {
                                                 await refreshProjects();
                                             } else {
-                                                alert('Error: ' + result.error);
+                                                showToast(result.error, 'error');
                                             }
                                             setActionLoading(null);
                                         }}

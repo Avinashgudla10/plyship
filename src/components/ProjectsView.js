@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { uploadImage } from '../lib/firebase';
 import {
     Home, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
@@ -265,6 +266,7 @@ function ProjectCard({ project, isCompany, onSelect, getStatusColor, getStatusTe
 // Project Detail Modal
 function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusColor, getStatusText, formatDate }) {
     const { acceptProject, recordAdvancePayment, confirmAdvancePayment } = useAuth();
+    const { showToast } = useToast();
     const [loading, setLoading] = useState(false);
     const [showPaymentForm, setShowPaymentForm] = useState(false);
 
@@ -274,11 +276,11 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
         setLoading(false);
 
         if (result.success) {
-            alert('✅ Project accepted!');
+            showToast('Project accepted!', 'success');
             onRefresh();
             onClose();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
     };
 
@@ -288,11 +290,11 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
         setLoading(false);
 
         if (result.success) {
-            alert('🎉 Advance confirmed! Seeker\'s earnings have been unlocked.');
+            showToast('Advance confirmed! Seeker\'s earnings have been unlocked.', 'success');
             onRefresh();
             onClose();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
     };
 
@@ -561,6 +563,7 @@ function TimelineItem({ label, date, completed, amount, isLast }) {
 // Advance Payment Form
 function AdvancePaymentForm({ projectId, onSuccess, onCancel }) {
     const { recordAdvancePayment } = useAuth();
+    const { showToast } = useToast();
     const [amount, setAmount] = useState('');
     const [paymentDate, setPaymentDate] = useState('');
     const [proofImage, setProofImage] = useState(null);
@@ -580,7 +583,7 @@ function AdvancePaymentForm({ projectId, onSuccess, onCancel }) {
 
     const handleSubmit = async () => {
         if (!amount || !paymentDate) {
-            alert('Please fill in amount and date');
+            showToast('Please fill in amount and date', 'warning');
             return;
         }
 
@@ -602,10 +605,10 @@ function AdvancePaymentForm({ projectId, onSuccess, onCancel }) {
         setSubmitting(false);
 
         if (result.success) {
-            alert('✅ Advance payment recorded! Waiting for company confirmation.');
+            showToast('Advance payment recorded! Waiting for company confirmation.', 'success');
             onSuccess();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
     };
 
@@ -734,6 +737,7 @@ function AdvancePaymentForm({ projectId, onSuccess, onCancel }) {
 // Start Project Modal - for initiating a project from chat/matches
 export function StartProjectModal({ match, onClose, onSuccess }) {
     const { createProject } = useAuth();
+    const { showToast } = useToast();
     const [description, setDescription] = useState('');
     const [budgetRange, setBudgetRange] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -752,11 +756,11 @@ export function StartProjectModal({ match, onClose, onSuccess }) {
         setSubmitting(false);
 
         if (result.success) {
-            alert('✅ Project request sent! Waiting for company to accept.');
+            showToast('Project request sent! Waiting for company to accept.', 'success');
             onSuccess?.();
             onClose();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
     };
 

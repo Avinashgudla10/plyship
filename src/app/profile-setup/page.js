@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AvatarUpload, PortfolioUpload } from '../../components/ImageUpload';
 import {
@@ -89,6 +90,7 @@ const COMPANY_BUDGET_RANGES = [
 export default function ProfileSetup() {
     const router = useRouter();
     const { user, loading, completeProfile } = useAuth();
+    const { showToast } = useToast();
     const [currentStep, setCurrentStep] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errors, setErrors] = useState({});
@@ -223,12 +225,12 @@ export default function ProfileSetup() {
                     router.replace('/');
                 } else {
                     console.error('❌ Failed to save profile:', result?.error);
-                    alert('Failed to save profile: ' + (result?.error || 'Unknown error'));
+                    showToast('Failed to save profile: ' + (result?.error || 'Unknown error'), 'error');
                     setIsSubmitting(false);
                 }
             } catch (error) {
                 console.error('❌ Exception saving profile:', error);
-                alert('Error saving profile: ' + error.message);
+                showToast('Error saving profile: ' + error.message, 'error');
                 setIsSubmitting(false);
             }
         }

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { AvatarUpload } from './ImageUpload';
 import {
     User, Settings, LogOut, ChevronRight, Heart, MessageCircle,
@@ -268,6 +269,7 @@ export default function ProfileView({ onNavigate }) {
 // Edit Profile Page - Full Form
 export function EditProfileView({ onBack }) {
     const { user, completeProfile } = useAuth();
+    const { showToast } = useToast();
     const isCompany = user?.role === 'COMPANY';
 
     // Initialize profile with default arrays to avoid mutation
@@ -292,7 +294,7 @@ export function EditProfileView({ onBack }) {
         if (result?.success) {
             onBack?.();
         } else {
-            alert('Error saving profile: ' + (result?.error || 'Unknown error'));
+            showToast('Error saving profile: ' + (result?.error || 'Unknown error'), 'error');
         }
     };
 
@@ -784,26 +786,23 @@ export function PrivacyView({ onBack }) {
 // App Settings Page
 export function SettingsView({ onBack }) {
     const { deleteAccount } = useAuth();
+    const { showToast, showConfirm } = useToast();
     const [deleting, setDeleting] = useState(false);
 
     const handleDeleteAccount = async () => {
-        const confirmed = confirm(
-            '⚠️ DELETE ACCOUNT\n\nThis will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All connections & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!'
+        const confirmed = await showConfirm(
+            'This will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All connections & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!',
+            'Delete Account'
         );
 
         if (confirmed) {
-            const typed = prompt('Type DELETE to confirm account deletion:');
-            if (typed === 'DELETE') {
-                setDeleting(true);
-                const result = await deleteAccount();
-                if (result.success) {
-                    alert('✅ Your account has been completely deleted.');
-                } else {
-                    alert('❌ Error: ' + result.error);
-                    setDeleting(false);
-                }
+            setDeleting(true);
+            const result = await deleteAccount();
+            if (result.success) {
+                showToast('Your account has been completely deleted.', 'success');
             } else {
-                alert('Account deletion cancelled.');
+                showToast(result.error, 'error');
+                setDeleting(false);
             }
         }
     };
@@ -822,7 +821,7 @@ export function SettingsView({ onBack }) {
                         if (typeof window !== 'undefined' && window.caches) {
                             caches.keys().then(names => names.forEach(name => caches.delete(name)));
                         }
-                        alert('✅ Cache cleared successfully!');
+                        showToast('Cache cleared successfully!', 'success');
                     }} isLast />
                 </div>
 

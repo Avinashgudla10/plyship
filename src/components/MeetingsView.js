@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
     Calendar, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
     User, Building2, MapPin, ChevronRight, Plus, X, IndianRupee,
@@ -12,6 +13,7 @@ import {
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
     const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting } = useAuth();
+    const { showToast, showConfirm } = useToast();
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionId, setActionId] = useState(null);
@@ -50,10 +52,10 @@ export default function MeetingsView({ onBack }) {
         setActionId(meetingId);
         const result = await acceptMeeting(meetingId);
         if (result.success) {
-            alert('✅ Meeting accepted! It is now scheduled.');
+            showToast('Meeting accepted! It is now scheduled.', 'success');
             refreshMeetings();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
         setActionId(null);
     };
@@ -63,24 +65,25 @@ export default function MeetingsView({ onBack }) {
         setActionId(meetingId);
         const result = await declineMeeting(meetingId);
         if (result.success) {
-            alert('Meeting declined.');
+            showToast('Meeting declined.', 'info');
             refreshMeetings();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
         setActionId(null);
     };
 
     // Cancel a scheduled meeting
     const handleCancel = async (meetingId) => {
-        if (!confirm('Are you sure you want to cancel this meeting?')) return;
+        const yes = await showConfirm('Are you sure you want to cancel this meeting?', 'Cancel Meeting');
+        if (!yes) return;
         setActionId(meetingId);
         const result = await cancelMeeting(meetingId);
         if (result.success) {
-            alert('Meeting cancelled. You can reschedule if needed.');
+            showToast('Meeting cancelled. You can reschedule if needed.', 'info');
             refreshMeetings();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
         setActionId(null);
     };
@@ -92,20 +95,20 @@ export default function MeetingsView({ onBack }) {
 
         if (result.success) {
             if (result.dispute) {
-                alert('⚠️ Dispute raised — the other party said they did not meet. Admin will review.');
+                showToast('Dispute raised — the other party said they did not meet. Admin will review.', 'warning');
             } else if (result.bothConfirmed) {
-                alert('🎉 Meeting confirmed! ₹250 has been credited to your wallet.');
+                showToast('Meeting confirmed! ₹250 has been credited to your wallet.', 'success');
             } else {
-                alert('✅ You confirmed the meeting. Waiting for the other party to respond.');
+                showToast('You confirmed the meeting. Waiting for the other party to respond.', 'success');
             }
             refreshMeetings();
         } else {
             if (result.notYetTime) {
-                alert('⏰ Meeting time hasn\'t passed yet. You can confirm after the scheduled time.');
+                showToast('Meeting time hasn\'t passed yet. You can confirm after the scheduled time.', 'warning');
             } else if (result.insufficientBalance) {
-                alert('⚠️ Company has insufficient wallet balance to confirm meeting.');
+                showToast('Company has insufficient wallet balance to confirm meeting.', 'warning');
             } else {
-                alert('Error: ' + result.error);
+                showToast(result.error, 'error');
             }
         }
         setActionId(null);
@@ -113,20 +116,21 @@ export default function MeetingsView({ onBack }) {
 
     // Deny meeting (Not Met button)
     const handleDeny = async (meetingId) => {
-        if (!confirm('Are you sure the meeting did not happen?')) return;
+        const yes = await showConfirm('Are you sure the meeting did not happen?', 'Confirm');
+        if (!yes) return;
         setActionId(meetingId);
         const result = await denyMeeting(meetingId);
         if (result.success) {
             if (result.dispute) {
-                alert('⚠️ Dispute raised — the other party said they met. Admin will review.');
+                showToast('Dispute raised — the other party said they met. Admin will review.', 'warning');
             } else if (result.bothDenied) {
-                alert('Meeting cancelled — both parties confirmed it did not happen.');
+                showToast('Meeting cancelled — both parties confirmed it did not happen.', 'info');
             } else {
-                alert('✅ Recorded. Waiting for other party to respond.');
+                showToast('Recorded. Waiting for other party to respond.', 'success');
             }
             refreshMeetings();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
         setActionId(null);
     };
@@ -741,6 +745,7 @@ function ConfirmBadge({ label, confirmed }) {
 // Schedule Meeting Modal
 export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
     const { scheduleMeeting, user, getWallet } = useAuth();
+    const { showToast } = useToast();
     const [date, setDate] = useState('');
     const [time, setTime] = useState('');
     const [notes, setNotes] = useState('');
@@ -765,7 +770,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
 
     const handleSubmit = async () => {
         if (!date || !time) {
-            alert('Please select date and time');
+            showToast('Please select date and time', 'warning');
             return;
         }
 
@@ -779,7 +784,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
             onScheduled?.();
             onClose();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
     };
 
@@ -943,6 +948,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
 // Reschedule Meeting Modal
 function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
     const { rescheduleMeeting } = useAuth();
+    const { showToast } = useToast();
     const [date, setDate] = useState('');
     const [time, setTime] = useState('');
     const [notes, setNotes] = useState(meeting.notes || '');
@@ -958,7 +964,7 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
 
     const handleSubmit = async () => {
         if (!date || !time) {
-            alert('Please select date and time');
+            showToast('Please select date and time', 'warning');
             return;
         }
 
@@ -969,11 +975,11 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
         setSubmitting(false);
 
         if (result.success) {
-            alert('✅ Meeting rescheduled! Waiting for the other party to accept.');
+            showToast('Meeting rescheduled! Waiting for the other party to accept.', 'success');
             onScheduled?.();
             onClose();
         } else {
-            alert('Error: ' + result.error);
+            showToast(result.error, 'error');
         }
     };
 
