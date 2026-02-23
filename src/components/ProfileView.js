@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -13,9 +13,24 @@ import {
 
 // Main Profile View with navigation
 export default function ProfileView({ onNavigate }) {
-    const { user, logout } = useAuth();
+    const { user, logout, getMatches, getChats } = useAuth();
     const isCompany = user?.role === 'COMPANY';
     const profile = user?.profile || {};
+    const [connectionCount, setConnectionCount] = useState('-');
+    const [messageCount, setMessageCount] = useState('-');
+
+    useEffect(() => {
+        const loadStats = async () => {
+            try {
+                const [matches, chats] = await Promise.all([getMatches(), getChats()]);
+                setConnectionCount(matches?.length || 0);
+                setMessageCount(chats?.length || 0);
+            } catch (e) {
+                console.error('Error loading profile stats:', e);
+            }
+        };
+        if (user?.profileComplete) loadStats();
+    }, [user, getMatches, getChats]);
 
     const name = isCompany ? profile.companyName : profile.name;
     const image = profile.avatar || profile.portfolioImages?.[0];
@@ -135,8 +150,8 @@ export default function ProfileView({ onNavigate }) {
                     marginTop: 20,
                 }}>
                     {[
-                        { label: 'Connections', value: '-', icon: Heart },
-                        { label: 'Messages', value: '-', icon: MessageCircle },
+                        { label: 'Connections', value: connectionCount, icon: Heart },
+                        { label: 'Messages', value: messageCount, icon: MessageCircle },
                     ].map((stat) => (
                         <div key={stat.label} style={{
                             flex: 1,
