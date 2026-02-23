@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { AvatarUpload } from './ImageUpload';
 import {
-    User, Settings, LogOut, ChevronRight, Heart, MessageCircle,
+    User, Users, Settings, LogOut, ChevronRight, Heart, MessageCircle,
     Bell, Shield, HelpCircle, Star, MapPin, Briefcase, Edit2, Camera,
     ArrowLeft, Check, X, Wallet, Calendar, Home
 } from 'lucide-react';
@@ -150,7 +150,7 @@ export default function ProfileView({ onNavigate }) {
                     marginTop: 20,
                 }}>
                     {[
-                        { label: 'Connections', value: connectionCount, icon: Heart },
+                        { label: 'Connections', value: connectionCount, icon: Users },
                         { label: 'Messages', value: messageCount, icon: MessageCircle },
                     ].map((stat) => (
                         <div key={stat.label} style={{

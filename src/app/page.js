@@ -21,7 +21,7 @@ import WalletView from '../components/WalletView';
 import MeetingsView from '../components/MeetingsView';
 import ProjectsView from '../components/ProjectsView';
 import LandingPage from '../components/LandingPage';
-import { Leaf, Compass, Heart, MessageCircle, User, RefreshCw, LogOut } from 'lucide-react';
+import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut } from 'lucide-react';
 
 const ADMIN_PHONES = ['+918465834152'];
 
@@ -209,7 +209,7 @@ export default function Home() {
 
   const navItems = [
     { id: 'explore', icon: Compass, label: 'Explore', badge: 0 },
-    { id: 'matches', icon: Heart, label: 'Connections', badge: 0 },
+    { id: 'matches', icon: Users, label: 'Connections', badge: 0 },
     { id: 'messages', icon: MessageCircle, label: 'Chat', badge: 0 },
     { id: 'profile', icon: User, label: 'Profile', badge: 0 },
   ];

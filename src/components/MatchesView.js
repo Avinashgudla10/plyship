@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, MapPin, Star, Briefcase, User, Check, X, Clock, Loader2 } from 'lucide-react';
+import { Heart, MessageCircle, MapPin, Star, Briefcase, User, Users, Check, X, Clock, Loader2 } from 'lucide-react';
 
 export default function MatchesView({ matches = [], pendingRequests = [], onChatClick, onAccept, onRefuse, viewerRole }) {
     const [actionLoading, setActionLoading] = useState(null);
@@ -48,7 +48,7 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
                         marginBottom: 20,
                     }}
                 >
-                    <Heart size={36} color="var(--primary)" />
+                    <Users size={36} color="var(--primary)" />
                 </motion.div>
                 <h2 style={{
                     fontFamily: 'var(--font-display)',
@@ -231,7 +231,7 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
                         alignItems: 'center',
                         gap: 8,
                     }}>
-                        <Heart size={18} color="var(--primary)" />
+                        <Users size={18} color="var(--primary)" />
                         Your Connections ({matches.length})
                     </h2>
 
