@@ -43,9 +43,14 @@ export const AuthProvider = ({ children }) => {
     // Listen for auth state changes
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            // Skip if we're in the middle of onboarding
+            // Skip if we're in the middle of onboarding or impersonating
             if (isOnboarding.current) {
                 console.log('⏳ Skipping auth listener - onboarding in progress');
+                setLoading(false);
+                return;
+            }
+            if (isImpersonating) {
+                console.log('👤 Skipping auth listener - impersonating user');
                 setLoading(false);
                 return;
             }
