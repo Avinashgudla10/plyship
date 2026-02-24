@@ -445,18 +445,15 @@ export default function Home() {
           position: 'relative',
         }}>
           {/* Logo */}
-          <div style={{
-            width: 28,
-            height: 28,
-            borderRadius: 8,
-            background: 'var(--gradient-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <Leaf size={15} color="white" />
-          </div>
+          <img
+            src="/logo.png"
+            alt="PlyShip"
+            style={{
+              height: 28,
+              width: 'auto',
+              flexShrink: 0,
+            }}
+          />
 
           {/* Centered Tab Title */}
           <span style={{
