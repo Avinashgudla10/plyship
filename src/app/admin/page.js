@@ -1654,6 +1654,18 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
     const getUser = (id) => users.find(u => u.id === id);
 
+    // Count confirmed meetings per user
+    const confirmedCounts = useMemo(() => {
+        const counts = {};
+        meetings.forEach(m => {
+            if (m.status === 'CONFIRMED') {
+                counts[m.companyId] = (counts[m.companyId] || 0) + 1;
+                counts[m.seekerId] = (counts[m.seekerId] || 0) + 1;
+            }
+        });
+        return counts;
+    }, [meetings]);
+
     const statusColors = {
         'PENDING_ACCEPTANCE': { bg: '#FEF3C7', color: '#D97706' },
         'SCHEDULED': { bg: '#DBEAFE', color: '#2563EB' },
@@ -1711,12 +1723,32 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                             return (
                                 <tr key={meeting.id} style={{ borderTop: '1px solid #E5E7EB' }}>
                                     <td style={tdStyle}>
-                                        <div>{company?.profile?.companyName || company?.email || 'Unknown'}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span>{company?.profile?.companyName || company?.email || 'Unknown'}</span>
+                                            {confirmedCounts[meeting.companyId] > 0 && (
+                                                <span style={{
+                                                    padding: '2px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                                                    background: '#D1FAE5', color: '#059669',
+                                                }}>
+                                                    ✓ {confirmedCounts[meeting.companyId]}
+                                                </span>
+                                            )}
+                                        </div>
                                         {company?.email && <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{company.email}</div>}
                                         {company?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{company.profile.phone}</div>}
                                     </td>
                                     <td style={tdStyle}>
-                                        <div>{designer?.profile?.name || designer?.email || 'Unknown'}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span>{designer?.profile?.name || designer?.email || 'Unknown'}</span>
+                                            {confirmedCounts[meeting.seekerId] > 0 && (
+                                                <span style={{
+                                                    padding: '2px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                                                    background: '#D1FAE5', color: '#059669',
+                                                }}>
+                                                    ✓ {confirmedCounts[meeting.seekerId]}
+                                                </span>
+                                            )}
+                                        </div>
                                         {designer?.email && <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{designer.email}</div>}
                                         {designer?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{designer.profile.phone}</div>}
                                     </td>
