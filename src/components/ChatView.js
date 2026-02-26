@@ -201,10 +201,11 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
                         No chats match this filter
                     </div>
                 ) : filteredChats.map((chat, index) => {
-                    const isChatCompany = chat?.matchedUserRole === 'COMPANY' || chat?.role === 'COMPANY';
+                    const isBroadcast = chat?.isBroadcast || chat?.matchedUserId === 'plyship-admin';
+                    const isChatCompany = !isBroadcast && (chat?.matchedUserRole === 'COMPANY' || chat?.role === 'COMPANY');
                     const profile = chat?.matchedUserProfile || chat?.profile || {};
                     const name = chat?.matchedUserName || (isChatCompany ? profile.companyName : profile.name);
-                    const image = profile.avatar || profile.portfolioImages?.[0];
+                    const image = isBroadcast ? '/logo.png' : (profile.avatar || profile.portfolioImages?.[0]);
                     const statusConfig = chat.meetingStatus ? MEETING_STATUS_CONFIG[chat.meetingStatus] : null;
 
                     // Format last message time
@@ -265,6 +266,23 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
                                     }}>
                                         {name || 'Unknown'}
                                     </h3>
+                                    {/* Blue Verified Tick for PlyShip Team */}
+                                    {isBroadcast && (
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: 18,
+                                            height: 18,
+                                            borderRadius: '50%',
+                                            background: '#1D9BF0',
+                                            flexShrink: 0,
+                                        }}>
+                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                                <path d="M2 6.5L4.5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                            </svg>
+                                        </span>
+                                    )}
                                     {/* Meeting Status Badge */}
                                     {statusConfig && (
                                         <span style={{
@@ -340,15 +358,17 @@ export function ChatView({ chat, onBack, onNavigate }) {
     const isCompanyUser = user?.role === 'COMPANY';
     const MEETING_FEE = 500;
 
+    const isBroadcast = chat?.isBroadcast || chat?.matchedUserId === 'plyship-admin';
+
     // Get chat partner info
-    const isCompany = chat?.matchedUserRole === 'COMPANY' || chat?.role === 'COMPANY';
+    const isCompany = !isBroadcast && (chat?.matchedUserRole === 'COMPANY' || chat?.role === 'COMPANY');
     const profile = chat?.matchedUserProfile || chat?.profile || {};
     const name = chat?.matchedUserName || (isCompany ? profile.companyName : profile.name);
-    const image = profile.avatar || profile.portfolioImages?.[0];
+    const image = isBroadcast ? '/logo.png' : (profile.avatar || profile.portfolioImages?.[0]);
     const otherUserId = chat?.matchedUserId || chat?.id;
 
-    // Generate chat ID
-    const chatId = user && otherUserId ? getChatId(user.id, otherUserId) : null;
+    // Generate chat ID — broadcast chats use their own ID format
+    const chatId = isBroadcast ? chat.id : (user && otherUserId ? getChatId(user.id, otherUserId) : null);
     console.log(`🔍 ChatView: user=${user?.id} (${user?.role}), otherUserId=${otherUserId}, chatId=${chatId}`);
 
     // Fetch meetings between these two users (with polling for real-time updates)
@@ -561,14 +581,32 @@ export function ChatView({ chat, onBack, onNavigate }) {
                 </div>
 
                 <div style={{ flex: 1 }}>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {name || 'Unknown'}
-                    </h3>
-                    <span style={{ fontSize: 12, color: 'var(--success)' }}>Online</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {name || 'Unknown'}
+                        </h3>
+                        {isBroadcast && (
+                            <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 18,
+                                height: 18,
+                                borderRadius: '50%',
+                                background: '#1D9BF0',
+                                flexShrink: 0,
+                            }}>
+                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                    <path d="M2 6.5L4.5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            </span>
+                        )}
+                    </div>
+                    <span style={{ fontSize: 12, color: isBroadcast ? 'var(--text-muted)' : 'var(--success)' }}>{isBroadcast ? 'Official Broadcast' : 'Online'}</span>
                 </div>
 
                 {/* Schedule Meeting Button - hide once meeting is confirmed and Start Project is visible */}
-                {!hasConfirmedMeeting && (
+                {!isBroadcast && !hasConfirmedMeeting && (
                     <motion.button
                         onClick={() => setShowMeetingModal(true)}
                         whileTap={{ scale: 0.9 }}
