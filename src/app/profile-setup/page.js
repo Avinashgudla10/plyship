@@ -19,21 +19,17 @@ const SEEKER_STEPS = [
 ];
 
 const STYLES = [
-    { id: 'modern', label: 'Modern', emoji: '🏢' },
-    { id: 'minimalist', label: 'Minimalist', emoji: '⬜' },
-    { id: 'traditional', label: 'Traditional', emoji: '🏛️' },
-    { id: 'contemporary', label: 'Contemporary', emoji: '✨' },
-    { id: 'industrial', label: 'Industrial', emoji: '🏭' },
-    { id: 'scandinavian', label: 'Scandinavian', emoji: '🪵' },
+    { id: 'residential', label: 'Residential Space', emoji: '🏠' },
+    { id: 'commercial', label: 'Commercial Space', emoji: '🏢' },
 ];
 
 const ROOM_TYPES = [
+    { id: 'full', label: 'Full Home', emoji: '🏠' },
     { id: 'living', label: 'Living Room', emoji: '🛋️' },
     { id: 'bedroom', label: 'Bedroom', emoji: '🛏️' },
     { id: 'kitchen', label: 'Kitchen', emoji: '🍳' },
     { id: 'bathroom', label: 'Bathroom', emoji: '🚿' },
     { id: 'office', label: 'Home Office', emoji: '💼' },
-    { id: 'full', label: 'Full Home', emoji: '🏠' },
 ];
 
 const BUDGET_RANGES = [
@@ -468,7 +464,7 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
             </p>
 
             <div style={{ marginBottom: 24 }}>
-                <label style={labelStyle}>Design Styles</label>
+                <label style={labelStyle}>Space Type</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
                     {STYLES.map((style) => (
                         <EmojiButton key={style.id} item={style} selected={data.styles.includes(style.id)} onClick={() => toggleSelection('styles', style.id)} />
