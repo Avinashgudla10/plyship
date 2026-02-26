@@ -266,20 +266,12 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
                                     }}>
                                         {name || 'Unknown'}
                                     </h3>
-                                    {/* Blue Verified Tick for PlyShip Team */}
+                                    {/* Instagram-style Verified Badge for PlyShip Team */}
                                     {isBroadcast && (
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: 18,
-                                            height: 18,
-                                            borderRadius: '50%',
-                                            background: '#1D9BF0',
-                                            flexShrink: 0,
-                                        }}>
-                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                                                <path d="M2 6.5L4.5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                        <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+                                            <svg width="18" height="18" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M19.998 3.094L16.793 0l-4.463 2.08-4.878-.636L5.718 5.72l-3.64 1.735-.637 4.878L0 16.795l2.094 3.203L0 23.2l1.442 4.463-2.08 4.878.636 4.878L3.64 39.15l1.735 3.64 4.878.637L14.795 40l3.203-2.094L21.2 40l4.463-1.442 4.878 2.08 4.878-.636L37.15 36.36l3.64-1.735.637-4.878L40 25.205l-2.094-3.203L40 18.8l-1.442-4.463 2.08-4.878-.636-4.878L36.36 2.85l-1.735-3.64-4.878-.637L25.205 0l-3.203 2.094z" transform="scale(0.5)" fill="#1D9BF0" />
+                                                <path d="M17.204 10.165l-5.88 5.88-2.528-2.528a1.2 1.2 0 10-1.697 1.697l3.376 3.376a1.2 1.2 0 001.697 0l6.728-6.728a1.2 1.2 0 00-1.697-1.697z" fill="white" />
                                             </svg>
                                         </span>
                                     )}
@@ -586,18 +578,10 @@ export function ChatView({ chat, onBack, onNavigate }) {
                             {name || 'Unknown'}
                         </h3>
                         {isBroadcast && (
-                            <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                width: 18,
-                                height: 18,
-                                borderRadius: '50%',
-                                background: '#1D9BF0',
-                                flexShrink: 0,
-                            }}>
-                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                                    <path d="M2 6.5L4.5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+                                <svg width="18" height="18" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M19.998 3.094L16.793 0l-4.463 2.08-4.878-.636L5.718 5.72l-3.64 1.735-.637 4.878L0 16.795l2.094 3.203L0 23.2l1.442 4.463-2.08 4.878.636 4.878L3.64 39.15l1.735 3.64 4.878.637L14.795 40l3.203-2.094L21.2 40l4.463-1.442 4.878 2.08 4.878-.636L37.15 36.36l3.64-1.735.637-4.878L40 25.205l-2.094-3.203L40 18.8l-1.442-4.463 2.08-4.878-.636-4.878L36.36 2.85l-1.735-3.64-4.878-.637L25.205 0l-3.203 2.094z" transform="scale(0.5)" fill="#1D9BF0" />
+                                    <path d="M17.204 10.165l-5.88 5.88-2.528-2.528a1.2 1.2 0 10-1.697 1.697l3.376 3.376a1.2 1.2 0 001.697 0l6.728-6.728a1.2 1.2 0 00-1.697-1.697z" fill="white" />
                                 </svg>
                             </span>
                         )}
