@@ -2058,12 +2058,12 @@ function ChatsTab({ chats, users, onView, onDelete }) {
         setBroadcastResult(null);
 
         try {
-            // Filter users by target audience
+            // Filter users by target audience (roles are lowercase in admin data)
             const targetUsers = users.filter(u => {
-                if (!u.profileComplete) return false;
-                if (broadcastTarget === 'seekers') return u.role === 'SEEKER';
-                if (broadcastTarget === 'companies') return u.role === 'COMPANY';
-                return u.role === 'SEEKER' || u.role === 'COMPANY';
+                const role = (u.role || '').toLowerCase();
+                if (broadcastTarget === 'seekers') return role === 'seeker';
+                if (broadcastTarget === 'companies') return role === 'company';
+                return role === 'seeker' || role === 'company';
             });
 
             let sent = 0;
@@ -2139,10 +2139,10 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                     </select>
                     <span style={{ fontSize: 12, color: '#6366F1', alignSelf: 'center' }}>
                         {users.filter(u => {
-                            if (!u.profileComplete) return false;
-                            if (broadcastTarget === 'seekers') return u.role === 'SEEKER';
-                            if (broadcastTarget === 'companies') return u.role === 'COMPANY';
-                            return u.role === 'SEEKER' || u.role === 'COMPANY';
+                            const role = (u.role || '').toLowerCase();
+                            if (broadcastTarget === 'seekers') return role === 'seeker';
+                            if (broadcastTarget === 'companies') return role === 'company';
+                            return role === 'seeker' || role === 'company';
                         }).length} recipients
                     </span>
                 </div>
