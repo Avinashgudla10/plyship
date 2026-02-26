@@ -368,12 +368,29 @@ export const AuthProvider = ({ children }) => {
 
             console.log(`📊 Found ${profiles.length} ${collectionName} profiles (after filtering)`);
 
-            // Sort by lastActiveAt descending — most recently active users appear first
+            // City-based matching: same-city profiles appear first
+            const userCity = (user.profile?.city || '').trim().toLowerCase();
+
             profiles.sort((a, b) => {
+                const aCity = (a.profile?.city || a.city || '').trim().toLowerCase();
+                const bCity = (b.profile?.city || b.city || '').trim().toLowerCase();
+                const aSameCity = userCity && aCity === userCity ? 1 : 0;
+                const bSameCity = userCity && bCity === userCity ? 1 : 0;
+
+                // Same-city profiles come first
+                if (aSameCity !== bSameCity) return bSameCity - aSameCity;
+
+                // Within same group, sort by lastActiveAt descending
                 const aTime = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
                 const bTime = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
                 return bTime - aTime;
             });
+
+            const sameCityCount = profiles.filter(p => {
+                const pCity = (p.profile?.city || p.city || '').trim().toLowerCase();
+                return userCity && pCity === userCity;
+            }).length;
+            console.log(`🏙️ City matching: ${sameCityCount} same-city, ${profiles.length - sameCityCount} other-city (user city: "${userCity || 'not set'}")`);
 
             return profiles;
         } catch (error) {
