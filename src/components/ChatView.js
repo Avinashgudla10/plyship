@@ -205,7 +205,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
                     const isChatCompany = !isBroadcast && (chat?.matchedUserRole === 'COMPANY' || chat?.role === 'COMPANY');
                     const profile = chat?.matchedUserProfile || chat?.profile || {};
                     const name = chat?.matchedUserName || (isChatCompany ? profile.companyName : profile.name);
-                    const image = isBroadcast ? '/logo.png' : (profile.avatar || profile.portfolioImages?.[0]);
+                    const image = isBroadcast ? '/favicon.png' : (profile.avatar || profile.portfolioImages?.[0]);
                     const statusConfig = chat.meetingStatus ? MEETING_STATUS_CONFIG[chat.meetingStatus] : null;
 
                     // Format last message time
@@ -364,7 +364,7 @@ export function ChatView({ chat, onBack, onNavigate }) {
     const isCompany = !isBroadcast && (chat?.matchedUserRole === 'COMPANY' || chat?.role === 'COMPANY');
     const profile = chat?.matchedUserProfile || chat?.profile || {};
     const name = chat?.matchedUserName || (isCompany ? profile.companyName : profile.name);
-    const image = isBroadcast ? '/logo.png' : (profile.avatar || profile.portfolioImages?.[0]);
+    const image = isBroadcast ? '/favicon.png' : (profile.avatar || profile.portfolioImages?.[0]);
     const otherUserId = chat?.matchedUserId || chat?.id;
 
     // Generate chat ID — broadcast chats use their own ID format
