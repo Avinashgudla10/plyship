@@ -15,9 +15,7 @@ import Image from 'next/image';
 // ============ SEEKER FORM DATA ============
 const SEEKER_STEPS = [
     { id: 'basic', title: 'About You', icon: User },
-    { id: 'location', title: 'Location', icon: MapPin },
-    { id: 'preferences', title: 'Preferences', icon: Palette },
-    { id: 'budget', title: 'Budget & Timeline', icon: Wallet },
+    { id: 'preferences', title: 'Preferences & Budget', icon: Palette },
 ];
 
 const STYLES = [
@@ -56,8 +54,7 @@ const TIMELINES = [
 const COMPANY_STEPS = [
     { id: 'company', title: 'Company Info', icon: Building2 },
     { id: 'services', title: 'Services', icon: Briefcase },
-    { id: 'portfolio', title: 'Portfolio', icon: ImageIcon },
-    { id: 'pricing', title: 'Pricing & Areas', icon: Wallet },
+    { id: 'portfolio', title: 'Portfolio & Pricing', icon: ImageIcon },
 ];
 
 const SERVICES = [
@@ -101,10 +98,8 @@ export default function ProfileSetup() {
     // Seeker form data
     const [seekerData, setSeekerData] = useState({
         name: user?.name || '',
-        email: '',
         avatar: null,
         city: '',
-        locality: '',
         propertyType: '',
         styles: [],
         rooms: [],
@@ -117,17 +112,14 @@ export default function ProfileSetup() {
         companyName: '',
         tagline: '',
         avatar: null,
-        email: '',
         yearsInBusiness: '',
         city: '',
-        serviceAreas: [],
         services: [],
         specializations: [],
         portfolioImages: [],
         portfolioDescription: '',
         projectsCompleted: '',
         minBudget: '',
-        maxBudget: '',
     });
 
     const ADMIN_PHONES = ['+918465834152'];
@@ -157,22 +149,19 @@ export default function ProfileSetup() {
                 if (!seekerData.name || seekerData.name.trim().length < 2) {
                     newErrors.name = 'Name must be at least 2 characters';
                 }
-                // Email is optional, no validation needed
+                if (!seekerData.city || seekerData.city.trim().length < 2) {
+                    newErrors.city = 'City is required';
+                }
                 if (!seekerData.propertyType) {
                     newErrors.propertyType = 'Please select a property type';
                 }
             } else if (currentStep === 1) {
-                if (!seekerData.city || seekerData.city.trim().length < 2) {
-                    newErrors.city = 'City is required';
-                }
-            } else if (currentStep === 2) {
                 if (!seekerData.styles || seekerData.styles.length === 0) {
                     newErrors.styles = 'Select at least one style';
                 }
                 if (!seekerData.rooms || seekerData.rooms.length === 0) {
                     newErrors.rooms = 'Select at least one room';
                 }
-            } else if (currentStep === 3) {
                 if (!seekerData.budget) {
                     newErrors.budget = 'Please select a budget range';
                 }
@@ -186,7 +175,6 @@ export default function ProfileSetup() {
                 if (!companyData.companyName || companyData.companyName.trim().length < 2) {
                     newErrors.companyName = 'Company name must be at least 2 characters';
                 }
-                // Email is optional, no validation needed
             } else if (currentStep === 1) {
                 if (!companyData.services || companyData.services.length === 0) {
                     newErrors.services = 'Select at least one service';
@@ -341,13 +329,7 @@ export default function ProfileSetup() {
                             <SeekerBasicInfo data={seekerData} setData={setSeekerData} errors={errors} />
                         )}
                         {!isCompany && currentStep === 1 && (
-                            <SeekerLocation data={seekerData} setData={setSeekerData} errors={errors} />
-                        )}
-                        {!isCompany && currentStep === 2 && (
-                            <SeekerPreferences data={seekerData} toggleSelection={(f, v) => toggleSelection(f, v, false)} errors={errors} />
-                        )}
-                        {!isCompany && currentStep === 3 && (
-                            <SeekerBudget data={seekerData} setData={setSeekerData} errors={errors} />
+                            <SeekerPreferences data={seekerData} setData={setSeekerData} toggleSelection={(f, v) => toggleSelection(f, v, false)} errors={errors} />
                         )}
 
                         {/* ============ COMPANY STEPS ============ */}
@@ -359,9 +341,6 @@ export default function ProfileSetup() {
                         )}
                         {isCompany && currentStep === 2 && (
                             <CompanyPortfolio data={companyData} setData={setCompanyData} />
-                        )}
-                        {isCompany && currentStep === 3 && (
-                            <CompanyPricing data={companyData} setData={setCompanyData} toggleSelection={(f, v) => toggleSelection(f, v, true)} />
                         )}
                     </motion.div>
                 </AnimatePresence>
@@ -444,7 +423,7 @@ function SeekerBasicInfo({ data, setData, errors }) {
                 Let&apos;s get to know you
             </h2>
             <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
-                Tell us a bit about yourself
+                Tell us about yourself and your property
             </p>
 
             <div style={{ marginBottom: 32 }}>
@@ -460,7 +439,7 @@ function SeekerBasicInfo({ data, setData, errors }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <InputField label="Full Name" value={data.name} onChange={(v) => setData({ ...data, name: v })} placeholder="Your name" error={errors?.name} />
-                <InputField label="Email Address (Optional)" value={data.email} onChange={(v) => setData({ ...data, email: v })} placeholder="hello@example.com" type="email" />
+                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Hyderabad" error={errors?.city} />
 
                 <div>
                     <label style={labelStyle}>Property Type</label>
@@ -478,46 +457,17 @@ function SeekerBasicInfo({ data, setData, errors }) {
     );
 }
 
-function SeekerLocation({ data, setData, errors }) {
+function SeekerPreferences({ data, setData, toggleSelection, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
-                Where&apos;s your property?
+                Your preferences
             </h2>
             <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
-                We&apos;ll find companies near you
+                Help us match you with the right companies
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Bangalore" error={errors?.city} />
-                <InputField label="Locality / Area" value={data.locality} onChange={(v) => setData({ ...data, locality: v })} placeholder="e.g., Indiranagar" />
-
-                <div>
-                    <label style={labelStyle}>Popular Cities</label>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                        {['Bangalore', 'Mumbai', 'Delhi', 'Hyderabad', 'Chennai', 'Pune'].map((city) => (
-                            <PillButton key={city} selected={data.city === city} onClick={() => setData({ ...data, city })}>
-                                {city}
-                            </PillButton>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function SeekerPreferences({ data, toggleSelection, errors }) {
-    return (
-        <div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
-                What&apos;s your style?
-            </h2>
-            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
-                Select all that you like
-            </p>
-
-            <div style={{ marginBottom: 32 }}>
+            <div style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>Design Styles</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
                     {STYLES.map((style) => (
@@ -527,7 +477,7 @@ function SeekerPreferences({ data, toggleSelection, errors }) {
                 {errors?.styles && <p style={errorTextStyle}>{errors.styles}</p>}
             </div>
 
-            <div>
+            <div style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>Rooms to Design</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
                     {ROOM_TYPES.map((room) => (
@@ -536,21 +486,8 @@ function SeekerPreferences({ data, toggleSelection, errors }) {
                 </div>
                 {errors?.rooms && <p style={errorTextStyle}>{errors.rooms}</p>}
             </div>
-        </div>
-    );
-}
 
-function SeekerBudget({ data, setData, errors }) {
-    return (
-        <div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
-                Budget & Timeline
-            </h2>
-            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
-                Help us match you with the right companies
-            </p>
-
-            <div style={{ marginBottom: 32 }}>
+            <div style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>Your Budget</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {BUDGET_RANGES.map((budget) => (
@@ -599,7 +536,7 @@ function CompanyBasicInfo({ data, setData, errors }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <InputField label="Company Name" value={data.companyName} onChange={(v) => setData({ ...data, companyName: v })} placeholder="Your company name" error={errors?.companyName} />
                 <InputField label="Tagline" value={data.tagline} onChange={(v) => setData({ ...data, tagline: v })} placeholder="e.g., Modern designs for modern living" />
-                <InputField label="Email Address (Optional)" value={data.email} onChange={(v) => setData({ ...data, email: v })} placeholder="hello@example.com" type="email" />
+                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Hyderabad" />
                 <InputField label="Years in Business" value={data.yearsInBusiness} onChange={(v) => setData({ ...data, yearsInBusiness: v })} placeholder="e.g., 5" type="number" />
             </div>
         </div>
@@ -648,7 +585,7 @@ function CompanyPortfolio({ data, setData }) {
                 Showcase your work
             </h2>
             <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
-                Add portfolio images and describe your work
+                Add portfolio images and set your pricing
             </p>
 
             {/* Portfolio Image Upload */}
@@ -681,40 +618,12 @@ function CompanyPortfolio({ data, setData }) {
                 </div>
                 <InputField label="Projects Completed" value={data.projectsCompleted} onChange={(v) => setData({ ...data, projectsCompleted: v })} placeholder="e.g., 150" type="number" />
             </div>
-        </div>
-    );
-}
 
-function CompanyPricing({ data, setData, toggleSelection }) {
-    return (
-        <div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
-                Pricing & Service Areas
-            </h2>
-            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 32 }}>
-                Set your budget range and locations you serve
-            </p>
-
-            <div style={{ marginBottom: 32 }}>
+            <div style={{ marginTop: 24 }}>
                 <label style={labelStyle}>Budget Range You Work With</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {COMPANY_BUDGET_RANGES.map((budget) => (
                         <RadioCard key={budget.id} item={budget} selected={data.minBudget === budget.id} onClick={() => setData({ ...data, minBudget: budget.id })} />
-                    ))}
-                </div>
-            </div>
-
-            <div style={{ marginBottom: 24 }}>
-                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Bangalore" />
-            </div>
-
-            <div>
-                <label style={labelStyle}>Service Areas</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {['Indiranagar', 'Koramangala', 'HSR Layout', 'Whitefield', 'Jayanagar', 'Electronic City', 'Marathahalli', 'Bannerghatta'].map((area) => (
-                        <PillButton key={area} selected={data.serviceAreas.includes(area)} onClick={() => toggleSelection('serviceAreas', area)}>
-                            {area}
-                        </PillButton>
                     ))}
                 </div>
             </div>
