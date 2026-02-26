@@ -7,12 +7,12 @@ import {
     Users, Building2, Palette, Calendar, Wallet, ArrowLeft,
     TrendingUp, DollarSign, MessageCircle, CheckCircle, XCircle,
     Clock, Search, RefreshCw, Eye, Filter, Download, Zap,
-    Pencil, Trash2, X, Save, AlertTriangle, LogOut, Banknote, LogIn
+    Pencil, Trash2, X, Save, AlertTriangle, LogOut, Banknote, LogIn, Send, Megaphone
 } from 'lucide-react';
 import {
     collection, getDocs, query, orderBy, limit, where,
     doc, getDoc, Timestamp, onSnapshot, collectionGroup,
-    updateDoc, deleteDoc, addDoc, setDoc, runTransaction
+    updateDoc, deleteDoc, addDoc, setDoc, runTransaction, serverTimestamp
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth } from '../../lib/firebase';
@@ -2034,6 +2034,10 @@ function MatchesTab({ matches, users, onDelete }) {
 // ============ CHATS TAB ============
 function ChatsTab({ chats, users, onView, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
+    const [broadcastMsg, setBroadcastMsg] = useState('');
+    const [broadcastTarget, setBroadcastTarget] = useState('both');
+    const [broadcastSending, setBroadcastSending] = useState(false);
+    const [broadcastResult, setBroadcastResult] = useState(null);
     const getUser = (id) => users.find(u => u.id === id);
 
     const s = searchTerm.toLowerCase();
@@ -2048,8 +2052,146 @@ function ChatsTab({ chats, users, onView, onDelete }) {
         }) || (chat.lastMessage || chat.lastMessageText || '').toLowerCase().includes(s);
     });
 
+    const handleBroadcast = async () => {
+        if (!broadcastMsg.trim()) return;
+        setBroadcastSending(true);
+        setBroadcastResult(null);
+
+        try {
+            // Filter users by target audience
+            const targetUsers = users.filter(u => {
+                if (!u.profileComplete) return false;
+                if (broadcastTarget === 'seekers') return u.role === 'SEEKER';
+                if (broadcastTarget === 'companies') return u.role === 'COMPANY';
+                return u.role === 'SEEKER' || u.role === 'COMPANY';
+            });
+
+            let sent = 0;
+            const ADMIN_ID = 'plyship-admin';
+            const batchSize = 5;
+
+            // Process in small batches to avoid rate limits
+            for (let i = 0; i < targetUsers.length; i += batchSize) {
+                const batch = targetUsers.slice(i, i + batchSize);
+                await Promise.all(batch.map(async (targetUser) => {
+                    const chatId = `plyship-broadcast_${targetUser.id}`;
+
+                    // Create/update chat metadata
+                    await setDoc(doc(db, 'chats', chatId), {
+                        participants: [ADMIN_ID, targetUser.id],
+                        lastMessage: broadcastMsg.trim(),
+                        lastMessageAt: serverTimestamp(),
+                        lastMessageSenderId: ADMIN_ID,
+                        isBroadcast: true,
+                    }, { merge: true });
+
+                    // Add message
+                    await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                        senderId: ADMIN_ID,
+                        senderName: 'PlyShip Team',
+                        text: broadcastMsg.trim(),
+                        createdAt: serverTimestamp(),
+                        isBroadcast: true,
+                    });
+                    sent++;
+                }));
+            }
+
+            setBroadcastResult({ success: true, count: sent });
+            setBroadcastMsg('');
+        } catch (error) {
+            console.error('Broadcast error:', error);
+            setBroadcastResult({ success: false, error: error.message });
+        }
+        setBroadcastSending(false);
+    };
+
     return (
         <div>
+            {/* Broadcast Message Box */}
+            <div style={{
+                background: 'linear-gradient(135deg, #EEF2FF 0%, #F0FDF4 100%)',
+                borderRadius: 14,
+                padding: 20,
+                marginBottom: 20,
+                border: '1px solid #C7D2FE',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <Megaphone size={20} color="#4F46E5" />
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#1E1B4B' }}>Broadcast Announcement</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                    <select
+                        value={broadcastTarget}
+                        onChange={e => setBroadcastTarget(e.target.value)}
+                        style={{
+                            padding: '10px 14px', borderRadius: 10,
+                            border: '1px solid #C7D2FE', fontSize: 14,
+                            background: 'white', cursor: 'pointer',
+                            fontWeight: 600, color: '#4F46E5',
+                            minWidth: 150,
+                        }}
+                    >
+                        <option value="both">Both (All Users)</option>
+                        <option value="seekers">Seekers Only</option>
+                        <option value="companies">Companies Only</option>
+                    </select>
+                    <span style={{ fontSize: 12, color: '#6366F1', alignSelf: 'center' }}>
+                        {users.filter(u => {
+                            if (!u.profileComplete) return false;
+                            if (broadcastTarget === 'seekers') return u.role === 'SEEKER';
+                            if (broadcastTarget === 'companies') return u.role === 'COMPANY';
+                            return u.role === 'SEEKER' || u.role === 'COMPANY';
+                        }).length} recipients
+                    </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                    <textarea
+                        value={broadcastMsg}
+                        onChange={e => setBroadcastMsg(e.target.value)}
+                        placeholder="Type your broadcast message..."
+                        style={{
+                            flex: 1, padding: '12px 16px', borderRadius: 10,
+                            border: '1px solid #C7D2FE', fontSize: 14,
+                            background: 'white', outline: 'none',
+                            minHeight: 60, resize: 'vertical', fontFamily: 'inherit',
+                        }}
+                    />
+                    <button
+                        onClick={handleBroadcast}
+                        disabled={broadcastSending || !broadcastMsg.trim()}
+                        style={{
+                            padding: '12px 20px', borderRadius: 10,
+                            background: broadcastSending || !broadcastMsg.trim() ? '#CBD5E1' : '#4F46E5',
+                            color: 'white', border: 'none', cursor: broadcastSending ? 'wait' : 'pointer',
+                            fontWeight: 700, fontSize: 14,
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            alignSelf: 'flex-end',
+                            opacity: broadcastSending || !broadcastMsg.trim() ? 0.6 : 1,
+                        }}
+                    >
+                        <Send size={16} />
+                        {broadcastSending ? 'Sending...' : 'Broadcast'}
+                    </button>
+                </div>
+
+                {broadcastResult && (
+                    <div style={{
+                        marginTop: 10, padding: '8px 14px', borderRadius: 8,
+                        background: broadcastResult.success ? '#DCFCE7' : '#FEE2E2',
+                        color: broadcastResult.success ? '#166534' : '#991B1B',
+                        fontSize: 13, fontWeight: 500,
+                    }}>
+                        {broadcastResult.success
+                            ? `✅ Broadcast sent to ${broadcastResult.count} users!`
+                            : `❌ Failed: ${broadcastResult.error}`}
+                    </div>
+                )}
+            </div>
+
+            {/* Search */}
             <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'white', borderRadius: 10, border: '1px solid #E5E7EB', maxWidth: 400 }}>
                     <Search size={18} color="#888" />
@@ -2083,6 +2225,9 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                             filtered.map(chat => {
                                 const participantIds = chat.participants || chat.users || [];
                                 const participantUsers = participantIds.map(id => {
+                                    if (id === 'plyship-admin') {
+                                        return { name: 'PlyShip Team', email: null, phone: null, role: 'admin' };
+                                    }
                                     const u = getUser(id);
                                     return {
                                         name: u?.profile?.name || u?.profile?.companyName || u?.email || id?.substring(0, 8) + '...',
@@ -2106,10 +2251,10 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                                                                     fontSize: 10,
                                                                     padding: '2px 6px',
                                                                     borderRadius: 4,
-                                                                    background: p.role === 'company' ? '#EEF2FF' : '#F0FDF4',
-                                                                    color: p.role === 'company' ? '#4F46E5' : '#16A34A',
+                                                                    background: p.role === 'admin' ? '#FEF3C7' : p.role === 'company' ? '#EEF2FF' : '#F0FDF4',
+                                                                    color: p.role === 'admin' ? '#92400E' : p.role === 'company' ? '#4F46E5' : '#16A34A',
                                                                 }}>
-                                                                    {p.role === 'company' ? 'Co' : 'Sk'}
+                                                                    {p.role === 'admin' ? '📢' : p.role === 'company' ? 'Co' : 'Sk'}
                                                                 </span>
                                                             )}
                                                         </div>

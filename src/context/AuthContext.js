@@ -800,6 +800,29 @@ export const AuthProvider = ({ children }) => {
                 };
             });
 
+            // Fetch broadcast chats from PlyShip Team
+            try {
+                const broadcastChatId = `plyship-broadcast_${user.id}`;
+                const broadcastSnap = await getDoc(doc(db, 'chats', broadcastChatId));
+                if (broadcastSnap.exists()) {
+                    const bData = broadcastSnap.data();
+                    chats.push({
+                        id: broadcastChatId,
+                        matchedUserId: 'plyship-admin',
+                        matchedUserName: 'PlyShip Team',
+                        matchedUserRole: 'ADMIN',
+                        matchedUserProfile: { avatar: '/logo.png' },
+                        lastMessage: bData.lastMessage || null,
+                        lastMessageAt: bData.lastMessageAt || null,
+                        meetingStatus: null,
+                        meetingScheduledAt: null,
+                        isBroadcast: true,
+                    });
+                }
+            } catch (e) {
+                console.log('No broadcast chat found');
+            }
+
             // Sort by last message time (most recent first)
             chats.sort((a, b) => {
                 const timeA = a.lastMessageAt?.toDate?.() || new Date(a.lastMessageAt);
