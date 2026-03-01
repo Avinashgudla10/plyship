@@ -1652,6 +1652,7 @@ function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView, 
 // ============ MEETINGS TAB ============
 function MeetingsTab({ meetings, users, onEdit, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
     const getUser = (id) => users.find(u => u.id === id);
 
     // Count confirmed meetings per user
@@ -1677,6 +1678,13 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
 
     const s = searchTerm.toLowerCase();
     const filtered = meetings.filter(meeting => {
+        // Status filter
+        if (statusFilter === 'zero_confirmed') {
+            if ((confirmedCounts[meeting.companyId] || 0) > 0 && (confirmedCounts[meeting.seekerId] || 0) > 0) return false;
+        } else if (statusFilter !== 'all') {
+            if (meeting.status !== statusFilter) return false;
+        }
+        // Search filter
         const company = getUser(meeting.companyId);
         const seeker = getUser(meeting.seekerId);
         return !s ||
@@ -1691,11 +1699,31 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
 
     return (
         <div>
-            <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'white', borderRadius: 10, border: '1px solid #E5E7EB', maxWidth: 400 }}>
+            <div style={{ marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'white', borderRadius: 10, border: '1px solid #E5E7EB', flex: 1, maxWidth: 400 }}>
                     <Search size={18} color="#888" />
                     <input type="text" placeholder="Search meetings..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ border: 'none', outline: 'none', flex: 1, fontSize: 14 }} />
                 </div>
+                <select
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                    style={{
+                        padding: '10px 14px', borderRadius: 10,
+                        border: statusFilter !== 'all' ? '1.5px solid #4F46E5' : '1px solid #E5E7EB',
+                        fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                        background: statusFilter !== 'all' ? '#EEF2FF' : 'white',
+                        color: statusFilter !== 'all' ? '#4F46E5' : '#333',
+                    }}
+                >
+                    <option value="all">All Statuses</option>
+                    <option value="zero_confirmed">⚠ 0 Confirmed</option>
+                    <option value="PENDING_ACCEPTANCE">Pending</option>
+                    <option value="SCHEDULED">Scheduled</option>
+                    <option value="CONFIRMED">Confirmed</option>
+                    <option value="CANCELLED">Cancelled</option>
+                    <option value="DECLINED">Declined</option>
+                    <option value="DISPUTE">Dispute</option>
+                </select>
             </div>
             <div style={{
                 background: 'white',
