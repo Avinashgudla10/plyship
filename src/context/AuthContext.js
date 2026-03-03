@@ -321,6 +321,41 @@ export const AuthProvider = ({ children }) => {
     };
 
     // Get profiles of the opposite role for swiping
+    // Get ALL users of opposite role (for Connections directory)
+    const getAllUsers = useCallback(async () => {
+        if (!user || !user.role) return [];
+        try {
+            const collectionName = user.role === 'SEEKER' ? 'companies' : 'seekers';
+            const q = query(
+                collection(db, collectionName),
+                where('profileComplete', '==', true)
+            );
+            const snapshot = await getDocs(q);
+            const users = [];
+            snapshot.forEach((doc) => {
+                if (doc.id !== user.id) {
+                    users.push({ id: doc.id, ...doc.data() });
+                }
+            });
+            // Sort: same-city first, then by lastActiveAt descending
+            const userCity = (user.profile?.city || '').trim().toLowerCase();
+            users.sort((a, b) => {
+                const aCity = (a.profile?.city || a.city || '').trim().toLowerCase();
+                const bCity = (b.profile?.city || b.city || '').trim().toLowerCase();
+                const aSame = userCity && aCity === userCity ? 1 : 0;
+                const bSame = userCity && bCity === userCity ? 1 : 0;
+                if (aSame !== bSame) return bSame - aSame;
+                const aTime = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+                const bTime = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+                return bTime - aTime;
+            });
+            return users;
+        } catch (error) {
+            console.error('❌ Error fetching all users:', error);
+            return [];
+        }
+    }, [user]);
+
     const getSwipeProfiles = useCallback(async () => {
         if (!user || !user.role) {
             console.log('⚠️ getSwipeProfiles: No user or role');
@@ -2474,6 +2509,7 @@ export const AuthProvider = ({ children }) => {
             selectRole,
             completeProfile,
             getSwipeProfiles,
+            getAllUsers,
             likeProfile,
             passProfile,
             getMatches,

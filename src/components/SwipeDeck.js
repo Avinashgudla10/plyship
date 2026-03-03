@@ -3,27 +3,20 @@
 import React, { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import ProfileCard from './ProfileCard';
-import { X, Heart, Star, RotateCcw } from 'lucide-react';
+import { X, Calendar, RotateCcw } from 'lucide-react';
 
 const Card = ({ profile, onSwipe, isTop }) => {
     const x = useMotionValue(0);
-    const y = useMotionValue(0);
     const rotate = useTransform(x, [-200, 200], [-12, 12]);
-
-    const likeOpacity = useTransform(x, [0, 100], [0, 1]);
     const nopeOpacity = useTransform(x, [0, -100], [0, 1]);
-    const superLikeOpacity = useTransform(y, [0, -100], [0, 1]);
 
     const handleDragEnd = (event, info) => {
         const threshold = 120;
         const velocityThreshold = 500;
 
-        if (info.offset.x > threshold || info.velocity.x > velocityThreshold) {
-            onSwipe('right');
-        } else if (info.offset.x < -threshold || info.velocity.x < -velocityThreshold) {
+        // Only allow left swipe (reject)
+        if (info.offset.x < -threshold || info.velocity.x < -velocityThreshold) {
             onSwipe('left');
-        } else if (info.offset.y < -threshold || info.velocity.y < -velocityThreshold) {
-            onSwipe('up');
         }
     };
 
@@ -38,53 +31,25 @@ const Card = ({ profile, onSwipe, isTop }) => {
                 height: '100%',
                 position: 'absolute',
                 x,
-                y,
                 rotate,
                 cursor: 'grab',
                 zIndex: isTop ? 2 : 1,
             }}
             whileTap={{ cursor: 'grabbing' }}
-            drag={isTop}
-            dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+            drag={isTop ? 'x' : false}
+            dragConstraints={{ left: 0, right: 0 }}
             dragElastic={0.9}
             onDragEnd={handleDragEnd}
             onTap={handleTap}
             initial={{ scale: isTop ? 1 : 0.95, opacity: isTop ? 1 : 0.6 }}
             animate={{ scale: isTop ? 1 : 0.95, opacity: isTop ? 1 : 0.6 }}
             exit={{
-                x: 300,
+                x: -300,
                 opacity: 0,
                 transition: { duration: 0.3 }
             }}
         >
             <ProfileCard profile={profile} />
-
-            {/* LIKE Indicator */}
-            <motion.div
-                style={{
-                    opacity: likeOpacity,
-                    position: 'absolute',
-                    top: 32,
-                    left: 24,
-                    padding: '12px 24px',
-                    borderRadius: 12,
-                    border: '4px solid #22C55E',
-                    background: 'rgba(34, 197, 94, 0.1)',
-                    backdropFilter: 'blur(10px)',
-                    transform: 'rotate(-15deg)',
-                    zIndex: 10,
-                }}
-            >
-                <span style={{
-                    fontSize: 28,
-                    fontWeight: 900,
-                    color: '#22C55E',
-                    fontFamily: 'var(--font-display)',
-                    letterSpacing: 2,
-                }}>
-                    LIKE
-                </span>
-            </motion.div>
 
             {/* NOPE Indicator */}
             <motion.div
@@ -112,33 +77,6 @@ const Card = ({ profile, onSwipe, isTop }) => {
                     NOPE
                 </span>
             </motion.div>
-
-            {/* SUPER LIKE Indicator */}
-            <motion.div
-                style={{
-                    opacity: superLikeOpacity,
-                    position: 'absolute',
-                    bottom: 150,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    padding: '12px 24px',
-                    borderRadius: 12,
-                    border: '4px solid #60A5FA',
-                    background: 'rgba(96, 165, 250, 0.1)',
-                    backdropFilter: 'blur(10px)',
-                    zIndex: 10,
-                }}
-            >
-                <span style={{
-                    fontSize: 24,
-                    fontWeight: 900,
-                    color: '#60A5FA',
-                    fontFamily: 'var(--font-display)',
-                    letterSpacing: 2,
-                }}>
-                    SUPER LIKE
-                </span>
-            </motion.div>
         </motion.div>
     );
 };
@@ -156,20 +94,29 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
             return;
         }
 
+        if (direction === 'meet') {
+            // Pass profile with 'meet' direction — page.js will handle opening chat + meeting modal
+            onMatch && onMatch(currentProfile, 'meet');
+            // Advance to next card
+            setExitDirection('left');
+            setTimeout(() => {
+                setCurrentIndex(prev => prev + 1);
+                setExitDirection(null);
+            }, 200);
+            return;
+        }
+
         setExitDirection(direction);
 
-        if (direction === 'right' || direction === 'up') {
-            onMatch && onMatch(currentProfile, direction);
+        // Left = reject/pass
+        if (direction === 'left') {
+            onMatch && onMatch(currentProfile, 'left');
         }
 
         setTimeout(() => {
             setCurrentIndex(prev => prev + 1);
             setExitDirection(null);
         }, 200);
-    };
-
-    const handleButtonSwipe = (direction) => {
-        handleSwipe(direction);
     };
 
     const resetDeck = () => {
@@ -287,23 +234,23 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
                 </AnimatePresence>
             </div>
 
-            {/* Control Buttons */}
+            {/* Control Buttons — Reject & Meet only */}
             <div style={{
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
-                gap: 16,
+                gap: 32,
                 paddingBottom: 16,
                 paddingTop: 16,
             }}>
-                {/* Nope Button */}
+                {/* Reject Button */}
                 <motion.button
-                    onClick={() => handleButtonSwipe('left')}
+                    onClick={() => handleSwipe('left')}
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.92 }}
                     style={{
-                        width: 60,
-                        height: 60,
+                        width: 64,
+                        height: 64,
                         borderRadius: '50%',
                         background: 'white',
                         border: '2px solid #FEE2E2',
@@ -314,38 +261,17 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
                         cursor: 'pointer',
                     }}
                 >
-                    <X size={28} color="#F87171" strokeWidth={3} />
+                    <X size={30} color="#F87171" strokeWidth={3} />
                 </motion.button>
 
-                {/* Super Like Button */}
+                {/* Meet Button */}
                 <motion.button
-                    onClick={() => handleButtonSwipe('up')}
+                    onClick={() => handleSwipe('meet')}
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.92 }}
                     style={{
-                        width: 50,
-                        height: 50,
-                        borderRadius: '50%',
-                        background: 'white',
-                        border: '2px solid #DBEAFE',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: 'var(--shadow-md)',
-                        cursor: 'pointer',
-                    }}
-                >
-                    <Star size={22} color="#60A5FA" fill="#60A5FA" />
-                </motion.button>
-
-                {/* Like Button */}
-                <motion.button
-                    onClick={() => handleButtonSwipe('right')}
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.92 }}
-                    style={{
-                        width: 60,
-                        height: 60,
+                        width: 64,
+                        height: 64,
                         borderRadius: '50%',
                         background: 'var(--gradient-primary)',
                         border: 'none',
@@ -356,7 +282,7 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
                         cursor: 'pointer',
                     }}
                 >
-                    <Heart size={28} color="white" fill="white" />
+                    <Calendar size={28} color="white" />
                 </motion.button>
             </div>
         </div>

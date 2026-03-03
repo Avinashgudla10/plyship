@@ -331,7 +331,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
 }
 
 // Individual chat view
-export function ChatView({ chat, onBack, onNavigate }) {
+export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetingModalShown }) {
     const {
         user, sendMessage, getChatId, getWallet,
         getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP,
@@ -353,6 +353,14 @@ export function ChatView({ chat, onBack, onNavigate }) {
     const [reviewData, setReviewData] = useState(null); // { type: 'MEETING' | 'PROJECT', relatedId: string }
     const [otpInput, setOtpInput] = useState('');
     const messagesEndRef = useRef(null);
+
+    // Auto-open meeting modal when coming from Meet button
+    useEffect(() => {
+        if (showMeetingOnOpen) {
+            setShowMeetingModal(true);
+            onMeetingModalShown?.();
+        }
+    }, [showMeetingOnOpen, onMeetingModalShown]);
 
     const isSeeker = user?.role === 'SEEKER';
     const isCompanyUser = user?.role === 'COMPANY';

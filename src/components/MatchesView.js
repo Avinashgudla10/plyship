@@ -2,26 +2,23 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, MapPin, Star, Briefcase, User, Users, Check, X, Clock, Loader2 } from 'lucide-react';
+import { MessageCircle, MapPin, Briefcase, User, Users, Search, Calendar, Star } from 'lucide-react';
 
-export default function MatchesView({ matches = [], pendingRequests = [], onChatClick, onAccept, onRefuse, viewerRole }) {
-    const [actionLoading, setActionLoading] = useState(null);
+export default function MatchesView({ allUsers = [], onChatClick, onMeetClick, viewerRole }) {
+    const [searchTerm, setSearchTerm] = useState('');
 
-    const handleAccept = async (request) => {
-        setActionLoading(`accept-${request.id}`);
-        await onAccept?.(request);
-        setActionLoading(null);
-    };
+    const isSeeker = viewerRole === 'SEEKER';
+    const title = isSeeker ? 'Interior Companies' : 'Interior Seekers';
 
-    const handleRefuse = async (request) => {
-        setActionLoading(`refuse-${request.id}`);
-        await onRefuse?.(request);
-        setActionLoading(null);
-    };
+    const filtered = allUsers.filter(u => {
+        if (!searchTerm) return true;
+        const s = searchTerm.toLowerCase();
+        const name = (u.profile?.companyName || u.profile?.name || '').toLowerCase();
+        const city = (u.profile?.city || u.city || '').toLowerCase();
+        return name.includes(s) || city.includes(s);
+    });
 
-    const hasContent = matches.length > 0 || pendingRequests.length > 0;
-
-    if (!hasContent) {
+    if (allUsers.length === 0) {
         return (
             <div style={{
                 height: '100%',
@@ -57,34 +54,18 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
                     color: 'var(--text-primary)',
                     marginBottom: 8,
                 }}>
-                    No connections yet
+                    No {isSeeker ? 'companies' : 'seekers'} yet
                 </h2>
                 <p style={{
                     fontSize: 15,
                     color: 'var(--text-secondary)',
                     lineHeight: 1.5,
                 }}>
-                    Keep swiping to find your perfect connection!
+                    {isSeeker ? 'Interior companies' : 'Interior seekers'} will appear here once they sign up.
                 </p>
             </div>
         );
     }
-
-    const renderAvatar = (profile, isCompany, image) => (
-        <div style={{
-            width: 56,
-            height: 56,
-            borderRadius: isCompany ? 14 : '50%',
-            background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
-            border: '2px solid var(--pastel-mint)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-        }}>
-            {!image && (isCompany ? <Briefcase size={22} color="var(--primary)" /> : <User size={22} color="var(--primary)" />)}
-        </div>
-    );
 
     return (
         <div style={{
@@ -92,240 +73,189 @@ export default function MatchesView({ matches = [], pendingRequests = [], onChat
             overflow: 'auto',
             padding: '16px',
         }}>
-            {/* Pending Connection Requests */}
-            {pendingRequests.length > 0 && (
-                <div style={{ marginBottom: 24 }}>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        marginBottom: 14,
-                    }}>
-                        <Clock size={18} color="#F59E0B" />
-                        <h2 style={{
-                            fontFamily: 'var(--font-display)',
-                            fontSize: 18,
-                            fontWeight: 700,
+            {/* Header */}
+            <div style={{ marginBottom: 16 }}>
+                <h2 style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: 'var(--text-primary)',
+                    marginBottom: 12,
+                }}>
+                    {title}
+                </h2>
+
+                {/* Search */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '10px 14px',
+                    background: 'white',
+                    borderRadius: 12,
+                    border: '1px solid var(--border-light)',
+                }}>
+                    <Search size={18} color="var(--text-muted)" />
+                    <input
+                        type="text"
+                        placeholder={`Search ${isSeeker ? 'companies' : 'seekers'}...`}
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        style={{
+                            border: 'none',
+                            outline: 'none',
+                            flex: 1,
+                            fontSize: 14,
                             color: 'var(--text-primary)',
-                        }}>
-                            Connection Requests ({pendingRequests.length})
-                        </h2>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <AnimatePresence>
-                            {pendingRequests.map((request, index) => {
-                                const isCompany = request?.role === 'COMPANY';
-                                const profile = request?.profile || {};
-                                const name = request?.name || (isCompany ? profile.companyName : profile.name) || 'Unknown';
-                                const image = profile.avatar || profile.portfolioImages?.[0];
-                                const city = profile.city || profile.locality;
-                                const isAccepting = actionLoading === `accept-${request.id}`;
-                                const isRefusing = actionLoading === `refuse-${request.id}`;
-                                const isDisabled = !!actionLoading;
-
-                                return (
-                                    <motion.div
-                                        key={request.id || index}
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, x: -100, height: 0 }}
-                                        transition={{ delay: index * 0.05 }}
-                                        style={{
-                                            padding: 14,
-                                            borderRadius: 16,
-                                            background: '#FFFBEB',
-                                            border: '1px solid #FDE68A',
-                                            boxShadow: '0 2px 8px rgba(245, 158, 11, 0.08)',
-                                        }}
-                                    >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                            {renderAvatar(profile, isCompany, image)}
-
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <h3 style={{
-                                                    fontSize: 15,
-                                                    fontWeight: 700,
-                                                    color: 'var(--text-primary)',
-                                                    whiteSpace: 'nowrap',
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    marginBottom: 2,
-                                                }}>
-                                                    {name}
-                                                </h3>
-                                                <div style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 4,
-                                                    fontSize: 12,
-                                                    color: 'var(--text-muted)',
-                                                }}>
-                                                    {city && <><MapPin size={11} /> {city}</>}
-                                                    {!city && <span>{isCompany ? 'Interior Company' : 'Interior Seeker'}</span>}
-                                                </div>
-                                            </div>
-
-                                            {/* Accept / Refuse Buttons */}
-                                            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                                                <motion.button
-                                                    onClick={() => handleRefuse(request)}
-                                                    disabled={isDisabled}
-                                                    whileTap={{ scale: 0.9 }}
-                                                    style={{
-                                                        width: 40,
-                                                        height: 40,
-                                                        borderRadius: 12,
-                                                        background: 'white',
-                                                        border: '1.5px solid #FCA5A5',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        cursor: isDisabled ? 'wait' : 'pointer',
-                                                        opacity: isDisabled && !isRefusing ? 0.5 : 1,
-                                                    }}
-                                                >
-                                                    {isRefusing ? <Loader2 size={16} color="#EF4444" className="spin" /> : <X size={18} color="#EF4444" />}
-                                                </motion.button>
-
-                                                <motion.button
-                                                    onClick={() => handleAccept(request)}
-                                                    disabled={isDisabled}
-                                                    whileTap={{ scale: 0.9 }}
-                                                    style={{
-                                                        width: 40,
-                                                        height: 40,
-                                                        borderRadius: 12,
-                                                        background: 'linear-gradient(135deg, #22C55E, #16A34A)',
-                                                        border: 'none',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        cursor: isDisabled ? 'wait' : 'pointer',
-                                                        opacity: isDisabled && !isAccepting ? 0.5 : 1,
-                                                        boxShadow: '0 2px 8px rgba(34, 197, 94, 0.25)',
-                                                    }}
-                                                >
-                                                    {isAccepting ? <Loader2 size={16} color="white" className="spin" /> : <Check size={18} color="white" />}
-                                                </motion.button>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                );
-                            })}
-                        </AnimatePresence>
-                    </div>
+                            background: 'transparent',
+                        }}
+                    />
                 </div>
-            )}
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                    {filtered.length} {isSeeker ? 'companies' : 'seekers'} found
+                </p>
+            </div>
 
-            {/* Confirmed Connections */}
-            {matches.length > 0 && (
-                <div>
-                    <h2 style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 18,
-                        fontWeight: 700,
-                        color: 'var(--text-primary)',
-                        marginBottom: 14,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                    }}>
-                        <Users size={18} color="var(--primary)" />
-                        Your Connections ({matches.length})
-                    </h2>
+            {/* User List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {filtered.map((userItem, index) => {
+                    const isCompany = userItem.role === 'COMPANY' || userItem.role === 'company';
+                    const profile = userItem.profile || {};
+                    const name = isCompany ? profile.companyName : profile.name;
+                    const city = profile.city || userItem.city;
+                    const image = profile.avatar || profile.portfolioImages?.[0];
+                    const rating = profile.rating;
+                    const reviewCount = profile.reviewCount;
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {matches.map((match, index) => {
-                            const isCompany = match?.matchedUserRole === 'COMPANY' || match?.role === 'COMPANY';
-                            const profile = match?.matchedUserProfile || match?.profile || {};
-                            const name = match?.matchedUserName || (isCompany ? profile.companyName : profile.name) || match?.name;
-                            const image = profile.avatar || profile.portfolioImages?.[0];
-                            const city = profile.city || profile.locality;
+                    return (
+                        <motion.div
+                            key={userItem.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.03 }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 12,
+                                padding: 14,
+                                borderRadius: 14,
+                                background: 'white',
+                                border: '1px solid var(--border-light)',
+                            }}
+                        >
+                            {/* Avatar */}
+                            <div style={{
+                                width: 52,
+                                height: 52,
+                                borderRadius: isCompany ? 14 : '50%',
+                                background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
+                                border: '2px solid var(--pastel-mint)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                {!image && (isCompany
+                                    ? <Briefcase size={22} color="var(--primary)" />
+                                    : <User size={22} color="var(--primary)" />
+                                )}
+                            </div>
 
-                            return (
-                                <motion.div
-                                    key={match.id || index}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: index * 0.05 }}
+                            {/* Info */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <h3 style={{
+                                    fontSize: 15,
+                                    fontWeight: 700,
+                                    color: 'var(--text-primary)',
+                                    marginBottom: 3,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                }}>
+                                    {name || 'Unknown'}
+                                </h3>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    {city && (
+                                        <span style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 3,
+                                            fontSize: 12,
+                                            color: 'var(--text-secondary)',
+                                        }}>
+                                            <MapPin size={12} />
+                                            {city}
+                                        </span>
+                                    )}
+                                    {rating > 0 && (
+                                        <span style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 3,
+                                            fontSize: 12,
+                                            color: '#F59E0B',
+                                        }}>
+                                            <Star size={12} fill="#F59E0B" />
+                                            {rating.toFixed(1)} ({reviewCount || 0})
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                                {/* Chat Button */}
+                                <motion.button
+                                    onClick={() => onChatClick?.({
+                                        id: userItem.id,
+                                        matchedUserId: userItem.id,
+                                        matchedUserName: name,
+                                        matchedUserRole: userItem.role,
+                                        matchedUserProfile: profile,
+                                    })}
+                                    whileTap={{ scale: 0.9 }}
                                     style={{
+                                        width: 38,
+                                        height: 38,
+                                        borderRadius: 10,
+                                        background: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border-light)',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: 14,
-                                        padding: 14,
-                                        borderRadius: 16,
-                                        background: 'white',
-                                        border: '1px solid var(--border-light)',
-                                        boxShadow: 'var(--shadow-sm)',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
                                     }}
                                 >
-                                    {renderAvatar(profile, isCompany, image)}
+                                    <MessageCircle size={18} color="var(--text-secondary)" />
+                                </motion.button>
 
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                                            <h3 style={{
-                                                fontSize: 15,
-                                                fontWeight: 700,
-                                                color: 'var(--text-primary)',
-                                                whiteSpace: 'nowrap',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                            }}>
-                                                {name || 'Unknown'}
-                                            </h3>
-                                            {isCompany && profile.yearsInBusiness && (
-                                                <span style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 2,
-                                                    fontSize: 11,
-                                                    color: 'var(--warning)',
-                                                    fontWeight: 600,
-                                                }}>
-                                                    <Star size={11} fill="var(--warning)" />
-                                                    {profile.yearsInBusiness}+ yrs
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                            fontSize: 12,
-                                            color: 'var(--text-muted)',
-                                        }}>
-                                            <MapPin size={11} />
-                                            {city || 'Location not set'}
-                                        </div>
-                                    </div>
-
-                                    {/* Chat Button */}
-                                    <motion.button
-                                        onClick={() => onChatClick?.(match)}
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        style={{
-                                            width: 42,
-                                            height: 42,
-                                            borderRadius: 12,
-                                            background: 'var(--gradient-primary)',
-                                            border: 'none',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                            boxShadow: 'var(--shadow-glow-soft)',
-                                        }}
-                                    >
-                                        <MessageCircle size={18} color="white" />
-                                    </motion.button>
-                                </motion.div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
+                                {/* Meet Button */}
+                                <motion.button
+                                    onClick={() => onMeetClick?.(userItem)}
+                                    whileTap={{ scale: 0.9 }}
+                                    style={{
+                                        height: 38,
+                                        padding: '0 14px',
+                                        borderRadius: 10,
+                                        background: 'var(--gradient-primary)',
+                                        border: 'none',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        cursor: 'pointer',
+                                        color: 'white',
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    <Calendar size={15} />
+                                    Meet
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    );
+                })}
+            </div>
         </div>
     );
 }

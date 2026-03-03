@@ -27,7 +27,7 @@ const ADMIN_PHONES = ['+918465834152'];
 
 export default function Home() {
   const router = useRouter();
-  const { user, loading, getSwipeProfiles, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats, impersonateUser, exitImpersonation, isImpersonating } = useAuth();
+  const { user, loading, getSwipeProfiles, getAllUsers, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats, getChatId, impersonateUser, exitImpersonation, isImpersonating } = useAuth();
   const [match, setMatch] = useState(null);
   const [detailProfile, setDetailProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('explore');
@@ -38,6 +38,8 @@ export default function Home() {
   const [likedProfiles, setLikedProfiles] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [profileSubPage, setProfileSubPage] = useState(null);
+  const [allUsers, setAllUsers] = useState([]);
+  const [showMeetingOnOpen, setShowMeetingOnOpen] = useState(false);
 
   // Redirect logic for admin and incomplete profiles
   useEffect(() => {
@@ -82,21 +84,17 @@ export default function Home() {
     loadProfiles();
   }, [user, activeTab, getSwipeProfiles]);
 
-  // Load matches when switching to matches tab
+  // Load all users for Connections tab
   useEffect(() => {
-    const loadMatches = async () => {
+    const loadAllUsers = async () => {
       if (user && user.profileComplete && activeTab === 'matches') {
-        const [userMatches, incomingLikes] = await Promise.all([
-          getMatches(),
-          getIncomingLikes(),
-        ]);
-        setMatches(userMatches);
-        setPendingRequests(incomingLikes);
-        console.log('💕 Loaded', userMatches.length, 'matches,', incomingLikes.length, 'pending requests');
+        const users = await getAllUsers();
+        setAllUsers(users);
+        console.log('👥 Loaded', users.length, 'users for connections directory');
       }
     };
-    loadMatches();
-  }, [user, activeTab, getMatches, getIncomingLikes]);
+    loadAllUsers();
+  }, [user, activeTab, getAllUsers]);
 
   // Load chats when switching to messages tab + real-time updates
   useEffect(() => {
@@ -151,32 +149,23 @@ export default function Home() {
       return;
     }
 
-    // Handle like (right swipe or up swipe)
-    if (direction === 'right' || direction === 'up') {
-      // Track locally for liked profiles view
-      setLikedProfiles(prev => {
-        if (prev.find(p => p.id === profile.id)) return prev;
-        return [...prev, profile];
-      });
-
-      // Store like in Firebase and check for match
-      const result = await likeProfile(profile);
-
-      if (result.isMatch) {
-        // It's a mutual match! Show the overlay
-        console.log('🎉 Showing match overlay for:', profile.name || profile.profile?.companyName);
-        setMatch(profile);
-        // Add to matches list
-        setMatches(prev => {
-          if (prev.find(m => m.id === profile.id)) return prev;
-          return [...prev, profile];
-        });
-      }
+    // Handle Meet button — open chat with this profile and trigger meeting modal
+    if (direction === 'meet') {
+      const chatProfile = {
+        id: profile.id,
+        matchedUserId: profile.id,
+        matchedUserName: profile.profile?.companyName || profile.profile?.name || profile.name,
+        matchedUserRole: profile.role,
+        matchedUserProfile: profile.profile || {},
+      };
+      setSelectedChat(chatProfile);
+      setShowMeetingOnOpen(true);
+      setActiveTab('messages');
+      return;
     }
 
-    // Handle pass (left swipe)
+    // Handle pass (left swipe / reject)
     if (direction === 'left') {
-      // Record pass in Firebase so profile never shows again
       await passProfile(profile);
     }
   };
@@ -326,28 +315,19 @@ export default function Home() {
       case 'matches':
         return (
           <MatchesView
-            matches={matches}
-            pendingRequests={pendingRequests}
+            allUsers={allUsers}
             onChatClick={handleChatClick}
-            onAccept={async (request) => {
-              const result = await acceptMatch(request.id);
-              if (result.success) {
-                setPendingRequests(prev => prev.filter(r => r.id !== request.id));
-                setMatches(prev => [...prev, {
-                  id: request.id,
-                  matchedUserId: request.id,
-                  matchedUserName: request.name,
-                  matchedUserRole: request.role,
-                  matchedUserProfile: request.profile,
-                  matchedAt: new Date().toISOString(),
-                }]);
-              }
-            }}
-            onRefuse={async (request) => {
-              const result = await refuseMatch(request.id);
-              if (result.success) {
-                setPendingRequests(prev => prev.filter(r => r.id !== request.id));
-              }
+            onMeetClick={(profile) => {
+              const chatProfile = {
+                id: profile.id,
+                matchedUserId: profile.id,
+                matchedUserName: profile.profile?.companyName || profile.profile?.name || profile.name,
+                matchedUserRole: profile.role,
+                matchedUserProfile: profile.profile || {},
+              };
+              setSelectedChat(chatProfile);
+              setShowMeetingOnOpen(true);
+              setActiveTab('messages');
             }}
             viewerRole={user?.role}
           />
@@ -358,7 +338,9 @@ export default function Home() {
           return (
             <ChatView
               chat={selectedChat}
-              onBack={() => setSelectedChat(null)}
+              onBack={() => { setSelectedChat(null); setShowMeetingOnOpen(false); }}
+              showMeetingOnOpen={showMeetingOnOpen}
+              onMeetingModalShown={() => setShowMeetingOnOpen(false)}
               onNavigate={(page) => {
                 setSelectedChat(null);
                 setActiveTab('profile');
