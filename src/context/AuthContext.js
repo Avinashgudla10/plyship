@@ -798,16 +798,15 @@ export const AuthProvider = ({ children }) => {
             return [];
         }
 
-        console.log('📋 Getting chats for user:', user.id);
-
         try {
-            // Get all matches and their chat data
-            const matchesSnapshot = await getDocs(
-                collection(db, 'matches', user.id, 'matched')
+            // Query chats where current user is a participant
+            const chatsSnapshot = await getDocs(
+                query(collection(db, 'chats'), where('participants', 'array-contains', user.id))
             );
 
-            // Fetch all meetings for this user at once (avoid N+1 queries)
             const isCompany = user.role === 'COMPANY';
+
+            // Fetch meetings for meeting status
             const meetingField = isCompany ? 'companyId' : 'seekerId';
             const meetingsSnapshot = await getDocs(
                 query(collection(db, 'meetings'), where(meetingField, '==', user.id))
@@ -815,38 +814,81 @@ export const AuthProvider = ({ children }) => {
             const allMeetings = [];
             meetingsSnapshot.forEach((d) => allMeetings.push({ id: d.id, ...d.data() }));
 
-            // Batch-fetch all chat docs in parallel (was N+1 sequential)
-            const chatPromises = matchesSnapshot.docs.map(matchDoc => {
-                const chatId = getChatId(user.id, matchDoc.id);
-                return getDoc(doc(db, 'chats', chatId))
-                    .then(snap => ({ matchDoc, chatId, chatData: snap.exists() ? snap.data() : {} }));
+            // Process chats and enrich with partner info
+            const chatDocs = [];
+            chatsSnapshot.forEach(d => chatDocs.push({ id: d.id, ...d.data() }));
+
+            // Collect partner IDs that need name lookups
+            const partnerIds = new Map();
+            chatDocs.forEach(chat => {
+                if (chat.isBroadcast || chat.id?.startsWith('plyship-broadcast')) return;
+                const otherUserId = chat.participants?.find(p => p !== user.id);
+                if (otherUserId) {
+                    const coll = isCompany ? 'seekers' : 'companies';
+                    partnerIds.set(otherUserId, coll);
+                }
             });
-            const chatResults = await Promise.all(chatPromises);
 
-            const chats = chatResults.map(({ matchDoc, chatId, chatData }) => {
-                const matchData = matchDoc.data();
-                const otherUserId = matchDoc.id;
-                const relevantMeetings = allMeetings
-                    .filter(m => {
-                        const matchesOther = (m.companyId === otherUserId || m.seekerId === otherUserId);
-                        return matchesOther && !m.rescheduledTo;
-                    })
-                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            // Batch fetch partner profiles
+            const partnerProfiles = {};
+            await Promise.all(
+                Array.from(partnerIds.entries()).map(async ([id, coll]) => {
+                    try {
+                        const snap = await getDoc(doc(db, coll, id));
+                        if (snap.exists()) {
+                            partnerProfiles[id] = snap.data();
+                        }
+                    } catch (_) { }
+                })
+            );
 
-                const latestMeeting = relevantMeetings[0] || null;
+            // Also try from old matches collection for legacy data
+            try {
+                const matchesSnapshot = await getDocs(
+                    collection(db, 'matches', user.id, 'matched')
+                );
+                matchesSnapshot.forEach(matchDoc => {
+                    const data = matchDoc.data();
+                    if (!partnerProfiles[matchDoc.id]) {
+                        partnerProfiles[matchDoc.id] = {
+                            matchedUserName: data.matchedUserName,
+                            matchedUserRole: data.matchedUserRole,
+                            profile: data.matchedUserProfile,
+                        };
+                    }
+                });
+            } catch (_) { }
 
-                return {
-                    id: chatId,
-                    matchedUserId: matchDoc.id,
-                    matchedUserName: matchData.matchedUserName,
-                    matchedUserRole: matchData.matchedUserRole,
-                    matchedUserProfile: matchData.matchedUserProfile,
-                    lastMessage: chatData.lastMessage || null,
-                    lastMessageAt: chatData.lastMessageAt || matchData.matchedAt,
-                    meetingStatus: latestMeeting?.status || null,
-                    meetingScheduledAt: latestMeeting?.scheduledAt || null,
-                };
-            });
+            const chats = chatDocs
+                .filter(chat => !chat.isBroadcast && !chat.id?.startsWith('plyship-broadcast'))
+                .map(chat => {
+                    const otherUserId = chat.participants?.find(p => p !== user.id);
+                    const partner = partnerProfiles[otherUserId] || {};
+                    const partnerProfile = partner.profile || partner.matchedUserProfile || {};
+                    const partnerName = partner.matchedUserName || partnerProfile.companyName || partnerProfile.name || partner.name || '';
+                    const partnerRole = partner.matchedUserRole || partner.role || (isCompany ? 'SEEKER' : 'COMPANY');
+
+                    // Get latest meeting status
+                    const relevantMeetings = allMeetings
+                        .filter(m => {
+                            const matchesOther = (m.companyId === otherUserId || m.seekerId === otherUserId);
+                            return matchesOther && !m.rescheduledTo;
+                        })
+                        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    const latestMeeting = relevantMeetings[0] || null;
+
+                    return {
+                        id: chat.id,
+                        matchedUserId: otherUserId,
+                        matchedUserName: partnerName,
+                        matchedUserRole: partnerRole,
+                        matchedUserProfile: partnerProfile,
+                        lastMessage: chat.lastMessage || null,
+                        lastMessageAt: chat.lastMessageAt || null,
+                        meetingStatus: chat.meetingStatus || latestMeeting?.status || null,
+                        meetingScheduledAt: latestMeeting?.scheduledAt || null,
+                    };
+                });
 
             // Fetch broadcast chats from PlyShip Team
             try {
@@ -867,18 +909,15 @@ export const AuthProvider = ({ children }) => {
                         isBroadcast: true,
                     });
                 }
-            } catch (e) {
-                console.log('No broadcast chat found');
-            }
+            } catch (e) { }
 
             // Sort by last message time (most recent first)
             chats.sort((a, b) => {
-                const timeA = a.lastMessageAt?.toDate?.() || new Date(a.lastMessageAt);
-                const timeB = b.lastMessageAt?.toDate?.() || new Date(b.lastMessageAt);
+                const timeA = a.lastMessageAt?.toDate?.() || new Date(a.lastMessageAt || 0);
+                const timeB = b.lastMessageAt?.toDate?.() || new Date(b.lastMessageAt || 0);
                 return timeB - timeA;
             });
 
-            console.log(`💬 Found ${chats.length} chats`);
             return chats;
         } catch (error) {
             console.error('❌ Error fetching chats:', error);

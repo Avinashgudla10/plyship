@@ -280,6 +280,7 @@ textarea {
   width: 100%;
   transition: all var(--transition-base);
   -webkit-appearance: none;
+  appearance: none;
 }
 
 input::placeholder,
