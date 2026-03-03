@@ -1666,12 +1666,32 @@ export const AuthProvider = ({ children }) => {
             });
 
             console.log('🔄 Meeting rescheduled:', meetingId, '->', newMeetingRef.id);
+
+            // Sync rescheduled status to chat doc
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            await setDoc(doc(db, 'chats', chatId), {
+                meetingStatus: 'PENDING_ACCEPTANCE',
+                meetingId: newMeetingRef.id,
+                participants: [meeting.companyId, meeting.seekerId],
+            }, { merge: true });
+
+            // Send rescheduled system message
+            const dateStr = new Date(newScheduledAt).toLocaleString('en-IN', {
+                weekday: 'short', day: 'numeric', month: 'short',
+                hour: '2-digit', minute: '2-digit',
+            });
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: `🔄 Meeting rescheduled to ${dateStr}. Awaiting approval.`,
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
             return { success: true, newMeetingId: newMeetingRef.id };
         } catch (error) {
             console.error('❌ Error rescheduling meeting:', error);
             return { success: false, error: error.message };
         }
-    }, [user]);
+    }, [user, getChatId]);
 
     // Process ₹500 payment from company — ₹250 to seeker, ₹250 to admin wallet (atomic transaction)
     const processMeetingPayment = useCallback(async (meetingId, companyId, seekerId) => {
