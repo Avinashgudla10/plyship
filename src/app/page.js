@@ -198,7 +198,7 @@ export default function Home() {
 
   const navItems = [
     { id: 'explore', icon: Compass, label: 'Explore', badge: 0 },
-    { id: 'matches', icon: Users, label: 'Connections', badge: 0 },
+    { id: 'matches', icon: Users, label: 'Find Connections', badge: 0 },
     { id: 'messages', icon: MessageCircle, label: 'Chat', badge: 0 },
     { id: 'profile', icon: User, label: 'Profile', badge: 0 },
   ];
