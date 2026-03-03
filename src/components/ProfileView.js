@@ -43,7 +43,6 @@ export default function ProfileView({ onNavigate }) {
         { id: 'meetings', icon: Calendar, label: 'Meetings', badge: null },
         { id: 'projects', icon: Home, label: 'My Projects', badge: null },
         { id: 'edit', icon: Edit2, label: 'Edit Profile', badge: null },
-        { id: 'liked', icon: Heart, label: 'Liked Profiles', badge: null },
         { id: 'notifications', icon: Bell, label: 'Notifications', badge: null },
         { id: 'privacy', icon: Shield, label: 'Privacy & Security', badge: null },
         { id: 'settings', icon: Settings, label: 'App Settings', badge: null },
