@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import {
     collection, getDocs, query, orderBy, limit, where,
-    doc, getDoc, Timestamp, onSnapshot, collectionGroup,
+    doc, getDoc, Timestamp, onSnapshot,
     updateDoc, deleteDoc, addDoc, setDoc, runTransaction, serverTimestamp
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -305,7 +305,7 @@ export default function AdminDashboard() {
     const [companies, setCompanies] = useState([]);
     const [meetings, setMeetings] = useState([]);
     const [transactions, setTransactions] = useState([]);
-    const [matches, setMatches] = useState([]);
+
     const [chats, setChats] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [isLive, setIsLive] = useState(true);
@@ -341,13 +341,12 @@ export default function AdminDashboard() {
             totalUsers: users.length,
             companies: companies.length,
             designers: seekers.length,
-            totalMatches: matches.length,
             totalMeetings: meetings.length,
             confirmedMeetings: confirmedMeetings.length,
             totalRevenue,
             pendingMeetings: meetings.filter(m => m.status === 'PENDING_ACCEPTANCE').length,
         };
-    }, [users, seekers, companies, meetings, transactions, matches]);
+    }, [users, seekers, companies, meetings, transactions]);
 
     // Check admin access and setup real-time listeners
     useEffect(() => {
@@ -410,19 +409,7 @@ export default function AdminDashboard() {
                 (error) => console.error('Transactions listener error:', error)
             ));
 
-            // Real-time matches listener
-            firestoreUnsubs.push(onSnapshot(
-                collectionGroup(db, 'matched'),
-                (snapshot) => {
-                    const matchesData = snapshot.docs.map(d => ({
-                        id: d.id, ...d.data(),
-                        _path: d.ref.path,
-                        _parentId: d.ref.parent.parent?.id,
-                    }));
-                    setMatches(matchesData);
-                },
-                (error) => console.error('Matches listener error:', error)
-            ));
+
 
             // Real-time chats listener
             firestoreUnsubs.push(onSnapshot(
@@ -714,7 +701,7 @@ export default function AdminDashboard() {
         { id: 'users', label: 'Users', icon: Users },
         { id: 'meetings', label: 'Meetings', icon: Calendar },
         { id: 'transactions', label: 'Transactions', icon: Wallet },
-        { id: 'matches', label: 'Matches', icon: MessageCircle },
+
         { id: 'chats', label: 'Chats', icon: MessageCircle },
         { id: 'wallets', label: 'Wallets', icon: Wallet },
         { id: 'withdrawals', label: 'Withdrawals', icon: Banknote },
@@ -931,13 +918,7 @@ export default function AdminDashboard() {
                         onDelete={(tx) => setConfirmDelete({ type: 'transaction', data: tx })}
                     />
                 )}
-                {activeTab === 'matches' && (
-                    <MatchesTab
-                        matches={matches}
-                        users={users}
-                        onDelete={(match) => setConfirmDelete({ type: 'match', data: match })}
-                    />
-                )}
+
                 {activeTab === 'chats' && (
                     <ChatsTab
                         chats={chats}
@@ -1366,7 +1347,6 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
         { label: 'Total Users', value: stats.totalUsers, icon: Users, color: '#3B82F6' },
         { label: 'Companies', value: stats.companies, icon: Building2, color: '#8B5CF6' },
         { label: 'Seekers', value: stats.designers, icon: Palette, color: '#EC4899' },
-        { label: 'Total Matches', value: stats.totalMatches, icon: MessageCircle, color: '#F59E0B' },
         { label: 'Total Meetings', value: stats.totalMeetings, icon: Calendar, color: '#22C55E' },
         { label: 'Confirmed Meetings', value: stats.confirmedMeetings, icon: CheckCircle, color: '#10B981' },
         { label: 'Pending Meetings', value: stats.pendingMeetings, icon: Clock, color: '#F97316' },
