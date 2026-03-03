@@ -1831,7 +1831,7 @@ export const AuthProvider = ({ children }) => {
             await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'CONFIRMED', meetingId }, { merge: true });
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
                 senderId: 'system', senderName: 'PlyShip',
-                text: '✅ Meeting confirmed! Payment of ₹500 has been processed.',
+                text: '✅ Meeting confirmed! Payment has been processed.',
                 type: 'meeting_update', createdAt: serverTimestamp(),
             });
 
