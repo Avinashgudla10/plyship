@@ -2,13 +2,25 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, MapPin, Briefcase, User, Users, Search, Calendar, Star, Clock, CheckCircle } from 'lucide-react';
+import { MessageCircle, MapPin, Briefcase, User, Users, Search, Calendar, Star, Clock, CheckCircle, SlidersHorizontal, ChevronDown, Check } from 'lucide-react';
 
 export default function MatchesView({ allUsers = [], meetings = [], onChatClick, onMeetClick, viewerRole }) {
     const [searchTerm, setSearchTerm] = useState('');
+    const [filter, setFilter] = useState('all');
+    const [filterOpen, setFilterOpen] = useState(false);
 
     const isSeeker = viewerRole === 'SEEKER';
+    const isCompanyViewer = viewerRole === 'COMPANY';
     const title = isSeeker ? 'Interior Companies' : 'Interior Seekers';
+
+    const FILTERS = [
+        { key: 'all', label: 'All' },
+        { key: 'no_meeting', label: 'No Meeting' },
+        { key: 'PENDING_ACCEPTANCE', label: 'Pending' },
+        { key: 'SCHEDULED', label: 'Scheduled' },
+        { key: 'CONFIRMED', label: 'Completed' },
+        { key: 'ended', label: 'Cancelled' },
+    ];
 
     // Build a map of userId -> meeting status
     const meetingStatusMap = useMemo(() => {
@@ -16,7 +28,6 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
         meetings.forEach(m => {
             const partnerId = isSeeker ? m.companyId : m.seekerId;
             if (!partnerId) return;
-            // Keep the most relevant status (active > completed > cancelled)
             const priority = { PENDING_ACCEPTANCE: 3, SCHEDULED: 3, CONFIRMED: 2, CANCELLED: 1, DECLINED: 1 };
             const existing = map[partnerId];
             if (!existing || (priority[m.status] || 0) > (priority[existing.status] || 0)) {
@@ -27,13 +38,23 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
     }, [meetings, isSeeker]);
 
     const filtered = allUsers.filter(u => {
-        if (!searchTerm) return true;
-        const s = searchTerm.toLowerCase();
-        const name = (u.profile?.companyName || u.profile?.name || '').toLowerCase();
-        const city = (u.profile?.city || u.city || '').toLowerCase();
-        return name.includes(s) || city.includes(s);
+        // Search filter
+        if (searchTerm) {
+            const s = searchTerm.toLowerCase();
+            const name = (u.profile?.companyName || u.profile?.name || '').toLowerCase();
+            const city = (u.profile?.city || u.city || '').toLowerCase();
+            if (!name.includes(s) && !city.includes(s)) return false;
+        }
+        // Meeting status filter
+        if (filter !== 'all') {
+            const meeting = meetingStatusMap[u.id];
+            const status = meeting?.status || null;
+            if (filter === 'no_meeting') return !status;
+            if (filter === 'ended') return ['CANCELLED', 'DECLINED'].includes(status);
+            return status === filter;
+        }
+        return true;
     }).sort((a, b) => {
-        // Priority: users with active meeting requests on top
         const priorityMap = { PENDING_ACCEPTANCE: 3, SCHEDULED: 2, CONFIRMED: 1 };
         const mA = meetingStatusMap[a.id];
         const mB = meetingStatusMap[b.id];
@@ -116,15 +137,96 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
         }}>
             {/* Header */}
             <div style={{ marginBottom: 16 }}>
-                <h2 style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 22,
-                    fontWeight: 700,
-                    color: 'var(--text-primary)',
-                    marginBottom: 12,
-                }}>
-                    {title}
-                </h2>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <h2 style={{
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 22,
+                        fontWeight: 700,
+                        color: 'var(--text-primary)',
+                    }}>
+                        {title}
+                    </h2>
+
+                    {/* Filter Button (Companies only) */}
+                    {isCompanyViewer && (
+                        <div style={{ position: 'relative' }}>
+                            <motion.button
+                                onClick={() => setFilterOpen(!filterOpen)}
+                                whileTap={{ scale: 0.93 }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '8px 14px',
+                                    borderRadius: 10,
+                                    background: filter !== 'all' ? 'var(--pastel-green)' : 'var(--bg-secondary)',
+                                    border: filter !== 'all' ? '1px solid var(--primary)' : '1px solid var(--border-light)',
+                                    cursor: 'pointer',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: filter !== 'all' ? 'var(--primary)' : 'var(--text-secondary)',
+                                }}
+                            >
+                                <SlidersHorizontal size={14} />
+                                Filter
+                                <ChevronDown size={14} style={{ transform: filterOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                            </motion.button>
+
+                            <AnimatePresence>
+                                {filterOpen && (
+                                    <>
+                                        <div onClick={() => setFilterOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
+                                        <motion.div
+                                            initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                                            transition={{ duration: 0.15 }}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                right: 0,
+                                                marginTop: 6,
+                                                background: 'white',
+                                                borderRadius: 14,
+                                                border: '1px solid var(--border-light)',
+                                                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                                padding: 6,
+                                                minWidth: 160,
+                                                zIndex: 99,
+                                            }}
+                                        >
+                                            {FILTERS.map(f => (
+                                                <motion.button
+                                                    key={f.key}
+                                                    onClick={() => { setFilter(f.key); setFilterOpen(false); }}
+                                                    whileTap={{ scale: 0.97 }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 8,
+                                                        width: '100%',
+                                                        padding: '10px 12px',
+                                                        borderRadius: 10,
+                                                        background: filter === f.key ? 'var(--pastel-green)' : 'transparent',
+                                                        color: filter === f.key ? 'var(--primary)' : 'var(--text-primary)',
+                                                        fontSize: 14,
+                                                        fontWeight: filter === f.key ? 700 : 500,
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.15s',
+                                                        textAlign: 'left',
+                                                    }}
+                                                >
+                                                    {filter === f.key && <Check size={14} />}
+                                                    {f.label}
+                                                </motion.button>
+                                            ))}
+                                        </motion.div>
+                                    </>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    )}
+                </div>
 
                 {/* Search */}
                 <div style={{
