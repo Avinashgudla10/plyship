@@ -1094,10 +1094,26 @@ export const AuthProvider = ({ children }) => {
             console.log('  - companyId:', companyId);
             console.log('  - seekerId:', seekerId);
 
+            // Fetch target user's name for display
+            let targetName = '';
+            try {
+                const targetRole = isCompany ? 'seekers' : 'companies';
+                const { getDoc: gd, doc: d } = await import('firebase/firestore');
+                const targetSnap = await gd(d(db, targetRole, targetUserId));
+                if (targetSnap.exists()) {
+                    const td = targetSnap.data();
+                    targetName = td.profile?.name || td.profile?.companyName || td.name || '';
+                }
+            } catch (e) { /* ignore lookup errors */ }
+
+            const myName = user.profile?.companyName || user.profile?.name || user.name || '';
+
             // Create meeting document with PENDING_ACCEPTANCE status
             const meetingData = {
                 companyId,
                 seekerId,
+                companyName: isCompany ? myName : targetName,
+                seekerName: isCompany ? targetName : myName,
                 requestedBy: user.id,
                 acceptedBy: null,
                 scheduledAt,
@@ -1143,9 +1159,6 @@ export const AuthProvider = ({ children }) => {
             const isCompany = user.role === 'COMPANY';
             const fieldToQuery = isCompany ? 'companyId' : 'seekerId';
 
-            console.log(`📋 getMeetings: Querying ${fieldToQuery} == ${user.id} (role: ${user.role})`);
-
-            // Query without orderBy to avoid needing composite index
             const q = query(
                 collection(db, 'meetings'),
                 where(fieldToQuery, '==', user.id)
@@ -1153,14 +1166,39 @@ export const AuthProvider = ({ children }) => {
 
             const snapshot = await getDocs(q);
             const meetings = [];
-            snapshot.forEach((doc) => {
-                meetings.push({ id: doc.id, ...doc.data() });
+            snapshot.forEach((d) => {
+                meetings.push({ id: d.id, ...d.data() });
             });
 
-            // Sort by scheduledAt descending in JavaScript
+            // Enrich meetings that are missing partner names
+            const namesToFetch = new Map();
+            meetings.forEach(m => {
+                if (isCompany && !m.seekerName && m.seekerId) namesToFetch.set(m.seekerId, 'seekers');
+                if (!isCompany && !m.companyName && m.companyId) namesToFetch.set(m.companyId, 'companies');
+            });
+
+            if (namesToFetch.size > 0) {
+                const nameMap = {};
+                await Promise.all(
+                    Array.from(namesToFetch.entries()).map(async ([id, coll]) => {
+                        try {
+                            const snap = await getDoc(doc(db, coll, id));
+                            if (snap.exists()) {
+                                const d = snap.data();
+                                nameMap[id] = d.profile?.companyName || d.profile?.name || d.name || '';
+                            }
+                        } catch (_) { }
+                    })
+                );
+                meetings.forEach(m => {
+                    if (isCompany && !m.seekerName && nameMap[m.seekerId]) m.seekerName = nameMap[m.seekerId];
+                    if (!isCompany && !m.companyName && nameMap[m.companyId]) m.companyName = nameMap[m.companyId];
+                });
+            }
+
+            // Sort by scheduledAt descending
             meetings.sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt));
 
-            console.log(`📋 Found ${meetings.length} meetings for ${user.id} (${user.role}):`, meetings.map(m => ({ id: m.id, status: m.status, companyId: m.companyId, seekerId: m.seekerId })));
             return meetings;
         } catch (error) {
             console.error('❌ Error getting meetings:', error);

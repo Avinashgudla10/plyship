@@ -456,6 +456,25 @@ function MeetingCard({
                 )}
             </div>
 
+            {/* Partner Name */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginBottom: 8,
+            }}>
+                {isCompany
+                    ? <User size={16} color="var(--primary)" />
+                    : <Building2 size={16} color="var(--primary)" />
+                }
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {isCompany
+                        ? (meeting.seekerName || `Seeker`)
+                        : (meeting.companyName || `Company`)
+                    }
+                </span>
+            </div>
+
             {/* Date */}
             <div style={{
                 display: 'flex',
