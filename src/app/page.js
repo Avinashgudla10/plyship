@@ -27,7 +27,7 @@ const ADMIN_PHONES = ['+918465834152'];
 
 export default function Home() {
   const router = useRouter();
-  const { user, loading, getSwipeProfiles, getAllUsers, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats, getChatId, impersonateUser, exitImpersonation, isImpersonating } = useAuth();
+  const { user, loading, getSwipeProfiles, getAllUsers, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats, getChatId, getMeetings, impersonateUser, exitImpersonation, isImpersonating } = useAuth();
   const [match, setMatch] = useState(null);
   const [detailProfile, setDetailProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('explore');
@@ -40,6 +40,7 @@ export default function Home() {
   const [profileSubPage, setProfileSubPage] = useState(null);
   const [allUsers, setAllUsers] = useState([]);
   const [showMeetingOnOpen, setShowMeetingOnOpen] = useState(false);
+  const [userMeetings, setUserMeetings] = useState([]);
 
   // Redirect logic for admin and incomplete profiles
   useEffect(() => {
@@ -84,17 +85,20 @@ export default function Home() {
     loadProfiles();
   }, [user, activeTab, getSwipeProfiles]);
 
-  // Load all users for Connections tab
+  // Load all users and meetings for Connections tab
   useEffect(() => {
     const loadAllUsers = async () => {
       if (user && user.profileComplete && activeTab === 'matches') {
-        const users = await getAllUsers();
+        const [users, meetings] = await Promise.all([
+          getAllUsers(),
+          getMeetings(),
+        ]);
         setAllUsers(users);
-        console.log('👥 Loaded', users.length, 'users for connections directory');
+        setUserMeetings(meetings);
       }
     };
     loadAllUsers();
-  }, [user, activeTab, getAllUsers]);
+  }, [user, activeTab, getAllUsers, getMeetings]);
 
   // Load chats when switching to messages tab + real-time updates
   useEffect(() => {
@@ -316,6 +320,7 @@ export default function Home() {
         return (
           <MatchesView
             allUsers={allUsers}
+            meetings={userMeetings}
             onChatClick={handleChatClick}
             onMeetClick={(profile) => {
               const chatProfile = {

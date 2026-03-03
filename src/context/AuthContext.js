@@ -366,22 +366,35 @@ export const AuthProvider = ({ children }) => {
         console.log('👤 Current user:', user.email, 'Role:', user.role);
 
         try {
-            // Fetch liked and passed users in parallel (was sequential)
-            const [likedUsersSnapshot, passedUsersSnapshot] = await Promise.all([
+            // Fetch liked, passed, and meeting users in parallel
+            const [likedUsersSnapshot, passedUsersSnapshot, meetingsSnapshot] = await Promise.all([
                 getDocs(collection(db, 'likes', user.id, 'outgoing')),
                 getDocs(collection(db, 'passes', user.id, 'passed')),
+                getDocs(query(
+                    collection(db, 'meetings'),
+                    where(user.role === 'COMPANY' ? 'companyId' : 'seekerId', '==', user.id)
+                )),
             ]);
             const likedUserIds = new Set();
             likedUsersSnapshot.forEach((doc) => {
                 likedUserIds.add(doc.id);
             });
-            console.log(`🚫 Already liked ${likedUserIds.size} users`);
 
             const passedUserIds = new Set();
             passedUsersSnapshot.forEach((doc) => {
                 passedUserIds.add(doc.id);
             });
-            console.log(`👎 Already passed ${passedUserIds.size} users`);
+
+            // Collect partner IDs from active meetings
+            const meetingUserIds = new Set();
+            meetingsSnapshot.forEach((d) => {
+                const m = d.data();
+                // Exclude partners from any non-terminal meeting
+                if (!['CANCELLED', 'DECLINED'].includes(m.status)) {
+                    const partnerId = user.role === 'COMPANY' ? m.seekerId : m.companyId;
+                    if (partnerId) meetingUserIds.add(partnerId);
+                }
+            });
 
             // Seekers see Companies, Companies see Seekers
             const collectionName = user.role === 'SEEKER' ? 'companies' : 'seekers';
@@ -395,8 +408,8 @@ export const AuthProvider = ({ children }) => {
             const profiles = [];
 
             querySnapshot.forEach((doc) => {
-                // Don't include self, already liked users, or passed users
-                if (doc.id !== user.id && !likedUserIds.has(doc.id) && !passedUserIds.has(doc.id)) {
+                // Don't include self, already liked, passed, or meeting users
+                if (doc.id !== user.id && !likedUserIds.has(doc.id) && !passedUserIds.has(doc.id) && !meetingUserIds.has(doc.id)) {
                     profiles.push({ id: doc.id, ...doc.data() });
                 }
             });
@@ -1131,6 +1144,34 @@ export const AuthProvider = ({ children }) => {
             const meetingRef = await addDoc(collection(db, 'meetings'), meetingData);
             console.log('✅ Meeting created:', meetingRef.id, meetingData);
 
+            // Auto-create chat with meeting request system message
+            const chatId = getChatId(user.id, targetUserId);
+            const meetingDateStr = new Date(scheduledAt).toLocaleDateString('en-IN', {
+                weekday: 'short', day: 'numeric', month: 'short',
+                hour: '2-digit', minute: '2-digit',
+            });
+            const systemMsg = `📅 Meeting requested for ${meetingDateStr}${notes ? ` — "${notes}"` : ''}. Awaiting approval.`;
+
+            // Create/update chat doc
+            await setDoc(doc(db, 'chats', chatId), {
+                participants: [user.id, targetUserId],
+                lastMessage: systemMsg,
+                lastMessageAt: serverTimestamp(),
+                lastMessageSenderId: 'system',
+                meetingStatus: 'PENDING_ACCEPTANCE',
+                meetingId: meetingRef.id,
+            }, { merge: true });
+
+            // Add system message to chat
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system',
+                senderName: 'PlyShip',
+                text: systemMsg,
+                type: 'meeting_request',
+                meetingId: meetingRef.id,
+                createdAt: serverTimestamp(),
+            });
+
             // Notify the other party about the meeting request
             const otherUserId = user.id === companyId ? seekerId : companyId;
             const myName3 = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
@@ -1146,7 +1187,7 @@ export const AuthProvider = ({ children }) => {
             console.error('❌ Error scheduling meeting:', error);
             return { success: false, error: error.message };
         }
-    }, [user]);
+    }, [user, getChatId]);
 
 
     // Get all meetings for current user
@@ -1293,6 +1334,15 @@ export const AuthProvider = ({ children }) => {
 
             console.log('✅ Meeting accepted:', meetingId);
 
+            // Sync meeting status to chat doc
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'SCHEDULED', meetingId }, { merge: true });
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: '✅ Meeting accepted and scheduled! OTP verification required upon meeting.',
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
             // Notify requester that meeting was accepted
             const otherPartyId = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
             const myNameMeeting = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
@@ -1324,7 +1374,7 @@ export const AuthProvider = ({ children }) => {
             console.error('❌ Error accepting meeting:', error);
             return { success: false, error: error.message };
         }
-    }, [user]);
+    }, [user, getChatId]);
 
     // Decline a meeting request
     const declineMeeting = useCallback(async (meetingId, reason = '') => {
@@ -1358,6 +1408,15 @@ export const AuthProvider = ({ children }) => {
 
             console.log('❌ Meeting declined:', meetingId);
 
+            // Sync meeting status to chat doc
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'DECLINED', meetingId }, { merge: true });
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: `❌ Meeting declined${reason ? ': ' + reason : ''}.`,
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
             // Notify the other party
             const otherPartyDecline = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
             const myNameDecline = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
@@ -1373,7 +1432,7 @@ export const AuthProvider = ({ children }) => {
             console.error('❌ Error declining meeting:', error);
             return { success: false, error: error.message };
         }
-    }, [user]);
+    }, [user, getChatId]);
 
     // Cancel a scheduled meeting
     const cancelMeeting = useCallback(async (meetingId, reason = '') => {
@@ -1430,12 +1489,22 @@ export const AuthProvider = ({ children }) => {
             });
 
             console.log('🚫 Meeting cancelled:', meetingId);
+
+            // Sync meeting status to chat doc
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'CANCELLED', meetingId }, { merge: true });
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: `🚫 Meeting cancelled${reason ? ': ' + reason : ''}.`,
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
             return { success: true };
         } catch (error) {
             console.error('❌ Error cancelling meeting:', error);
             return { success: false, error: error.message };
         }
-    }, [user]);
+    }, [user, getChatId]);
 
     // Deny meeting (Not Met button) - only triggers DISPUTE if other party confirmed
     const denyMeeting = useCallback(async (meetingId) => {
@@ -1698,6 +1767,15 @@ export const AuthProvider = ({ children }) => {
 
             console.log('💰 Payment processed: ₹500 split — ₹250 to seeker, ₹250 to admin');
 
+            // Sync CONFIRMED status to chat doc
+            const chatId = getChatId(companyId, seekerId);
+            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'CONFIRMED', meetingId }, { merge: true });
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: '✅ Meeting confirmed! Payment of ₹500 has been processed.',
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
             // Notify both about payment
             createNotification(companyId, {
                 type: 'wallet_debit',
@@ -1729,7 +1807,7 @@ export const AuthProvider = ({ children }) => {
                 insufficientBalance: error.message === 'Insufficient balance'
             };
         }
-    }, []);
+    }, [getChatId]);
 
     // Confirm meeting happened (called by either party)
     const confirmMeeting = useCallback(async (meetingId) => {

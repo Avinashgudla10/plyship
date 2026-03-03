@@ -1,14 +1,30 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, MapPin, Briefcase, User, Users, Search, Calendar, Star } from 'lucide-react';
+import { MessageCircle, MapPin, Briefcase, User, Users, Search, Calendar, Star, Clock, CheckCircle } from 'lucide-react';
 
-export default function MatchesView({ allUsers = [], onChatClick, onMeetClick, viewerRole }) {
+export default function MatchesView({ allUsers = [], meetings = [], onChatClick, onMeetClick, viewerRole }) {
     const [searchTerm, setSearchTerm] = useState('');
 
     const isSeeker = viewerRole === 'SEEKER';
     const title = isSeeker ? 'Interior Companies' : 'Interior Seekers';
+
+    // Build a map of userId -> meeting status
+    const meetingStatusMap = useMemo(() => {
+        const map = {};
+        meetings.forEach(m => {
+            const partnerId = isSeeker ? m.companyId : m.seekerId;
+            if (!partnerId) return;
+            // Keep the most relevant status (active > completed > cancelled)
+            const priority = { PENDING_ACCEPTANCE: 3, SCHEDULED: 3, CONFIRMED: 2, CANCELLED: 1, DECLINED: 1 };
+            const existing = map[partnerId];
+            if (!existing || (priority[m.status] || 0) > (priority[existing.status] || 0)) {
+                map[partnerId] = m;
+            }
+        });
+        return map;
+    }, [meetings, isSeeker]);
 
     const filtered = allUsers.filter(u => {
         if (!searchTerm) return true;
@@ -17,6 +33,23 @@ export default function MatchesView({ allUsers = [], onChatClick, onMeetClick, v
         const city = (u.profile?.city || u.city || '').toLowerCase();
         return name.includes(s) || city.includes(s);
     });
+
+    const getMeetingBadge = (status) => {
+        switch (status) {
+            case 'PENDING_ACCEPTANCE':
+                return { label: '⏳ Meeting Pending', color: '#3B82F6', bg: '#EFF6FF' };
+            case 'SCHEDULED':
+                return { label: '📅 Meeting Scheduled', color: '#F59E0B', bg: '#FFFBEB' };
+            case 'CONFIRMED':
+                return { label: '✅ Meeting Done', color: '#22C55E', bg: '#F0FDF4' };
+            case 'CANCELLED':
+                return { label: 'Cancelled', color: '#EF4444', bg: '#FEF2F2' };
+            case 'DECLINED':
+                return { label: 'Declined', color: '#EF4444', bg: '#FEF2F2' };
+            default:
+                return null;
+        }
+    };
 
     if (allUsers.length === 0) {
         return (
@@ -126,6 +159,9 @@ export default function MatchesView({ allUsers = [], onChatClick, onMeetClick, v
                     const image = profile.avatar || profile.portfolioImages?.[0];
                     const rating = profile.rating;
                     const reviewCount = profile.reviewCount;
+                    const meeting = meetingStatusMap[userItem.id];
+                    const badge = meeting ? getMeetingBadge(meeting.status) : null;
+                    const hasActiveMeeting = meeting && ['PENDING_ACCEPTANCE', 'SCHEDULED'].includes(meeting.status);
 
                     return (
                         <motion.div
@@ -135,123 +171,144 @@ export default function MatchesView({ allUsers = [], onChatClick, onMeetClick, v
                             transition={{ delay: index * 0.03 }}
                             style={{
                                 display: 'flex',
-                                alignItems: 'center',
-                                gap: 12,
+                                flexDirection: 'column',
+                                gap: 8,
                                 padding: 14,
                                 borderRadius: 14,
                                 background: 'white',
-                                border: '1px solid var(--border-light)',
+                                border: badge ? `1px solid ${badge.color}30` : '1px solid var(--border-light)',
                             }}
                         >
-                            {/* Avatar */}
-                            <div style={{
-                                width: 52,
-                                height: 52,
-                                borderRadius: isCompany ? 14 : '50%',
-                                background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
-                                border: '2px solid var(--pastel-mint)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                            }}>
-                                {!image && (isCompany
-                                    ? <Briefcase size={22} color="var(--primary)" />
-                                    : <User size={22} color="var(--primary)" />
-                                )}
-                            </div>
-
-                            {/* Info */}
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <h3 style={{
-                                    fontSize: 15,
-                                    fontWeight: 700,
-                                    color: 'var(--text-primary)',
-                                    marginBottom: 3,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                {/* Avatar */}
+                                <div style={{
+                                    width: 52,
+                                    height: 52,
+                                    borderRadius: isCompany ? 14 : '50%',
+                                    background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
+                                    border: '2px solid var(--pastel-mint)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
                                 }}>
-                                    {name || 'Unknown'}
-                                </h3>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    {city && (
-                                        <span style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 3,
-                                            fontSize: 12,
-                                            color: 'var(--text-secondary)',
-                                        }}>
-                                            <MapPin size={12} />
-                                            {city}
-                                        </span>
+                                    {!image && (isCompany
+                                        ? <Briefcase size={22} color="var(--primary)" />
+                                        : <User size={22} color="var(--primary)" />
                                     )}
-                                    {rating > 0 && (
-                                        <span style={{
+                                </div>
+
+                                {/* Info */}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <h3 style={{
+                                        fontSize: 15,
+                                        fontWeight: 700,
+                                        color: 'var(--text-primary)',
+                                        marginBottom: 3,
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}>
+                                        {name || 'Unknown'}
+                                    </h3>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                        {city && (
+                                            <span style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 3,
+                                                fontSize: 12,
+                                                color: 'var(--text-secondary)',
+                                            }}>
+                                                <MapPin size={12} />
+                                                {city}
+                                            </span>
+                                        )}
+                                        {rating > 0 && (
+                                            <span style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 3,
+                                                fontSize: 12,
+                                                color: '#F59E0B',
+                                            }}>
+                                                <Star size={12} fill="#F59E0B" />
+                                                {rating.toFixed(1)} ({reviewCount || 0})
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                                    {/* Chat Button */}
+                                    <motion.button
+                                        onClick={() => onChatClick?.({
+                                            id: userItem.id,
+                                            matchedUserId: userItem.id,
+                                            matchedUserName: name,
+                                            matchedUserRole: userItem.role,
+                                            matchedUserProfile: profile,
+                                        })}
+                                        whileTap={{ scale: 0.9 }}
+                                        style={{
+                                            width: 38,
+                                            height: 38,
+                                            borderRadius: 10,
+                                            background: 'var(--bg-secondary)',
+                                            border: '1px solid var(--border-light)',
                                             display: 'flex',
                                             alignItems: 'center',
-                                            gap: 3,
-                                            fontSize: 12,
-                                            color: '#F59E0B',
-                                        }}>
-                                            <Star size={12} fill="#F59E0B" />
-                                            {rating.toFixed(1)} ({reviewCount || 0})
-                                        </span>
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <MessageCircle size={18} color="var(--text-secondary)" />
+                                    </motion.button>
+
+                                    {/* Meet Button — only show if no active meeting */}
+                                    {!hasActiveMeeting && (
+                                        <motion.button
+                                            onClick={() => onMeetClick?.(userItem)}
+                                            whileTap={{ scale: 0.9 }}
+                                            style={{
+                                                height: 38,
+                                                padding: '0 14px',
+                                                borderRadius: 10,
+                                                background: 'var(--gradient-primary)',
+                                                border: 'none',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                cursor: 'pointer',
+                                                color: 'white',
+                                                fontSize: 13,
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            <Calendar size={15} />
+                                            Meet
+                                        </motion.button>
                                     )}
                                 </div>
                             </div>
 
-                            {/* Action Buttons */}
-                            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                                {/* Chat Button */}
-                                <motion.button
-                                    onClick={() => onChatClick?.({
-                                        id: userItem.id,
-                                        matchedUserId: userItem.id,
-                                        matchedUserName: name,
-                                        matchedUserRole: userItem.role,
-                                        matchedUserProfile: profile,
-                                    })}
-                                    whileTap={{ scale: 0.9 }}
-                                    style={{
-                                        width: 38,
-                                        height: 38,
-                                        borderRadius: 10,
-                                        background: 'var(--bg-secondary)',
-                                        border: '1px solid var(--border-light)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    <MessageCircle size={18} color="var(--text-secondary)" />
-                                </motion.button>
-
-                                {/* Meet Button */}
-                                <motion.button
-                                    onClick={() => onMeetClick?.(userItem)}
-                                    whileTap={{ scale: 0.9 }}
-                                    style={{
-                                        height: 38,
-                                        padding: '0 14px',
-                                        borderRadius: 10,
-                                        background: 'var(--gradient-primary)',
-                                        border: 'none',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        cursor: 'pointer',
-                                        color: 'white',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                    }}
-                                >
-                                    <Calendar size={15} />
-                                    Meet
-                                </motion.button>
-                            </div>
+                            {/* Meeting Status Badge */}
+                            {badge && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '6px 10px',
+                                    borderRadius: 8,
+                                    background: badge.bg,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: badge.color,
+                                }}>
+                                    {badge.label}
+                                </div>
+                            )}
                         </motion.div>
                     );
                 })}
