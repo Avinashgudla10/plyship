@@ -271,7 +271,7 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
                     const reviewCount = profile.reviewCount;
                     const meeting = meetingStatusMap[userItem.id];
                     const badge = meeting ? getMeetingBadge(meeting.status) : null;
-                    const hasActiveMeeting = meeting && ['PENDING_ACCEPTANCE', 'SCHEDULED'].includes(meeting.status);
+                    const hasActiveMeeting = meeting && ['PENDING_ACCEPTANCE', 'SCHEDULED', 'CONFIRMED'].includes(meeting.status);
 
                     return (
                         <motion.div

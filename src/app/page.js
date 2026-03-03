@@ -454,7 +454,7 @@ export default function Home() {
             transform: 'translateX(-50%)',
           }}>
             {activeTab === 'explore' && 'Explore'}
-            {activeTab === 'matches' && 'Matches'}
+            {activeTab === 'matches' && 'Find Connections'}
             {activeTab === 'messages' && 'Messages'}
             {activeTab === 'profile' && 'Profile'}
           </span>
