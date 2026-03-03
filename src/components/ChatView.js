@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { subscribeToMessages } from '../lib/firebase';
@@ -14,6 +14,7 @@ import ReviewModal from './ReviewModal';
 export function ChatListView({ chats = [], onChatSelect, user }) {
     const [filter, setFilter] = useState('all');
     const [filterOpen, setFilterOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
     const isCompany = user?.role === 'COMPANY';
 
     const MEETING_STATUS_CONFIG = {
@@ -34,12 +35,32 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
         { key: 'ended', label: 'Cancelled' },
     ];
 
-    const filteredChats = chats.filter(chat => {
-        if (filter === 'all') return true;
-        if (filter === 'no_meeting') return !chat.meetingStatus;
-        if (filter === 'ended') return ['CANCELLED', 'DECLINED'].includes(chat.meetingStatus);
-        return chat.meetingStatus === filter;
-    });
+    // Meeting priority: PENDING first, then SCHEDULED, then rest
+    const meetingPriority = { PENDING_ACCEPTANCE: 3, SCHEDULED: 2 };
+
+    const filteredChats = chats
+        .filter(chat => {
+            // Search filter
+            if (searchTerm) {
+                const name = (chat.matchedUserName || '').toLowerCase();
+                if (!name.includes(searchTerm.toLowerCase())) return false;
+            }
+            // Status filter
+            if (filter === 'all') return true;
+            if (filter === 'no_meeting') return !chat.meetingStatus;
+            if (filter === 'ended') return ['CANCELLED', 'DECLINED'].includes(chat.meetingStatus);
+            return chat.meetingStatus === filter;
+        })
+        .sort((a, b) => {
+            // Priority: meeting requests on top
+            const pa = meetingPriority[a.meetingStatus] || 0;
+            const pb = meetingPriority[b.meetingStatus] || 0;
+            if (pa !== pb) return pb - pa;
+            // Then by last message time
+            const timeA = a.lastMessageAt?.toDate?.() || new Date(a.lastMessageAt || 0);
+            const timeB = b.lastMessageAt?.toDate?.() || new Date(b.lastMessageAt || 0);
+            return timeB - timeA;
+        });
 
     if (chats.length === 0) {
         return (
@@ -96,6 +117,35 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
             overflow: 'auto',
             padding: '16px',
         }}>
+            {/* Search bar */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 14px',
+                background: 'white',
+                borderRadius: 12,
+                border: '1px solid var(--border-light)',
+                marginBottom: 14,
+            }}>
+                <Search size={18} color="var(--text-muted)" />
+                <input
+                    type="text"
+                    placeholder="Search conversations..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    style={{
+                        border: 'none',
+                        outline: 'none',
+                        flex: 1,
+                        fontSize: 14,
+                        color: 'var(--text-primary)',
+                        background: 'transparent',
+                        padding: 0,
+                    }}
+                />
+            </div>
+
             {/* Header with filter */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                 <h2 style={{

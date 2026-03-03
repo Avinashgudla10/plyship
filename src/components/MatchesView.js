@@ -32,6 +32,14 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
         const name = (u.profile?.companyName || u.profile?.name || '').toLowerCase();
         const city = (u.profile?.city || u.city || '').toLowerCase();
         return name.includes(s) || city.includes(s);
+    }).sort((a, b) => {
+        // Priority: users with active meeting requests on top
+        const priorityMap = { PENDING_ACCEPTANCE: 3, SCHEDULED: 2, CONFIRMED: 1 };
+        const mA = meetingStatusMap[a.id];
+        const mB = meetingStatusMap[b.id];
+        const pA = mA ? (priorityMap[mA.status] || 0) : 0;
+        const pB = mB ? (priorityMap[mB.status] || 0) : 0;
+        return pB - pA;
     });
 
     const getMeetingBadge = (status) => {
