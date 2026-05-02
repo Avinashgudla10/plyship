@@ -52,7 +52,7 @@ export function ToastProvider({ children }) {
             {/* Toast Stack */}
             <div style={{
                 position: 'fixed',
-                top: 16,
+                top: 'calc(env(safe-area-inset-top, 0px) + 8px)',
                 left: '50%',
                 transform: 'translateX(-50%)',
                 zIndex: 99999,

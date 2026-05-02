@@ -4,10 +4,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { TopUpModal } from './WalletView';
 import {
     Calendar, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
     User, Building2, MapPin, ChevronRight, Plus, X, IndianRupee,
-    RefreshCw, Check, Ban
+    RefreshCw, Check, Ban, Wallet
 } from 'lucide-react';
 
 // Meetings View - Shows all meetings for current user
@@ -218,7 +219,10 @@ export default function MeetingsView({ onBack }) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                padding: '16px 20px',
+                paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+                paddingBottom: '16px',
+                paddingLeft: '20px',
+                paddingRight: '20px',
                 background: 'white',
                 borderBottom: '1px solid var(--border-light)',
             }}>
@@ -770,6 +774,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
     const [notes, setNotes] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [wallet, setWallet] = useState(null);
+    const [showTopUp, setShowTopUp] = useState(false);
     const canCloseRef = useRef(false);
 
     // Prevent ghost clicks from closing modal on mobile
@@ -853,18 +858,46 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                 {/* Balance Warning for Companies */}
                 {isCompany && !hasEnoughBalance && (
                     <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
                         padding: 12,
                         borderRadius: 10,
                         background: '#FEF3C7',
                         marginBottom: 16,
                     }}>
-                        <AlertCircle size={18} color="#D97706" />
-                        <span style={{ fontSize: 12, color: '#92400E' }}>
-                            You need at least ₹500 in wallet. Current: ₹{companyBalance}
-                        </span>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            marginBottom: 10,
+                        }}>
+                            <AlertCircle size={18} color="#D97706" />
+                            <span style={{ fontSize: 12, color: '#92400E' }}>
+                                You need at least ₹500 in wallet. Current: ₹{companyBalance}
+                            </span>
+                        </div>
+                        <motion.button
+                            onClick={() => setShowTopUp(true)}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            style={{
+                                width: '100%',
+                                padding: '10px 16px',
+                                borderRadius: 10,
+                                background: 'var(--gradient-primary)',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: 14,
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                cursor: 'pointer',
+                                boxShadow: 'var(--shadow-glow-soft)',
+                            }}
+                        >
+                            <Wallet size={16} />
+                            Add Money to Wallet
+                        </motion.button>
                     </div>
                 )}
 
@@ -960,6 +993,20 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                     {submitting ? 'Scheduling...' : 'Request Meeting'}
                 </motion.button>
             </motion.div>
+
+            {/* Top Up Modal */}
+            <AnimatePresence>
+                {showTopUp && (
+                    <TopUpModal
+                        onClose={() => setShowTopUp(false)}
+                        onSuccess={(amount) => {
+                            showToast(`Wallet topped up with ₹${amount}!`, 'success');
+                            getWallet().then(setWallet);
+                            setShowTopUp(false);
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }

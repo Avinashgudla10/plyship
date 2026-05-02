@@ -10,6 +10,8 @@ import {
     Bell, Shield, HelpCircle, Star, MapPin, Briefcase, Edit2, Camera,
     ArrowLeft, Check, X, Wallet, Calendar, Home
 } from 'lucide-react';
+import { collection, addDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 // Main Profile View with navigation
 export default function ProfileView({ onNavigate }) {
@@ -327,7 +329,10 @@ export function EditProfileView({ onBack }) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                padding: '16px 20px',
+                paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+                paddingBottom: '16px',
+                paddingLeft: '20px',
+                paddingRight: '20px',
                 background: 'white',
                 borderBottom: '1px solid var(--border-light)',
             }}>
@@ -799,23 +804,41 @@ export function PrivacyView({ onBack }) {
 
 // App Settings Page
 export function SettingsView({ onBack }) {
-    const { deleteAccount } = useAuth();
+    const { user, logout } = useAuth();
     const { showToast, showConfirm } = useToast();
     const [deleting, setDeleting] = useState(false);
 
     const handleDeleteAccount = async () => {
         const confirmed = await showConfirm(
-            'This will PERMANENTLY delete your account and ALL your data including:\n\n• Profile & settings\n• All connections & chats\n• All meetings & projects\n• Wallet & transactions\n\nThis action CANNOT be undone!',
-            'Delete Account'
+            'This will submit a request to delete your account. Your account will be reviewed and deleted by our team within 3-5 business days.\n\nYou will be logged out after submitting the request.',
+            'Request Account Deletion'
         );
 
         if (confirmed) {
             setDeleting(true);
-            const result = await deleteAccount();
-            if (result.success) {
-                showToast('Your account has been completely deleted.', 'success');
-            } else {
-                showToast(result.error, 'error');
+            try {
+                const profile = user?.profile || {};
+                const name = profile.companyName || profile.name || 'Unknown';
+                const phone = user?.phone || profile.phone || 'Unknown';
+
+                await addDoc(collection(db, 'deleteRequests'), {
+                    phone: phone,
+                    name: name,
+                    email: null,
+                    reason: 'Requested from app settings',
+                    status: 'PENDING',
+                    requestedAt: new Date().toISOString(),
+                    userId: user?.id || null,
+                    role: user?.role || null,
+                });
+
+                showToast('Deletion request submitted. You will be logged out.', 'success');
+                setTimeout(() => {
+                    logout();
+                }, 1500);
+            } catch (error) {
+                console.error('Error submitting delete request:', error);
+                showToast('Failed to submit request. Please try again.', 'error');
                 setDeleting(false);
             }
         }
@@ -913,7 +936,10 @@ function PageHeader({ title, onBack }) {
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            padding: '16px 20px',
+            paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+            paddingBottom: '16px',
+            paddingLeft: '20px',
+            paddingRight: '20px',
             background: 'white',
             borderBottom: '1px solid var(--border-light)',
         }}>

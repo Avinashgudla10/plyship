@@ -119,14 +119,14 @@ body {
   overflow: hidden;
 }
 
-/* Mobile Container Simulation */
+/* App Container */
 #__next,
 body>div:first-child {
   width: 100%;
   height: 100vh;
   height: 100dvh;
-  max-width: 480px;
-  margin: 0 auto;
+  max-width: 100%;
+  margin: 0;
   position: relative;
   overflow: hidden;
   background: var(--bg-primary);
@@ -166,19 +166,13 @@ body.landing-page-active #__next {
 
 @media (min-width: 481px) {
   body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #F0FDF4;
-    background-image: var(--gradient-mesh);
+    background: var(--bg-secondary);
   }
 
   #__next,
   body>div:first-child {
-    height: 90vh;
-    max-height: 900px;
-    border-radius: var(--radius-2xl);
-    box-shadow: var(--shadow-xl), 0 0 0 1px var(--glass-border);
+    height: 100vh;
+    height: 100dvh;
   }
 
   /* Admin page in desktop - full screen */
@@ -452,4 +446,47 @@ textarea:focus {
 
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* iOS Status Bar Safe Area Header */
+.safe-area-header {
+  padding-top: env(safe-area-inset-top, 0) !important;
+}
+
+/* Offline Banner */
+@keyframes offlineBannerSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes offlineBannerSlideUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes offlinePulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Pull to refresh spinner */
+@keyframes pullRefreshSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

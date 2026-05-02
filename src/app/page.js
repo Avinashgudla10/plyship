@@ -145,7 +145,45 @@ export default function Home() {
     return <LandingPage />;
   }
 
-  if (loading || !user || !user.profileComplete) return null;
+  // Show branded splash screen while loading
+  if (loading || !user || !user.profileComplete) {
+    return (
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(180deg, #0A0F0A 0%, #132A13 100%)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        gap: 24,
+      }}>
+        <motion.img
+          src="/logo.png"
+          alt="PLYSHIP"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
+          style={{ height: 48, width: 'auto', filter: 'brightness(1.1)' }}
+        />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+        >
+          {[0, 1, 2].map(i => (
+            <motion.div
+              key={i}
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1, 0.8] }}
+              transition={{ duration: 1, repeat: Infinity, delay: i * 0.15 }}
+              style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: '#22C55E',
+              }}
+            />
+          ))}
+        </motion.div>
+      </div>
+    );
+  }
 
   const handleMatch = async (profile, direction) => {
     if (direction === 'tap') {
@@ -421,7 +459,10 @@ export default function Home() {
       {/* Minimal Top Header */}
       {!isFullScreen && (
         <header style={{
-          padding: '8px 16px',
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)',
+          paddingBottom: '8px',
+          paddingLeft: '16px',
+          paddingRight: '16px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -507,7 +548,7 @@ export default function Home() {
       {/* Bottom Navigation */}
       {!isFullScreen && (
         <nav style={{
-          padding: '12px 24px 20px',
+          padding: '12px 24px calc(env(safe-area-inset-bottom, 0px) + 12px)',
           background: 'white',
           borderTop: '1px solid var(--border-light)',
           display: 'flex',

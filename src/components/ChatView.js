@@ -602,7 +602,10 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                padding: '12px 16px',
+                paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+                paddingBottom: '12px',
+                paddingLeft: '16px',
+                paddingRight: '16px',
                 background: 'white',
                 borderBottom: '1px solid var(--border-light)',
             }}>

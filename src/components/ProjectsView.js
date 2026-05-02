@@ -102,7 +102,10 @@ export default function ProjectsView({ onBack }) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                padding: '16px 20px',
+                paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+                paddingBottom: '16px',
+                paddingLeft: '20px',
+                paddingRight: '20px',
                 background: 'white',
                 borderBottom: '1px solid var(--border-light)',
             }}>

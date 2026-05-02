@@ -23,7 +23,7 @@ export default function WalletView({ onBack }) {
 }
 
 // ============ TOP UP MODAL ============
-function TopUpModal({ onClose, onSuccess }) {
+export function TopUpModal({ onClose, onSuccess }) {
     const { user, topUpWallet } = useAuth();
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
@@ -33,8 +33,8 @@ function TopUpModal({ onClose, onSuccess }) {
 
     const handlePayment = async () => {
         const numAmount = parseInt(amount);
-        if (!numAmount || numAmount < 100) {
-            setError('Minimum top-up amount is ₹100');
+        if (!numAmount || numAmount < 500) {
+            setError('Minimum top-up amount is ₹500');
             return;
         }
 
@@ -643,7 +643,10 @@ function Header({ title, onBack }) {
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            padding: '16px 20px',
+            paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+            paddingBottom: '16px',
+            paddingLeft: '20px',
+            paddingRight: '20px',
             background: 'white',
             borderBottom: '1px solid var(--border-light)',
         }}>
