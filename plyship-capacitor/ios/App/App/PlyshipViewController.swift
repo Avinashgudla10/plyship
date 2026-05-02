@@ -29,8 +29,8 @@ class PlyshipViewController: CAPBridgeViewController {
 
         // Remove any white background gaps
         webView.isOpaque = false
-        webView.backgroundColor = UIColor(red: 10/255, green: 10/255, blue: 15/255, alpha: 1.0)
-        webView.scrollView.backgroundColor = UIColor(red: 10/255, green: 10/255, blue: 15/255, alpha: 1.0)
+        webView.backgroundColor = .white
+        webView.scrollView.backgroundColor = .white
 
         // Disable automatic safe area inset adjustments — let the web content
         // handle safe areas via CSS env(safe-area-inset-*) and viewport-fit=cover
@@ -52,7 +52,7 @@ class PlyshipViewController: CAPBridgeViewController {
         guard let scrollView = webView?.scrollView else { return }
 
         let refreshControl = UIRefreshControl()
-        refreshControl.tintColor = .white
+        refreshControl.tintColor = UIColor(red: 34/255, green: 197/255, blue: 94/255, alpha: 1.0) // #22C55E brand green
         refreshControl.addTarget(self, action: #selector(handleRefresh(_:)), for: .valueChanged)
 
         scrollView.bounces = true

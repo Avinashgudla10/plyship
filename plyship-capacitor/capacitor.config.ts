@@ -19,13 +19,14 @@ const config: CapacitorConfig = {
         },
         StatusBar: {
             style: 'DARK',
-            backgroundColor: '#0A0A0F',
+            backgroundColor: '#FFFFFF',
+            overlaysWebView: false,
         },
     },
 
     ios: {
         contentInset: 'never',
-        backgroundColor: '#0A0A0F',
+        backgroundColor: '#FFFFFF',
         allowsLinkPreview: false,
         preferredContentMode: 'mobile',
     },
