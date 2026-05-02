@@ -48,4 +48,15 @@ eslint-output*.txt
 *.tsbuildinfo
 next-env.d.ts
 
-.vercel
+# IDE
+.idea/
+
+# Native Capacitor projects (use plyship-capacitor/ as the canonical iOS project)
+/ios/
+/android/
+/resources/
+
+# Misc files that shouldn't be in repo
+generate-icons.cjs
+plyship_prd.md.resolved
+*.jks
