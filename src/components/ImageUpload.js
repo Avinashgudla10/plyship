@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Camera, X, Plus } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Camera, X, Plus, Image as ImageIcon } from 'lucide-react';
 
 // Single image upload (for avatar/logo)
 export function AvatarUpload({ image, onImageChange, isCompany = false }) {
-    const inputRef = useRef(null);
+    const cameraRef = useRef(null);
+    const galleryRef = useRef(null);
+    const [showPicker, setShowPicker] = useState(false);
 
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
@@ -17,6 +19,7 @@ export function AvatarUpload({ image, onImageChange, isCompany = false }) {
             };
             reader.readAsDataURL(file);
         }
+        setShowPicker(false);
     };
 
     const handleRemove = (e) => {
@@ -26,53 +29,168 @@ export function AvatarUpload({ image, onImageChange, isCompany = false }) {
 
     return (
         <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <motion.div
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => inputRef.current?.click()}
-                style={{
-                    width: 100,
-                    height: 100,
-                    borderRadius: isCompany ? 20 : '50%',
-                    background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
-                    border: image ? '3px solid var(--primary)' : '3px dashed var(--pastel-mint)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    position: 'relative',
-                    overflow: 'hidden',
-                }}
-            >
-                {!image && (
-                    <Camera size={32} color="var(--text-muted)" />
-                )}
-                {image && (
-                    <motion.button
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        onClick={handleRemove}
-                        style={{
-                            position: 'absolute',
-                            top: 4,
-                            right: 4,
-                            width: 24,
-                            height: 24,
-                            borderRadius: '50%',
-                            background: 'rgba(0,0,0,0.6)',
-                            border: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                        }}
-                    >
-                        <X size={14} color="white" />
-                    </motion.button>
-                )}
-            </motion.div>
+            <div style={{ position: 'relative' }}>
+                <motion.div
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setShowPicker(true)}
+                    style={{
+                        width: 100,
+                        height: 100,
+                        borderRadius: isCompany ? 20 : '50%',
+                        background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
+                        border: image ? '3px solid var(--primary)' : '3px dashed var(--pastel-mint)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        overflow: 'hidden',
+                    }}
+                >
+                    {!image && (
+                        <Camera size={32} color="var(--text-muted)" />
+                    )}
+                    {image && (
+                        <motion.button
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            onClick={handleRemove}
+                            style={{
+                                position: 'absolute',
+                                top: 4,
+                                right: 4,
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.6)',
+                                border: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <X size={14} color="white" />
+                        </motion.button>
+                    )}
+                </motion.div>
+
+                {/* Camera/Gallery picker modal */}
+                <AnimatePresence>
+                    {showPicker && (
+                        <>
+                            {/* Backdrop */}
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setShowPicker(false)}
+                                style={{
+                                    position: 'fixed',
+                                    inset: 0,
+                                    background: 'rgba(0,0,0,0.4)',
+                                    zIndex: 99999,
+                                }}
+                            />
+                            {/* Action sheet */}
+                            <motion.div
+                                initial={{ opacity: 0, y: 100 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 100 }}
+                                transition={{ type: 'spring', damping: 25 }}
+                                style={{
+                                    position: 'fixed',
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    zIndex: 100000,
+                                    padding: '8px',
+                                    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+                                }}
+                            >
+                                <div style={{
+                                    background: 'white',
+                                    borderRadius: 16,
+                                    overflow: 'hidden',
+                                    marginBottom: 8,
+                                }}>
+                                    <button
+                                        onClick={() => { cameraRef.current?.click(); }}
+                                        style={{
+                                            width: '100%',
+                                            padding: '16px',
+                                            background: 'none',
+                                            border: 'none',
+                                            borderBottom: '1px solid var(--border-light)',
+                                            fontSize: 17,
+                                            fontWeight: 500,
+                                            color: '#007AFF',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 10,
+                                        }}
+                                    >
+                                        <Camera size={20} />
+                                        Take Photo
+                                    </button>
+                                    <button
+                                        onClick={() => { galleryRef.current?.click(); }}
+                                        style={{
+                                            width: '100%',
+                                            padding: '16px',
+                                            background: 'none',
+                                            border: 'none',
+                                            fontSize: 17,
+                                            fontWeight: 500,
+                                            color: '#007AFF',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 10,
+                                        }}
+                                    >
+                                        <ImageIcon size={20} />
+                                        Choose from Library
+                                    </button>
+                                </div>
+                                <button
+                                    onClick={() => setShowPicker(false)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '16px',
+                                        background: 'white',
+                                        border: 'none',
+                                        borderRadius: 16,
+                                        fontSize: 17,
+                                        fontWeight: 600,
+                                        color: '#007AFF',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                            </motion.div>
+                        </>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            {/* Hidden camera input */}
             <input
-                ref={inputRef}
+                ref={cameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+            />
+            {/* Hidden gallery input */}
+            <input
+                ref={galleryRef}
                 type="file"
                 accept="image/*"
                 onChange={handleFileChange}

@@ -6,6 +6,7 @@ import WebKit
 /// 1. Edge-to-edge fullscreen WebView layout
 /// 2. Navigation policy — plyship.com stays in-app, external links open in Safari
 /// 3. Pull-to-refresh — native UIRefreshControl for page reload
+/// 4. Camera & photo library file input support
 class PlyshipViewController: CAPBridgeViewController {
 
     // MARK: - Allowed Domains
@@ -15,10 +16,17 @@ class PlyshipViewController: CAPBridgeViewController {
         "www.plyship.com"
     ]
 
+    // Store the original WKUIDelegate from Capacitor so file input still works
+    private weak var originalUIDelegate: WKUIDelegate?
+
     override func viewDidLoad() {
         super.viewDidLoad()
         setupEdgeToEdge()
         setupPullToRefresh()
+
+        // Save Capacitor's original UI delegate (handles file input pickers)
+        // then set ourselves as delegate, forwarding unhandled calls back
+        originalUIDelegate = webView?.uiDelegate
         webView?.uiDelegate = self
     }
 
@@ -27,7 +35,7 @@ class PlyshipViewController: CAPBridgeViewController {
     private func setupEdgeToEdge() {
         guard let webView = webView else { return }
 
-        // Remove any white background gaps
+        // Use white background to match the app theme
         webView.isOpaque = false
         webView.backgroundColor = .white
         webView.scrollView.backgroundColor = .white
@@ -89,14 +97,20 @@ class PlyshipViewController: CAPBridgeViewController {
             return true
         }
 
+        // Razorpay payment domains
+        if host.hasSuffix(".razorpay.com") {
+            return true
+        }
+
         return false
     }
 }
 
-// MARK: - WKUIDelegate (handles target="_blank" and window.open)
+// MARK: - WKUIDelegate (handles target="_blank", window.open, AND file input)
 
 extension PlyshipViewController: WKUIDelegate {
 
+    // Handle target="_blank" links and window.open()
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard let url = navigationAction.request.url else { return nil }
 
@@ -107,5 +121,19 @@ extension PlyshipViewController: WKUIDelegate {
         }
 
         return nil
+    }
+
+    // CRITICAL: Forward file input requests to Capacitor's original delegate
+    // This is what makes <input type="file"> work for camera and photo library
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        originalUIDelegate?.webView?(webView, runJavaScriptAlertPanelWithMessage: message, initiatedByFrame: frame, completionHandler: completionHandler) ?? completionHandler()
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        originalUIDelegate?.webView?(webView, runJavaScriptConfirmPanelWithMessage: message, initiatedByFrame: frame, completionHandler: completionHandler) ?? completionHandler(false)
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        originalUIDelegate?.webView?(webView, runJavaScriptTextInputPanelWithPrompt: prompt, defaultText: defaultText, initiatedByFrame: frame, completionHandler: completionHandler) ?? completionHandler(nil)
     }
 }
