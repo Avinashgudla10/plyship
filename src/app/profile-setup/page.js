@@ -155,7 +155,9 @@ export default function ProfileSetup() {
                 if (!seekerData.styles || seekerData.styles.length === 0) {
                     newErrors.styles = 'Select at least one style';
                 }
-                if (!seekerData.rooms || seekerData.rooms.length === 0) {
+                // Only require rooms if not commercial-only
+                const isCommercialOnly = seekerData.styles.length === 1 && seekerData.styles.includes('commercial');
+                if (!isCommercialOnly && (!seekerData.rooms || seekerData.rooms.length === 0)) {
                     newErrors.rooms = 'Select at least one room';
                 }
                 if (!seekerData.budget) {
@@ -467,21 +469,33 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
                 <label style={labelStyle}>Space Type</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
                     {STYLES.map((style) => (
-                        <EmojiButton key={style.id} item={style} selected={data.styles.includes(style.id)} onClick={() => toggleSelection('styles', style.id)} />
+                        <EmojiButton key={style.id} item={style} selected={data.styles.includes(style.id)} onClick={() => {
+                            toggleSelection('styles', style.id);
+                            // If selecting commercial and deselecting residential, clear rooms
+                            const newStyles = data.styles.includes(style.id)
+                                ? data.styles.filter(s => s !== style.id)
+                                : [...data.styles, style.id];
+                            if (newStyles.length === 1 && newStyles.includes('commercial')) {
+                                setData(prev => ({ ...prev, rooms: [] }));
+                            }
+                        }} />
                     ))}
                 </div>
                 {errors?.styles && <p style={errorTextStyle}>{errors.styles}</p>}
             </div>
 
-            <div style={{ marginBottom: 24 }}>
-                <label style={labelStyle}>Rooms to Design</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-                    {ROOM_TYPES.map((room) => (
-                        <EmojiButton key={room.id} item={room} selected={data.rooms.includes(room.id)} onClick={() => toggleSelection('rooms', room.id)} />
-                    ))}
+            {/* Hide Rooms section when only Commercial is selected */}
+            {!(data.styles.length === 1 && data.styles.includes('commercial')) && (
+                <div style={{ marginBottom: 24 }}>
+                    <label style={labelStyle}>Rooms to Design</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                        {ROOM_TYPES.map((room) => (
+                            <EmojiButton key={room.id} item={room} selected={data.rooms.includes(room.id)} onClick={() => toggleSelection('rooms', room.id)} />
+                        ))}
+                    </div>
+                    {errors?.rooms && <p style={errorTextStyle}>{errors.rooms}</p>}
                 </div>
-                {errors?.rooms && <p style={errorTextStyle}>{errors.rooms}</p>}
-            </div>
+            )}
 
             <div style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>Your Budget</label>

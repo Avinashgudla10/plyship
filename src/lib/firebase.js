@@ -38,7 +38,6 @@ export const deleteUserStorage = async (userId) => {
         // Delete all files in the user's folder
         for (const fileRef of listResult.items) {
             await deleteObject(fileRef);
-            console.log('🗑️ Deleted storage file:', fileRef.fullPath);
         }
 
         // Recursively delete files in subdirectories (portfolio, etc.)
@@ -46,15 +45,12 @@ export const deleteUserStorage = async (userId) => {
             const subListResult = await listAll(folderRef);
             for (const fileRef of subListResult.items) {
                 await deleteObject(fileRef);
-                console.log('🗑️ Deleted storage file:', fileRef.fullPath);
             }
         }
 
-        console.log('✅ Deleted all storage files for user:', userId);
     } catch (error) {
         // If folder doesn't exist or is empty, that's fine
         if (error.code !== 'storage/object-not-found') {
-            console.error('⚠️ Error deleting storage files:', error);
         }
     }
 };
@@ -84,7 +80,6 @@ export const subscribeToMessages = (chatId, callback) => {
         });
         callback(messages);
     }, (error) => {
-        console.error('Error listening to messages:', error);
         callback([]);
     });
 
@@ -103,13 +98,10 @@ export const uploadImage = async (base64Data, path) => {
 
         // Upload the base64 string
         const snapshot = await uploadString(storageRef, base64Data, 'data_url');
-        console.log('✅ Image uploaded to:', path);
-
         // Get the download URL
         const downloadURL = await getDownloadURL(snapshot.ref);
         return downloadURL;
     } catch (error) {
-        console.error('❌ Error uploading image:', error);
         throw error;
     }
 };

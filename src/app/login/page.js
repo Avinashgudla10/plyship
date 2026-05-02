@@ -420,6 +420,15 @@ export default function Login() {
                         Create Account
                     </Link>
                 </div>
+                <div style={{
+                    paddingTop: 12, textAlign: 'center',
+                    fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5
+                }}>
+                    By signing in, you agree to our{' '}
+                    <Link href="/terms" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Terms of Service</Link>
+                    {' '}and{' '}
+                    <Link href="/privacy" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Privacy Policy</Link>
+                </div>
             </motion.div>
         </div>
     );

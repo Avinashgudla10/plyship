@@ -44,7 +44,6 @@ export async function POST(request) {
             paymentId: razorpay_payment_id,
         });
     } catch (error) {
-        console.error('Payment verification failed:', error);
         return Response.json(
             { error: 'Payment verification failed' },
             { status: 500 }

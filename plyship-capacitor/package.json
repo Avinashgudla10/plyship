@@ -1,0 +1,21 @@
+{
+  "name": "plyship-capacitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Native iOS wrapper for PLYSHIP (https://plyship.com)",
+  "scripts": {
+    "sync": "npx cap sync ios",
+    "open": "npx cap open ios",
+    "build": "npx cap sync ios && npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/ios": "^8.1.0",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.1.0",
+    "typescript": "^5.7.0"
+  }
+}

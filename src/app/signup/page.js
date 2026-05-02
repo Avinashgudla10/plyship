@@ -8,6 +8,8 @@ import { Phone, ArrowRight, ArrowLeft, Shield, CheckCircle } from 'lucide-react'
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 import Image from 'next/image';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export default function Signup() {
     const router = useRouter();
@@ -19,6 +21,7 @@ export default function Signup() {
     const [showRoleSelection, setShowRoleSelection] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [existingAccount, setExistingAccount] = useState(false);
     const [countdown, setCountdown] = useState(0);
     const otpRefs = useRef([]);
 
@@ -40,6 +43,7 @@ export default function Signup() {
     const handleSendOTP = async (e) => {
         e.preventDefault();
         setError('');
+        setExistingAccount(false);
         const cleanPhone = phone.replace(/\s/g, '');
         if (cleanPhone.length !== 10) {
             setError('Please enter a valid 10-digit mobile number');
@@ -47,6 +51,26 @@ export default function Signup() {
         }
 
         setIsLoading(true);
+
+        // Check if phone number already exists in seekers or companies
+        try {
+            const formattedPhone = `+91${cleanPhone}`;
+            const [seekerSnap, companySnap] = await Promise.all([
+                getDocs(query(collection(db, 'seekers'), where('phone', '==', formattedPhone))),
+                getDocs(query(collection(db, 'companies'), where('phone', '==', formattedPhone))),
+            ]);
+
+            if (!seekerSnap.empty || !companySnap.empty) {
+                setIsLoading(false);
+                setExistingAccount(true);
+                setError('This phone number is already registered.');
+                return;
+            }
+        } catch (err) {
+            console.error('Error checking phone:', err);
+            // Continue with signup even if check fails
+        }
+
         const result = await sendOTP(cleanPhone, 'recaptcha-container');
         setIsLoading(false);
 
@@ -259,7 +283,18 @@ export default function Signup() {
                                     padding: '12px 16px', borderRadius: 12,
                                     background: '#FEF2F2', border: '1px solid #FECACA',
                                     color: '#DC2626', fontSize: 14, fontWeight: 500
-                                }}>{error}</div>
+                                }}>
+                                    {error}
+                                    {existingAccount && (
+                                        <div style={{ marginTop: 8, fontSize: 13 }}>
+                                            Please{' '}
+                                            <Link href="/login" style={{ color: '#16A34A', fontWeight: 700, textDecoration: 'underline' }}>
+                                                Sign In
+                                            </Link>
+                                            {' '}instead, or use a different number to sign up.
+                                        </div>
+                                    )}
+                                </div>
                             )}
 
                             <motion.button
@@ -434,6 +469,15 @@ export default function Signup() {
                     <Link href="/login" style={{ color: 'var(--primary-hover)', fontWeight: 700 }}>
                         Sign In
                     </Link>
+                </div>
+                <div style={{
+                    paddingTop: 12, textAlign: 'center',
+                    fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5
+                }}>
+                    By signing up, you agree to our{' '}
+                    <Link href="/terms" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Terms of Service</Link>
+                    {' '}and{' '}
+                    <Link href="/privacy" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Privacy Policy</Link>
                 </div>
             </motion.div>
 

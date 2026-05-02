@@ -6,24 +6,21 @@ export async function POST(request) {
         const body = await request.json();
         const { amount, userId, currency = 'INR' } = body;
 
-        console.log('📦 Create order request:', { amount, userId, currency });
-
         // Check if keys are configured
         const keyId = process.env.RAZORPAY_KEY_ID;
         const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
         if (!keyId || !keySecret) {
-            console.error('❌ Missing Razorpay keys');
             return Response.json(
-                { error: 'Payment gateway not configured. Please contact support.', details: 'Missing API keys' },
+                { error: 'Payment gateway not configured. Please contact support.' },
                 { status: 503 }
             );
         }
 
         // Validate amount
-        if (!amount || amount < 100) {
+        if (!amount || amount < 500) {
             return Response.json(
-                { error: 'Minimum top-up amount is ₹100' },
+                { error: 'Minimum top-up amount is ₹500' },
                 { status: 400 }
             );
         }
@@ -51,14 +48,11 @@ export async function POST(request) {
         const order = await orderResponse.json();
 
         if (!orderResponse.ok) {
-            console.error('❌ Razorpay API error:', order);
             return Response.json(
-                { error: order.error?.description || 'Failed to create order', details: order },
+                { error: order.error?.description || 'Failed to create order' },
                 { status: 400 }
             );
         }
-
-        console.log('✅ Order created:', order.id);
 
         return Response.json({
             success: true,
@@ -68,9 +62,8 @@ export async function POST(request) {
             keyId: keyId,
         });
     } catch (error) {
-        console.error('❌ Razorpay order creation failed:', error.message, error.stack);
         return Response.json(
-            { error: 'Failed to create payment order', details: error.message },
+            { error: 'Failed to create payment order' },
             { status: 500 }
         );
     }

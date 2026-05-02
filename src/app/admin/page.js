@@ -7,7 +7,7 @@ import {
     Users, Building2, Palette, Calendar, Wallet, ArrowLeft,
     TrendingUp, DollarSign, MessageCircle, CheckCircle, XCircle,
     Clock, Search, RefreshCw, Eye, Filter, Download, Zap,
-    Pencil, Trash2, X, Save, AlertTriangle, LogOut, Banknote, LogIn, Send, Megaphone
+    Pencil, Trash2, X, Save, AlertTriangle, LogOut, Banknote, LogIn, Send, Megaphone, UserX
 } from 'lucide-react';
 import {
     collection, getDocs, query, orderBy, limit, where,
@@ -312,6 +312,7 @@ export default function AdminDashboard() {
     const [adminWallet, setAdminWallet] = useState({ balance: 0, totalEarnings: 0 });
     const [allWallets, setAllWallets] = useState([]);
     const [withdrawals, setWithdrawals] = useState([]);
+    const [deleteRequests, setDeleteRequests] = useState([]);
     const [viewingUser, setViewingUser] = useState(null);
     const [viewingChat, setViewingChat] = useState(null);
     const [viewingEarnings, setViewingEarnings] = useState(null);
@@ -449,6 +450,15 @@ export default function AdminDashboard() {
                 (error) => console.error('Withdrawals listener error:', error)
             ));
 
+            // Real-time delete requests listener
+            firestoreUnsubs.push(onSnapshot(
+                query(collection(db, 'deleteRequests'), orderBy('requestedAt', 'desc')),
+                (snapshot) => {
+                    setDeleteRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+                },
+                (error) => console.error('Delete requests listener error:', error)
+            ));
+
             setLoading(false);
         });
 
@@ -531,8 +541,26 @@ export default function AdminDashboard() {
         try {
             const user = users.find(u => u.id === userId);
             const collectionName = user.role === 'company' ? 'companies' : 'seekers';
+
+            // Delete from Firebase Auth via server API
+            const adminPhone = localStorage.getItem('userPhone');
+            try {
+                const res = await fetch('/api/admin/delete-user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, adminPhone }),
+                });
+                const result = await res.json();
+                if (!res.ok) {
+                    console.error('Auth deletion warning:', result.error);
+                }
+            } catch (apiErr) {
+                console.error('Auth deletion API error:', apiErr);
+            }
+
+            // Delete Firestore document
             await deleteDoc(doc(db, collectionName, userId));
-            showToast('User deleted successfully');
+            showToast('User deleted successfully (Auth + Firestore)');
             setConfirmDelete(null);
         } catch (error) {
             console.error('Error deleting user:', error);
@@ -705,6 +733,7 @@ export default function AdminDashboard() {
         { id: 'chats', label: 'Chats', icon: MessageCircle },
         { id: 'wallets', label: 'Wallets', icon: Wallet },
         { id: 'withdrawals', label: 'Withdrawals', icon: Banknote },
+        { id: 'deleteRequests', label: 'Delete Requests', icon: UserX },
     ];
 
     // -- Withdrawals --
@@ -726,6 +755,51 @@ export default function AdminDashboard() {
             showToast(`Withdrawal ${newStatus.toLowerCase()} successfully`);
         } catch (error) {
             console.error('Error updating withdrawal:', error);
+            showToast('Failed to update: ' + error.message, 'error');
+        }
+        setSaving(false);
+    };
+
+    // -- Delete Requests --
+    const handleUpdateDeleteRequest = async (requestId, newStatus) => {
+        setSaving(true);
+        try {
+            // If approving, delete the user from Firebase Auth
+            if (newStatus === 'APPROVED') {
+                const request = deleteRequests.find(r => r.id === requestId);
+                if (request?.phone) {
+                    const adminPhone = localStorage.getItem('userPhone');
+                    try {
+                        const res = await fetch('/api/admin/delete-user', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ phone: request.phone, adminPhone }),
+                        });
+                        const result = await res.json();
+                        if (res.ok && result.deletedUid) {
+                            // Also delete Firestore user documents
+                            try { await deleteDoc(doc(db, 'seekers', result.deletedUid)); } catch (e) { /* may not exist */ }
+                            try { await deleteDoc(doc(db, 'companies', result.deletedUid)); } catch (e) { /* may not exist */ }
+                        }
+                        if (!res.ok) {
+                            console.error('Auth deletion warning:', result.error);
+                        }
+                    } catch (apiErr) {
+                        console.error('Auth deletion API error:', apiErr);
+                    }
+                }
+            }
+
+            const reqRef = doc(db, 'deleteRequests', requestId);
+            await updateDoc(reqRef, {
+                status: newStatus,
+                processedAt: new Date().toISOString(),
+            });
+            showToast(newStatus === 'APPROVED'
+                ? 'User deleted from Auth + Firestore'
+                : `Delete request ${newStatus.toLowerCase()}`);
+        } catch (error) {
+            console.error('Error updating delete request:', error);
             showToast('Failed to update: ' + error.message, 'error');
         }
         setSaving(false);
@@ -942,6 +1016,13 @@ export default function AdminDashboard() {
                         transactions={transactions}
                         onUpdateStatus={handleUpdateWithdrawalStatus}
                         onViewEarnings={(seeker) => setViewingEarnings(seeker)}
+                        saving={saving}
+                    />
+                )}
+                {activeTab === 'deleteRequests' && (
+                    <DeleteRequestsTab
+                        requests={deleteRequests}
+                        onUpdateStatus={handleUpdateDeleteRequest}
                         saving={saving}
                     />
                 )}
@@ -1559,7 +1640,7 @@ function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView, 
                                 <td style={tdStyle}>{user.email}</td>
                                 <td style={tdStyle}>
                                     <span style={{ fontSize: 13, color: '#555' }}>
-                                        {user.profile?.phone || '—'}
+                                        {user.profile?.phone || user.phone || '—'}
                                     </span>
                                 </td>
                                 <td style={tdStyle}>
@@ -3467,6 +3548,142 @@ function EarningHistoryModal({ seeker, transactions, users, onClose }) {
                 </div>
             </motion.div>
         </motion.div>
+    );
+}
+
+// ============ DELETE REQUESTS TAB ============
+function DeleteRequestsTab({ requests, onUpdateStatus, saving }) {
+    const [filter, setFilter] = useState('ALL');
+
+    const filtered = requests.filter(r => {
+        if (filter === 'ALL') return true;
+        return r.status === filter;
+    });
+
+    const pendingCount = requests.filter(r => r.status === 'PENDING').length;
+
+    const getStatusColor = (status) => {
+        switch (status) {
+            case 'PENDING': return { bg: '#FEF3C7', color: '#D97706', border: '#FDE68A' };
+            case 'APPROVED': return { bg: '#D1FAE5', color: '#059669', border: '#A7F3D0' };
+            case 'REJECTED': return { bg: '#FEE2E2', color: '#DC2626', border: '#FECACA' };
+            default: return { bg: '#F3F4F6', color: '#6B7280', border: '#E5E7EB' };
+        }
+    };
+
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '—';
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
+    return (
+        <div>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111' }}>Delete Requests</h2>
+                    {pendingCount > 0 && (
+                        <span style={{
+                            background: '#DC2626', color: 'white',
+                            padding: '2px 10px', borderRadius: 20,
+                            fontSize: 12, fontWeight: 700,
+                        }}>{pendingCount} pending</span>
+                    )}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                    {['ALL', 'PENDING', 'APPROVED', 'REJECTED'].map(f => (
+                        <button
+                            key={f}
+                            onClick={() => setFilter(f)}
+                            style={{
+                                padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: '1px solid #E5E7EB', cursor: 'pointer',
+                                background: filter === f ? '#22C55E' : 'white',
+                                color: filter === f ? 'white' : '#666',
+                            }}
+                        >{f}</button>
+                    ))}
+                </div>
+            </div>
+
+            {filtered.length === 0 ? (
+                <div style={{
+                    textAlign: 'center', padding: 60,
+                    background: 'white', borderRadius: 16,
+                    border: '1px solid #E5E7EB',
+                }}>
+                    <UserX size={40} color="#D1D5DB" />
+                    <p style={{ marginTop: 12, color: '#999', fontSize: 14 }}>No delete requests found</p>
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {filtered.map(req => {
+                        const sc = getStatusColor(req.status);
+                        return (
+                            <div key={req.id} style={{
+                                background: 'white', borderRadius: 14, padding: '16px 20px',
+                                border: '1px solid #E5E7EB',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                flexWrap: 'wrap', gap: 12,
+                            }}>
+                                <div style={{ flex: 1, minWidth: 200 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 15, color: '#111' }}>{req.name}</span>
+                                        <span style={{
+                                            padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                                            background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`,
+                                        }}>{req.status}</span>
+                                    </div>
+                                    <div style={{ fontSize: 13, color: '#666', lineHeight: 1.6 }}>
+                                        <span>📱 {req.phone}</span>
+                                        {req.email && <span style={{ marginLeft: 16 }}>✉️ {req.email}</span>}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                                        Reason: {req.reason || '—'} · Requested: {formatDate(req.requestedAt)}
+                                        {req.processedAt && <span> · Processed: {formatDate(req.processedAt)}</span>}
+                                    </div>
+                                </div>
+                                {req.status === 'PENDING' && (
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button
+                                            onClick={() => onUpdateStatus(req.id, 'APPROVED')}
+                                            disabled={saving}
+                                            style={{
+                                                padding: '8px 16px', borderRadius: 8, border: 'none',
+                                                background: '#22C55E', color: 'white',
+                                                fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', gap: 6,
+                                                opacity: saving ? 0.6 : 1,
+                                            }}
+                                        >
+                                            <CheckCircle size={14} /> Approve
+                                        </button>
+                                        <button
+                                            onClick={() => onUpdateStatus(req.id, 'REJECTED')}
+                                            disabled={saving}
+                                            style={{
+                                                padding: '8px 16px', borderRadius: 8, border: '1px solid #FECACA',
+                                                background: '#FEF2F2', color: '#DC2626',
+                                                fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', gap: 6,
+                                                opacity: saving ? 0.6 : 1,
+                                            }}
+                                        >
+                                            <XCircle size={14} /> Reject
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            <p style={{ fontSize: 12, color: '#999', marginTop: 16, textAlign: 'center' }}>
+                Showing {filtered.length} of {requests.length} requests
+            </p>
+        </div>
     );
 }
 

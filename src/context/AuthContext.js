@@ -45,12 +45,10 @@ export const AuthProvider = ({ children }) => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             // Skip if we're in the middle of onboarding or impersonating
             if (isOnboarding.current) {
-                console.log('⏳ Skipping auth listener - onboarding in progress');
                 setLoading(false);
                 return;
             }
             if (isImpersonating) {
-                console.log('👤 Skipping auth listener - impersonating user');
                 setLoading(false);
                 return;
             }
@@ -65,7 +63,6 @@ export const AuthProvider = ({ children }) => {
                         const userData = { id: firebaseUser.uid, ...userDoc.data() };
                         setUser(userData);
                         localStorage.setItem('userEmail', userData.email);
-                        console.log('✅ Loaded SEEKER from Firestore:', userData.email);
                         // Track activity (fire-and-forget)
                         setDoc(doc(db, 'seekers', firebaseUser.uid), { lastActiveAt: new Date().toISOString() }, { merge: true }).catch(() => { });
                     } else {
@@ -76,7 +73,6 @@ export const AuthProvider = ({ children }) => {
                             const userData = { id: firebaseUser.uid, ...userDoc.data() };
                             setUser(userData);
                             localStorage.setItem('userEmail', userData.email);
-                            console.log('✅ Loaded COMPANY from Firestore:', userData.email);
                             // Track activity (fire-and-forget)
                             setDoc(doc(db, 'companies', firebaseUser.uid), { lastActiveAt: new Date().toISOString() }, { merge: true }).catch(() => { });
                         } else {
@@ -90,11 +86,9 @@ export const AuthProvider = ({ children }) => {
                                 profile: null
                             });
                             localStorage.setItem('userPhone', firebaseUser.phoneNumber || '');
-                            console.log('🆕 New user, no profile yet:', firebaseUser.phoneNumber || firebaseUser.email);
                         }
                     }
                 } catch (error) {
-                    console.error('Error loading user profile:', error);
                     setUser({
                         id: firebaseUser.uid,
                         email: firebaseUser.email,
@@ -115,13 +109,32 @@ export const AuthProvider = ({ children }) => {
 
     // Setup invisible reCAPTCHA
     const setupRecaptcha = (buttonId) => {
+        // Clear any existing verifier
         if (recaptchaVerifierRef.current) {
-            recaptchaVerifierRef.current.clear();
+            try {
+                recaptchaVerifierRef.current.clear();
+            } catch (e) {
+                // Ignore errors during cleanup
+            }
+            recaptchaVerifierRef.current = null;
         }
+
+        // Clear the DOM element to remove any leftover reCAPTCHA widget
+        const container = document.getElementById(buttonId);
+        if (container) {
+            container.innerHTML = '';
+        }
+
+        // Also reset any global recaptcha widgets
+        if (window.recaptchaWidgetId !== undefined) {
+            try {
+                window.grecaptcha?.reset(window.recaptchaWidgetId);
+            } catch (e) { }
+        }
+
         recaptchaVerifierRef.current = new RecaptchaVerifier(auth, buttonId, {
             size: 'invisible',
             callback: () => {
-                console.log('✅ reCAPTCHA solved');
             },
         });
         return recaptchaVerifierRef.current;
@@ -134,10 +147,8 @@ export const AuthProvider = ({ children }) => {
             const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
             const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
             confirmationResultRef.current = confirmationResult;
-            console.log('✅ OTP sent to:', formattedPhone);
             return { success: true };
         } catch (error) {
-            console.error('OTP send error:', error.message);
             // Reset recaptcha on error
             if (recaptchaVerifierRef.current) {
                 recaptchaVerifierRef.current.clear();
@@ -154,10 +165,8 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'No OTP request found. Please send OTP again.' };
             }
             const result = await confirmationResultRef.current.confirm(otpCode);
-            console.log('✅ OTP verified, user:', result.user.uid);
             return { success: true, user: result.user };
         } catch (error) {
-            console.error('OTP verify error:', error.message);
             return { success: false, error: 'Invalid OTP. Please try again.' };
         }
     };
@@ -173,7 +182,6 @@ export const AuthProvider = ({ children }) => {
             }
             return { success: true };
         } catch (error) {
-            console.error('Signup error:', error.message);
             isOnboarding.current = false;
             return { success: false, error: error.message };
         }
@@ -198,7 +206,6 @@ export const AuthProvider = ({ children }) => {
             setLoading(false);
             return { success: true };
         } catch (error) {
-            console.error('Complete signup error:', error.message);
             isOnboarding.current = false;
             return { success: false, error: error.message };
         }
@@ -209,44 +216,31 @@ export const AuthProvider = ({ children }) => {
         try {
             const result = await verifyOTP(otpCode);
             if (!result.success) return result;
-            console.log('✅ Logged in via OTP:', result.user.phoneNumber);
             return { success: true };
         } catch (error) {
-            console.error('Login OTP error:', error.message);
             return { success: false, error: error.message };
         }
     };
 
     const selectRole = (role) => {
         if (!user) {
-            console.error('❌ selectRole: No user!');
             return;
         }
-        console.log('👤 Role selected:', role, 'for user:', user.id);
         setUser(prev => ({ ...prev, role }));
     };
 
     const completeProfile = async (profileData) => {
-        console.log('=== COMPLETE PROFILE CALLED ===');
-        console.log('User object:', JSON.stringify(user, null, 2));
-        console.log('Profile data:', JSON.stringify(profileData, null, 2));
-
         if (!user) {
-            console.error('❌ No user to save profile for!');
             return { success: false, error: 'No user found' };
         }
 
         if (!user.id) {
-            console.error('❌ User has no ID!');
             return { success: false, error: 'User has no ID' };
         }
 
         if (!user.role) {
-            console.error('❌ User has no role!');
             return { success: false, error: 'User has no role selected' };
         }
-
-        console.log('📝 Saving profile to Firestore with role:', user.role, 'ID:', user.id);
 
         // Upload images to Firebase Storage
         const cleanedProfile = { ...profileData };
@@ -254,37 +248,41 @@ export const AuthProvider = ({ children }) => {
         try {
             // Upload avatar if it's a base64 image
             if (cleanedProfile.avatar && cleanedProfile.avatar.startsWith('data:')) {
-                console.log('📸 Uploading avatar to Firebase Storage...');
                 const avatarUrl = await uploadImage(
                     cleanedProfile.avatar,
                     `users/${user.id}/avatar_${Date.now()}.jpg`
                 );
                 cleanedProfile.avatar = avatarUrl;
-                console.log('✅ Avatar uploaded:', avatarUrl.substring(0, 50) + '...');
             }
 
             // Upload portfolio images if they exist
             if (cleanedProfile.portfolioImages && cleanedProfile.portfolioImages.length > 0) {
                 const base64Images = cleanedProfile.portfolioImages.filter(img => img && img.startsWith('data:'));
                 if (base64Images.length > 0) {
-                    console.log('📸 Uploading', base64Images.length, 'portfolio images to Firebase Storage...');
                     const imageUrls = await uploadImages(
                         base64Images,
                         `users/${user.id}/portfolio`
                     );
                     cleanedProfile.portfolioImages = imageUrls;
-                    console.log('✅ Portfolio images uploaded');
                 }
             }
         } catch (uploadError) {
-            console.error('❌ Error uploading images:', uploadError);
             // Continue without images if upload fails
             cleanedProfile.avatar = null;
             cleanedProfile.portfolioImages = [];
         }
 
+        // Get phone from user state or Firebase Auth or localStorage
+        const userPhone = user.phone || auth.currentUser?.phoneNumber || localStorage.getItem('userPhone') || '';
+
+        // Inject phone into profile sub-object so admin dashboard can read it
+        if (userPhone && !cleanedProfile.phone) {
+            cleanedProfile.phone = userPhone;
+        }
+
         const updatedUser = {
             email: user.email,
+            phone: userPhone,
             name: profileData.name || profileData.companyName || user.name,
             role: user.role,
             profileComplete: true,
@@ -294,28 +292,18 @@ export const AuthProvider = ({ children }) => {
 
         // Check size before saving
         const dataSize = JSON.stringify(updatedUser).length;
-        console.log('📦 Data size:', (dataSize / 1024).toFixed(2), 'KB');
-
         try {
             // Save to appropriate collection based on role
             const collectionName = user.role === 'SEEKER' ? 'seekers' : 'companies';
-            console.log('🗄️ Saving to collection:', collectionName, 'with ID:', user.id);
-
             await setDoc(doc(db, collectionName, user.id), updatedUser);
-            console.log('✅ Firestore write successful!');
-
             // Update local state
             setUser({ id: user.id, ...updatedUser });
 
             // Clear onboarding flag - profile is complete
             isOnboarding.current = false;
 
-            console.log(`✅ Saved ${user.role} profile to Firestore:`, updatedUser.name);
             return { success: true };
         } catch (error) {
-            console.error('❌ Firestore error:', error);
-            console.error('Error code:', error.code);
-            console.error('Error message:', error.message);
             return { success: false, error: error.message };
         }
     };
@@ -351,19 +339,14 @@ export const AuthProvider = ({ children }) => {
             });
             return users;
         } catch (error) {
-            console.error('❌ Error fetching all users:', error);
             return [];
         }
     }, [user]);
 
     const getSwipeProfiles = useCallback(async () => {
         if (!user || !user.role) {
-            console.log('⚠️ getSwipeProfiles: No user or role');
             return [];
         }
-
-        console.log('=== GETTING SWIPE PROFILES FROM FIRESTORE ===');
-        console.log('👤 Current user:', user.email, 'Role:', user.role);
 
         try {
             // Fetch liked, passed, and meeting users in parallel
@@ -414,8 +397,6 @@ export const AuthProvider = ({ children }) => {
                 }
             });
 
-            console.log(`📊 Found ${profiles.length} ${collectionName} profiles (after filtering)`);
-
             // City-based matching: same-city profiles appear first
             const userCity = (user.profile?.city || '').trim().toLowerCase();
 
@@ -438,11 +419,8 @@ export const AuthProvider = ({ children }) => {
                 const pCity = (p.profile?.city || p.city || '').trim().toLowerCase();
                 return userCity && pCity === userCity;
             }).length;
-            console.log(`🏙️ City matching: ${sameCityCount} same-city, ${profiles.length - sameCityCount} other-city (user city: "${userCity || 'not set'}")`);
-
             return profiles;
         } catch (error) {
-            console.error('❌ Error fetching profiles:', error);
             return [];
         }
     }, [user]);
@@ -450,11 +428,8 @@ export const AuthProvider = ({ children }) => {
     // Like a profile and check for mutual match
     const likeProfile = useCallback(async (targetProfile) => {
         if (!user || !user.id) {
-            console.log('⚠️ likeProfile: No user');
             return { success: false, isMatch: false };
         }
-
-        console.log('❤️ Liking profile:', targetProfile.id);
 
         try {
             // Store the like: current user liked target profile
@@ -480,15 +455,11 @@ export const AuthProvider = ({ children }) => {
                 }
             );
 
-            console.log('✅ Like stored in Firebase');
-
             // Check if the target profile has already liked us (mutual match)
             const theirLikeDoc = await getDoc(doc(db, 'likes', targetProfile.id, 'outgoing', user.id));
 
             if (theirLikeDoc.exists()) {
                 // It's a match!
-                console.log('🎉 MUTUAL MATCH DETECTED!');
-
                 // Store the match for both users
                 const matchData = {
                     matchedAt: new Date().toISOString(),
@@ -533,7 +504,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true, isMatch: false };
         } catch (error) {
-            console.error('❌ Error liking profile:', error);
             return { success: false, isMatch: false, error: error.message };
         }
     }, [user]);
@@ -541,11 +511,8 @@ export const AuthProvider = ({ children }) => {
     // Pass (left swipe) a profile - record to never show again
     const passProfile = useCallback(async (targetProfile) => {
         if (!user || !user.id) {
-            console.log('⚠️ passProfile: No user');
             return { success: false };
         }
-
-        console.log('👎 Passing profile:', targetProfile.id);
 
         try {
             // Store the pass: current user passed target profile
@@ -558,10 +525,8 @@ export const AuthProvider = ({ children }) => {
                 }
             );
 
-            console.log('✅ Pass recorded in Firebase');
             return { success: true };
         } catch (error) {
-            console.error('❌ Error passing profile:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -569,11 +534,8 @@ export const AuthProvider = ({ children }) => {
     // Get all matches for current user
     const getMatches = useCallback(async () => {
         if (!user || !user.id) {
-            console.log('⚠️ getMatches: No user');
             return [];
         }
-
-        console.log('📋 Getting matches for user:', user.id);
 
         try {
             const matchesSnapshot = await getDocs(
@@ -585,10 +547,8 @@ export const AuthProvider = ({ children }) => {
                 matches.push({ id: doc.id, ...doc.data() });
             });
 
-            console.log(`💕 Found ${matches.length} matches`);
             return matches;
         } catch (error) {
-            console.error('❌ Error fetching matches:', error);
             return [];
         }
     }, [user]);
@@ -640,10 +600,8 @@ export const AuthProvider = ({ children }) => {
                 })
             );
 
-            console.log(`📩 Found ${enriched.length} incoming like requests`);
             return enriched;
         } catch (error) {
-            console.error('❌ Error fetching incoming likes:', error);
             return [];
         }
     }, [user]);
@@ -708,10 +666,8 @@ export const AuthProvider = ({ children }) => {
                 data: { userId: user.id },
             });
 
-            console.log('✅ Match accepted:', likerUserId);
             return { success: true };
         } catch (error) {
-            console.error('❌ Error accepting match:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -733,10 +689,8 @@ export const AuthProvider = ({ children }) => {
                 }
             );
 
-            console.log('❌ Match refused:', likerUserId);
             return { success: true };
         } catch (error) {
-            console.error('❌ Error refusing match:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -755,8 +709,6 @@ export const AuthProvider = ({ children }) => {
         }
 
         const chatId = getChatId(user.id, otherUserId);
-        console.log('💬 Sending message to chat:', chatId);
-
         try {
             // Add message to the messages subcollection
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
@@ -774,8 +726,6 @@ export const AuthProvider = ({ children }) => {
                 lastMessageSenderId: user.id,
             }, { merge: true });
 
-            console.log('✅ Message sent');
-
             // Notify recipient about new message (fire-and-forget)
             const senderName = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
             createNotification(otherUserId, {
@@ -787,7 +737,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true };
         } catch (error) {
-            console.error('❌ Error sending message:', error);
             return { success: false, error: error.message };
         }
     }, [user, getChatId]);
@@ -920,7 +869,6 @@ export const AuthProvider = ({ children }) => {
 
             return chats;
         } catch (error) {
-            console.error('❌ Error fetching chats:', error);
             return [];
         }
     }, [user, getChatId]);
@@ -957,7 +905,6 @@ export const AuthProvider = ({ children }) => {
 
             return unreadCount;
         } catch (error) {
-            console.error('❌ Error getting unread count:', error);
             return 0;
         }
     }, [user, getChatId]);
@@ -992,13 +939,11 @@ export const AuthProvider = ({ children }) => {
                 }
 
                 await setDoc(walletRef, walletData);
-                console.log('💰 Wallet initialized for:', userId);
                 return { success: true, wallet: walletData };
             }
 
             return { success: true, wallet: walletSnap.data() };
         } catch (error) {
-            console.error('❌ Error initializing wallet:', error);
             return { success: false, error: error.message };
         }
     }, []);
@@ -1021,7 +966,6 @@ export const AuthProvider = ({ children }) => {
             const result = await initializeWallet(user.id, user.role);
             return result.wallet;
         } catch (error) {
-            console.error('❌ Error getting wallet:', error);
             return null;
         }
     }, [user, initializeWallet]);
@@ -1047,7 +991,6 @@ export const AuthProvider = ({ children }) => {
 
             return transactions.slice(0, limit);
         } catch (error) {
-            console.error('❌ Error getting transactions:', error);
             return [];
         }
     }, [user]);
@@ -1060,10 +1003,8 @@ export const AuthProvider = ({ children }) => {
                 createdAt: new Date().toISOString(),
                 status: transactionData.status || 'COMPLETED',
             });
-            console.log('📝 Transaction recorded:', docRef.id);
             return { success: true, transactionId: docRef.id };
         } catch (error) {
-            console.error('❌ Error adding transaction:', error);
             return { success: false, error: error.message };
         }
     }, []);
@@ -1109,8 +1050,6 @@ export const AuthProvider = ({ children }) => {
                 createdAt: new Date().toISOString(),
             });
 
-            console.log('💰 Wallet topped up:', amount, 'New balance:', newBalance);
-
             // Notify user about successful top-up
             createNotification(user.id, {
                 type: 'wallet_credit',
@@ -1121,7 +1060,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true, newBalance };
         } catch (error) {
-            console.error('❌ Error topping up wallet:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -1139,12 +1077,6 @@ export const AuthProvider = ({ children }) => {
             const isCompany = user.role === 'COMPANY';
             const companyId = isCompany ? user.id : targetUserId;
             const seekerId = isCompany ? targetUserId : user.id;
-
-            console.log('📅 Scheduling meeting:');
-            console.log('  - Current user:', user.id, '(role:', user.role, ')');
-            console.log('  - Target user:', targetUserId);
-            console.log('  - companyId:', companyId);
-            console.log('  - seekerId:', seekerId);
 
             // Fetch target user's name for display
             let targetName = '';
@@ -1181,8 +1113,6 @@ export const AuthProvider = ({ children }) => {
             };
 
             const meetingRef = await addDoc(collection(db, 'meetings'), meetingData);
-            console.log('✅ Meeting created:', meetingRef.id, meetingData);
-
             // Auto-create chat with meeting request system message
             const chatId = getChatId(user.id, targetUserId);
             const meetingDateStr = new Date(scheduledAt).toLocaleDateString('en-IN', {
@@ -1223,7 +1153,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true, meetingId: meetingRef.id };
         } catch (error) {
-            console.error('❌ Error scheduling meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user, getChatId]);
@@ -1281,7 +1210,6 @@ export const AuthProvider = ({ children }) => {
 
             return meetings;
         } catch (error) {
-            console.error('❌ Error getting meetings:', error);
             return [];
         }
     }, [user]);
@@ -1371,8 +1299,6 @@ export const AuthProvider = ({ children }) => {
                 updatedAt: new Date().toISOString(),
             });
 
-            console.log('✅ Meeting accepted:', meetingId);
-
             // Sync meeting status to chat doc
             const chatId = getChatId(meeting.companyId, meeting.seekerId);
             await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'SCHEDULED', meetingId }, { merge: true });
@@ -1410,7 +1336,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true };
         } catch (error) {
-            console.error('❌ Error accepting meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user, getChatId]);
@@ -1445,8 +1370,6 @@ export const AuthProvider = ({ children }) => {
                 updatedAt: new Date().toISOString(),
             });
 
-            console.log('❌ Meeting declined:', meetingId);
-
             // Sync meeting status to chat doc
             const chatId = getChatId(meeting.companyId, meeting.seekerId);
             await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'DECLINED', meetingId }, { merge: true });
@@ -1468,7 +1391,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true };
         } catch (error) {
-            console.error('❌ Error declining meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user, getChatId]);
@@ -1515,7 +1437,6 @@ export const AuthProvider = ({ children }) => {
                     disputeAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
-                console.log('⚠️ Meeting DISPUTE detected:', meetingId);
                 return { success: true, dispute: true };
             }
 
@@ -1526,8 +1447,6 @@ export const AuthProvider = ({ children }) => {
                 cancelledAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             });
-
-            console.log('🚫 Meeting cancelled:', meetingId);
 
             // Sync meeting status to chat doc
             const chatId = getChatId(meeting.companyId, meeting.seekerId);
@@ -1540,7 +1459,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true };
         } catch (error) {
-            console.error('❌ Error cancelling meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user, getChatId]);
@@ -1582,7 +1500,6 @@ export const AuthProvider = ({ children }) => {
                     disputeAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
-                console.log('⚠️ DISPUTE: Contradiction detected for meeting:', meetingId);
                 return { success: true, dispute: true };
             }
 
@@ -1595,7 +1512,6 @@ export const AuthProvider = ({ children }) => {
                     cancelledAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
-                console.log('🚫 Both denied — meeting cancelled:', meetingId);
                 return { success: true, bothDenied: true };
             }
 
@@ -1604,10 +1520,8 @@ export const AuthProvider = ({ children }) => {
                 [denyField]: true,
                 updatedAt: new Date().toISOString(),
             });
-            console.log(`❌ ${isCompany ? 'Company' : 'Seeker'} denied meeting, waiting for other party`);
             return { success: true, waitingForOther: true };
         } catch (error) {
-            console.error('❌ Error denying meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -1665,8 +1579,6 @@ export const AuthProvider = ({ children }) => {
                 updatedAt: new Date().toISOString(),
             });
 
-            console.log('🔄 Meeting rescheduled:', meetingId, '->', newMeetingRef.id);
-
             // Sync rescheduled status to chat doc
             const chatId = getChatId(meeting.companyId, meeting.seekerId);
             await setDoc(doc(db, 'chats', chatId), {
@@ -1688,7 +1600,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true, newMeetingId: newMeetingRef.id };
         } catch (error) {
-            console.error('❌ Error rescheduling meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user, getChatId]);
@@ -1824,8 +1735,6 @@ export const AuthProvider = ({ children }) => {
                 }),
             ]);
 
-            console.log('💰 Payment processed: ₹500 split — ₹250 to seeker, ₹250 to admin');
-
             // Sync CONFIRMED status to chat doc
             const chatId = getChatId(companyId, seekerId);
             await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'CONFIRMED', meetingId }, { merge: true });
@@ -1851,8 +1760,6 @@ export const AuthProvider = ({ children }) => {
 
             return { success: true, bothConfirmed: true, paymentProcessed: true };
         } catch (error) {
-            console.error('❌ Error processing payment:', error);
-
             // Mark payment as failed
             await updateDoc(doc(db, 'meetings', meetingId), {
                 paymentStatus: 'FAILED',
@@ -1916,7 +1823,6 @@ export const AuthProvider = ({ children }) => {
                     disputeAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
-                console.log('⚠️ DISPUTE: This user confirmed but other denied for meeting:', meetingId);
                 return { success: true, dispute: true };
             }
 
@@ -1926,15 +1832,12 @@ export const AuthProvider = ({ children }) => {
 
             if (otherConfirmed) {
                 // Both confirmed! Process payment
-                console.log('🎉 Both parties confirmed! Processing payment...');
                 const paymentResult = await processMeetingPayment(meetingId, meeting.companyId, meeting.seekerId);
                 return paymentResult;
             }
 
-            console.log(`✅ ${isCompany ? 'Company' : 'Seeker'} confirmed meeting`);
             return { success: true, bothConfirmed: false };
         } catch (error) {
-            console.error('❌ Error confirming meeting:', error);
             return { success: false, error: error.message };
         }
     }, [user, processMeetingPayment]);
@@ -1972,11 +1875,9 @@ export const AuthProvider = ({ children }) => {
             }
 
             // OTP matches! Process payment
-            console.log('✅ OTP verified! Processing payment for meeting:', meetingId);
             const paymentResult = await processMeetingPayment(meetingId, meeting.companyId, meeting.seekerId);
             return paymentResult;
         } catch (error) {
-            console.error('❌ Error verifying meeting OTP:', error);
             return { success: false, error: error.message };
         }
     }, [user, processMeetingPayment]);
@@ -2022,10 +1923,8 @@ export const AuthProvider = ({ children }) => {
             };
 
             await addDoc(collection(db, 'withdrawals'), withdrawalData);
-            console.log('💸 Withdrawal request created:', amount);
             return { success: true };
         } catch (error) {
-            console.error('❌ Error requesting withdrawal:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -2061,11 +1960,8 @@ export const AuthProvider = ({ children }) => {
             };
 
             const projectRef = await addDoc(collection(db, 'projects'), projectData);
-            console.log('🏠 Project request created:', projectRef.id);
-
             return { success: true, projectId: projectRef.id };
         } catch (error) {
-            console.error('❌ Error creating project:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -2095,10 +1991,8 @@ export const AuthProvider = ({ children }) => {
             // Sort by createdAt descending in JavaScript
             projects.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-            console.log(`📋 Found ${projects.length} projects`);
             return projects;
         } catch (error) {
-            console.error('❌ Error getting projects:', error);
             return [];
         }
     }, [user]);
@@ -2156,13 +2050,10 @@ export const AuthProvider = ({ children }) => {
                     unlockedAt: new Date().toISOString(),
                     unlockedBy: projectId,
                 });
-                console.log(`🔓 Seeker wallet unlocked. Moved ₹${lockedAmount} from locked to available for project:`, projectId);
             }
 
-            console.log('✅ Project accepted:', projectId);
             return { success: true };
         } catch (error) {
-            console.error('❌ Error accepting project:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -2204,10 +2095,8 @@ export const AuthProvider = ({ children }) => {
                 updatedAt: new Date().toISOString(),
             });
 
-            console.log('❌ Project declined:', projectId);
             return { success: true };
         } catch (error) {
-            console.error('❌ Error declining project:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -2248,10 +2137,8 @@ export const AuthProvider = ({ children }) => {
                 updatedAt: new Date().toISOString(),
             });
 
-            console.log('💰 Advance payment recorded:', projectId);
             return { success: true };
         } catch (error) {
-            console.error('❌ Error recording advance payment:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -2309,7 +2196,6 @@ export const AuthProvider = ({ children }) => {
                         updatedAt: new Date().toISOString(),
                     });
 
-                    console.log(`🔓 Unlocked ₹${lockedBalance} for seeker:`, seekerId);
                 }
             });
 
@@ -2326,10 +2212,8 @@ export const AuthProvider = ({ children }) => {
                 createdAt: new Date().toISOString(),
             });
 
-            console.log('✅ Advance confirmed, earnings unlocked:', projectId);
             return { success: true, earningsUnlocked: true };
         } catch (error) {
-            console.error('❌ Error confirming advance payment:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -2363,17 +2247,14 @@ export const AuthProvider = ({ children }) => {
             if (existingSnap.exists()) {
                 // Update existing — preserve createdAt
                 await updateDoc(reviewRef, reviewData);
-                console.log('⭐ Review updated:', reviewId);
                 return { success: true, reviewId, updated: true };
             } else {
                 // Create new
                 reviewData.createdAt = new Date().toISOString();
                 await setDoc(reviewRef, reviewData);
-                console.log('⭐ Review submitted:', reviewId);
                 return { success: true, reviewId, updated: false };
             }
         } catch (error) {
-            console.error('❌ Error submitting review:', error);
             return { success: false, error: error.message };
         }
     }, [user]);
@@ -2395,10 +2276,8 @@ export const AuthProvider = ({ children }) => {
             // Sort by createdAt descending
             reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-            console.log(`⭐ Found ${reviews.length} reviews for company ${companyId}`);
             return reviews;
         } catch (error) {
-            console.error('❌ Error getting reviews:', error);
             return [];
         }
     }, []);
@@ -2420,7 +2299,6 @@ export const AuthProvider = ({ children }) => {
             const existing = snapshot.docs.find(doc => doc.data().relatedId === relatedId);
             return !!existing;
         } catch (error) {
-            console.error('❌ Error checking review:', error);
             return false;
         }
     }, [user]);
@@ -2439,7 +2317,6 @@ export const AuthProvider = ({ children }) => {
                 const userData = { id: targetUserId, ...userDoc.data() };
                 setUser(userData);
                 setIsImpersonating(true);
-                console.log('👤 Impersonating user:', userData.name || userData.email || targetUserId);
                 return { success: true };
             }
 
@@ -2449,13 +2326,11 @@ export const AuthProvider = ({ children }) => {
                 const userData = { id: targetUserId, ...userDoc.data() };
                 setUser(userData);
                 setIsImpersonating(true);
-                console.log('👤 Impersonating company:', userData.profile?.companyName || targetUserId);
                 return { success: true };
             }
 
             return { success: false, error: 'User not found in Firestore' };
         } catch (error) {
-            console.error('Impersonation error:', error);
             return { success: false, error: error.message };
         }
     };
@@ -2465,7 +2340,6 @@ export const AuthProvider = ({ children }) => {
             setUser(adminUserRef.current);
             adminUserRef.current = null;
             setIsImpersonating(false);
-            console.log('👤 Exited impersonation, restored admin');
         }
     };
 
@@ -2476,7 +2350,6 @@ export const AuthProvider = ({ children }) => {
         }
 
         try {
-            console.log('🗑️ Starting account deletion for:', user.id);
             const userId = user.id;
 
             // 1. Delete all chats and their messages
@@ -2496,8 +2369,6 @@ export const AuthProvider = ({ children }) => {
                 // Delete the chat
                 await deleteDoc(doc(db, 'chats', chatDoc.id));
             }
-            console.log('✅ Deleted chats and messages');
-
             // 2. Delete all matches
             const matchesQuery1 = query(collection(db, 'matches'), where('user1Id', '==', userId));
             const matchesQuery2 = query(collection(db, 'matches'), where('user2Id', '==', userId));
@@ -2508,8 +2379,6 @@ export const AuthProvider = ({ children }) => {
             for (const matchDoc of [...matches1.docs, ...matches2.docs]) {
                 await deleteDoc(doc(db, 'matches', matchDoc.id));
             }
-            console.log('✅ Deleted matches');
-
             // 3. Delete all meetings
             const meetingsQuery1 = query(collection(db, 'meetings'), where('companyId', '==', userId));
             const meetingsQuery2 = query(collection(db, 'meetings'), where('seekerId', '==', userId));
@@ -2520,8 +2389,6 @@ export const AuthProvider = ({ children }) => {
             for (const meetingDoc of [...meetings1.docs, ...meetings2.docs]) {
                 await deleteDoc(doc(db, 'meetings', meetingDoc.id));
             }
-            console.log('✅ Deleted meetings');
-
             // 4. Delete all projects
             const projectsQuery1 = query(collection(db, 'projects'), where('companyId', '==', userId));
             const projectsQuery2 = query(collection(db, 'projects'), where('seekerId', '==', userId));
@@ -2532,24 +2399,18 @@ export const AuthProvider = ({ children }) => {
             for (const projectDoc of [...projects1.docs, ...projects2.docs]) {
                 await deleteDoc(doc(db, 'projects', projectDoc.id));
             }
-            console.log('✅ Deleted projects');
-
             // 5. Delete transactions
             const transactionsQuery = query(collection(db, 'transactions'), where('userId', '==', userId));
             const transactions = await getDocs(transactionsQuery);
             for (const txDoc of transactions.docs) {
                 await deleteDoc(doc(db, 'transactions', txDoc.id));
             }
-            console.log('✅ Deleted transactions');
-
             // 6. Delete wallet
             const walletRef = doc(db, 'wallets', userId);
             const walletSnap = await getDoc(walletRef);
             if (walletSnap.exists()) {
                 await deleteDoc(walletRef);
             }
-            console.log('✅ Deleted wallet');
-
             // 7. Delete all likes involving this user
             const likesQuery1 = query(collection(db, 'likes'), where('likerId', '==', userId));
             const likesQuery2 = query(collection(db, 'likes'), where('likedId', '==', userId));
@@ -2560,8 +2421,6 @@ export const AuthProvider = ({ children }) => {
             for (const likeDoc of [...likes1.docs, ...likes2.docs]) {
                 await deleteDoc(doc(db, 'likes', likeDoc.id));
             }
-            console.log('✅ Deleted likes');
-
             // 8. Delete all passes involving this user
             const passesQuery1 = query(collection(db, 'passes'), where('passerId', '==', userId));
             const passesQuery2 = query(collection(db, 'passes'), where('passedId', '==', userId));
@@ -2572,8 +2431,6 @@ export const AuthProvider = ({ children }) => {
             for (const passDoc of [...passes1.docs, ...passes2.docs]) {
                 await deleteDoc(doc(db, 'passes', passDoc.id));
             }
-            console.log('✅ Deleted passes');
-
             // 9. Delete all storage files (profile images, portfolio, etc.)
             await deleteUserStorage(userId);
 
@@ -2583,23 +2440,18 @@ export const AuthProvider = ({ children }) => {
             if (userSnap.exists()) {
                 await deleteDoc(userRef);
             }
-            console.log('✅ Deleted user document');
-
             // 10. Delete Firebase Auth account
             const currentUser = auth.currentUser;
             if (currentUser) {
                 await currentUser.delete();
-                console.log('✅ Deleted Firebase Auth account');
             }
 
             // Clear local state
             setUser(null);
             router.push('/login');
 
-            console.log('🎉 Account completely deleted');
             return { success: true };
         } catch (error) {
-            console.error('❌ Error deleting account:', error);
             return { success: false, error: error.message };
         }
     };
@@ -2609,10 +2461,8 @@ export const AuthProvider = ({ children }) => {
             isOnboarding.current = false;
             await signOut(auth);
             setUser(null);
-            console.log('👋 Logged out');
             router.push('/login');
         } catch (error) {
-            console.error('Logout error:', error);
         }
     };
 
@@ -2630,7 +2480,6 @@ export const AuthProvider = ({ children }) => {
                 createdAt: new Date().toISOString(),
             });
         } catch (error) {
-            console.error('❌ Error creating notification:', error);
         }
     }, []);
 
@@ -2648,7 +2497,6 @@ export const AuthProvider = ({ children }) => {
             snap.forEach((d) => notifs.push({ id: d.id, ...d.data() }));
             return notifs;
         } catch (error) {
-            console.error('❌ Error fetching notifications:', error);
             return [];
         }
     }, [user]);
@@ -2669,7 +2517,6 @@ export const AuthProvider = ({ children }) => {
             });
             await Promise.all(batch);
         } catch (error) {
-            console.error('❌ Error marking notifications read:', error);
         }
     }, [user]);
 

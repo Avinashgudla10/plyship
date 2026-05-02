@@ -1,4 +1,4 @@
-// FULL Firebase cleanup — deletes ALL Firestore data + ALL Auth users except admin
+// FULL Firebase cleanup — deletes ALL Firestore data + Storage + Auth users except admin
 // Run with: node scripts/cleanup-everything.mjs
 // ⚠️ THIS IS DESTRUCTIVE AND IRREVERSIBLE
 
@@ -15,21 +15,23 @@ const serviceAccount = JSON.parse(
     readFileSync(join(__dirname, 'serviceAccountKey.json'), 'utf8')
 );
 
-// Admin email to KEEP
-const ADMIN_EMAIL = 'avinashgudla10@gmail.com';
+// Admin phone to KEEP (with +91 prefix)
+const ADMIN_PHONE = '+918465834152';
 
 // Initialize Firebase Admin
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+    storageBucket: 'plyship-277bf.firebasestorage.app',
 });
 
 // Use the named database 'plyshipdatabase'
-const db = admin.firestore();
-// For named database, we need to use getFirestore with databaseId
 const { getFirestore } = await import('firebase-admin/firestore');
 const namedDb = getFirestore('plyshipdatabase');
 
-// All top-level collections
+// Firebase Storage
+const bucket = admin.storage().bucket();
+
+// All top-level collections to clean
 const COLLECTIONS = [
     'users',
     'seekers',
@@ -40,10 +42,22 @@ const COLLECTIONS = [
     'matches',
     'chats',
     'projects',
+    'likes',
+    'passes',
+    'notifications',
+    'deletion_requests',
 ];
 
-// Known subcollections
-const SUBCOLLECTION_NAMES = ['messages', 'matched', 'swipes'];
+// Known subcollections to check inside each document
+const SUBCOLLECTION_NAMES = [
+    'messages',    // chats/{id}/messages
+    'matched',     // matches/{id}/matched
+    'swipes',      // legacy
+    'outgoing',    // likes/{id}/outgoing
+    'incoming',    // likes/{id}/incoming
+    'passed',      // passes/{id}/passed
+    'items',       // notifications/{id}/items
+];
 
 // ==========================================
 // 1. DELETE ALL FIRESTORE DATA
@@ -66,22 +80,24 @@ async function deleteAllFirestoreData() {
             for (const subName of SUBCOLLECTION_NAMES) {
                 const subRef = docSnap.ref.collection(subName);
                 const subSnap = await subRef.get();
-                for (const subDoc of subSnap.docs) {
-                    await subDoc.ref.delete();
-                    totalDeleted++;
-                }
-                if (!subSnap.empty) {
-                    console.log(`    ↳ ${colName}/${docSnap.id}/${subName}: deleted ${subSnap.size} sub-doc(s)`);
-                }
+                if (subSnap.empty) continue;
+
+                const batch = namedDb.batch();
+                subSnap.docs.forEach(subDoc => batch.delete(subDoc.ref));
+                await batch.commit();
+                totalDeleted += subSnap.size;
+                console.log(`    ↳ ${colName}/${docSnap.id}/${subName}: deleted ${subSnap.size} sub-doc(s)`);
             }
         }
 
-        // Delete the documents themselves
+        // Delete the documents themselves in batches
+        const batch = namedDb.batch();
         let count = 0;
         for (const docSnap of snapshot.docs) {
-            await docSnap.ref.delete();
+            batch.delete(docSnap.ref);
             count++;
         }
+        await batch.commit();
         totalDeleted += count;
         console.log(`  🗑️  ${colName}: deleted ${count} document(s)`);
     }
@@ -90,10 +106,39 @@ async function deleteAllFirestoreData() {
 }
 
 // ==========================================
-// 2. DELETE ALL AUTH USERS EXCEPT ADMIN
+// 2. DELETE ALL FIREBASE STORAGE FILES
+// ==========================================
+async function deleteAllStorageFiles() {
+    console.log('\n🗂️  STEP 2: Deleting all Firebase Storage files...\n');
+
+    try {
+        const [files] = await bucket.getFiles({ prefix: 'users/' });
+
+        if (files.length === 0) {
+            console.log('  ✅ Storage: already empty');
+            return;
+        }
+
+        let deleted = 0;
+        for (const file of files) {
+            await file.delete();
+            deleted++;
+        }
+        console.log(`  🗑️  Deleted ${deleted} file(s) from Storage`);
+    } catch (error) {
+        if (error.code === 404) {
+            console.log('  ✅ Storage: no files found');
+        } else {
+            console.error('  ⚠️  Storage cleanup error:', error.message);
+        }
+    }
+}
+
+// ==========================================
+// 3. DELETE ALL AUTH USERS EXCEPT ADMIN
 // ==========================================
 async function deleteAllAuthUsers() {
-    console.log('\n👤 STEP 2: Deleting all Auth users except admin...\n');
+    console.log('\n👤 STEP 3: Deleting all Auth users except admin...\n');
 
     let deletedCount = 0;
     let keptCount = 0;
@@ -103,13 +148,15 @@ async function deleteAllAuthUsers() {
         const listResult = await admin.auth().listUsers(1000, nextPageToken);
 
         for (const userRecord of listResult.users) {
-            if (userRecord.email && userRecord.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-                console.log(`  🛡️  KEEPING admin: ${userRecord.email} (${userRecord.uid})`);
+            // Keep admin by phone number
+            if (userRecord.phoneNumber === ADMIN_PHONE) {
+                console.log(`  🛡️  KEEPING admin: ${userRecord.phoneNumber} (${userRecord.uid})`);
                 keptCount++;
                 continue;
             }
 
-            console.log(`  🗑️  Deleting: ${userRecord.email || userRecord.uid}`);
+            const identifier = userRecord.phoneNumber || userRecord.email || userRecord.uid;
+            console.log(`  🗑️  Deleting: ${identifier}`);
             await admin.auth().deleteUser(userRecord.uid);
             deletedCount++;
         }
@@ -127,17 +174,19 @@ async function main() {
     console.log('');
     console.log('⚠️  ==========================================');
     console.log('⚠️  FULL FIREBASE CLEANUP — PLYSHIP');
-    console.log('⚠️  Deleting ALL data + ALL users except admin');
+    console.log('⚠️  Deleting ALL data + storage + users');
+    console.log(`⚠️  Keeping only admin: ${ADMIN_PHONE}`);
     console.log('⚠️  THIS IS IRREVERSIBLE!');
     console.log('⚠️  ==========================================');
 
     await deleteAllFirestoreData();
+    await deleteAllStorageFiles();
     await deleteAllAuthUsers();
 
     console.log('\n🎉 ==========================================');
     console.log('🎉 CLEANUP COMPLETE!');
     console.log('🎉 All data wiped. Only admin account remains.');
-    console.log('🎉 You can now test from scratch.');
+    console.log('🎉 App is ready for fresh production users.');
     console.log('🎉 ==========================================\n');
 
     process.exit(0);

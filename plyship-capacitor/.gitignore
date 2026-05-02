@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+*.log
+
+# iOS build artifacts (keep ios/ folder tracked for native customizations)
+ios/App/Pods/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+
+# Capacitor generated
+ios/capacitor-cordova-ios-plugins/
