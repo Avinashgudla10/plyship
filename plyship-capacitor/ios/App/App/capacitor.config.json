@@ -14,14 +14,14 @@
 			"showSpinner": false
 		},
 		"StatusBar": {
-			"style": "DARK",
-			"backgroundColor": "#FFFFFF",
+			"style": "LIGHT",
+			"backgroundColor": "#000000",
 			"overlaysWebView": false
 		}
 	},
 	"ios": {
 		"contentInset": "never",
-		"backgroundColor": "#FFFFFF",
+		"backgroundColor": "#000000",
 		"allowsLinkPreview": false,
 		"preferredContentMode": "mobile"
 	},
