@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { AvatarUpload } from './ImageUpload';
+import { AvatarUpload, PortfolioUpload } from './ImageUpload';
 import {
     User, Users, Settings, LogOut, ChevronRight, Heart, MessageCircle,
     Bell, Shield, HelpCircle, Star, MapPin, Briefcase, Edit2, Camera,
-    ArrowLeft, Check, X, Wallet, Calendar, Home
+    ArrowLeft, Check, X, Wallet, Calendar, Home, Loader2, CloudUpload
 } from 'lucide-react';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -302,14 +302,36 @@ export function EditProfileView({ onBack }) {
         };
     });
     const [isSaving, setIsSaving] = useState(false);
+    const [saveStage, setSaveStage] = useState(''); // 'uploading', 'saving', 'done'
 
     const handleSave = async () => {
+        if (isSaving) return;
         setIsSaving(true);
+
+        // Determine if we have images to upload
+        const hasNewAvatar = profile.avatar && profile.avatar.startsWith('data:');
+        const hasNewPortfolio = profile.portfolioImages?.some(img => img?.startsWith('data:'));
+
+        if (hasNewAvatar || hasNewPortfolio) {
+            setSaveStage('uploading');
+        } else {
+            setSaveStage('saving');
+        }
+
+        // Brief delay so animation renders
+        await new Promise(r => setTimeout(r, 300));
+
         const result = await completeProfile(profile);
-        setIsSaving(false);
+
         if (result?.success) {
+            setSaveStage('done');
+            await new Promise(r => setTimeout(r, 1000));
+            setIsSaving(false);
+            setSaveStage('');
             onBack?.();
         } else {
+            setIsSaving(false);
+            setSaveStage('');
             showToast('Error saving profile: ' + (result?.error || 'Unknown error'), 'error');
         }
     };
@@ -323,7 +345,130 @@ export function EditProfileView({ onBack }) {
     };
 
     return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', position: 'relative' }}>
+            {/* ====== SAVE OVERLAY ====== */}
+            <AnimatePresence>
+                {saveStage && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            zIndex: 99999,
+                            background: 'rgba(255,255,255,0.92)',
+                            backdropFilter: 'blur(12px)',
+                            WebkitBackdropFilter: 'blur(12px)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 20,
+                        }}
+                    >
+                        {saveStage === 'done' ? (
+                            <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ type: 'spring', damping: 12 }}
+                                style={{
+                                    width: 72,
+                                    height: 72,
+                                    borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, #16A34A, #22C55E)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    boxShadow: '0 8px 32px rgba(22, 163, 74, 0.3)',
+                                }}
+                            >
+                                <Check size={36} color="white" strokeWidth={3} />
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                style={{
+                                    width: 72,
+                                    height: 72,
+                                    borderRadius: '50%',
+                                    background: 'var(--pastel-green)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    position: 'relative',
+                                }}
+                            >
+                                <motion.div
+                                    animate={{ rotate: 360 }}
+                                    transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+                                    style={{
+                                        position: 'absolute',
+                                        inset: -4,
+                                        borderRadius: '50%',
+                                        border: '3px solid transparent',
+                                        borderTopColor: 'var(--primary)',
+                                        borderRightColor: 'var(--primary)',
+                                    }}
+                                />
+                                {saveStage === 'uploading' ? (
+                                    <CloudUpload size={28} color="var(--primary)" />
+                                ) : (
+                                    <Loader2 size={28} color="var(--primary)" />
+                                )}
+                            </motion.div>
+                        )}
+
+                        <motion.div
+                            key={saveStage}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            style={{ textAlign: 'center' }}
+                        >
+                            <p style={{
+                                fontSize: 18,
+                                fontWeight: 700,
+                                color: saveStage === 'done' ? '#16A34A' : 'var(--text-primary)',
+                                marginBottom: 4,
+                            }}>
+                                {saveStage === 'uploading' && 'Uploading photos...'}
+                                {saveStage === 'saving' && 'Saving changes...'}
+                                {saveStage === 'done' && 'Profile updated! \u2705'}
+                            </p>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                {saveStage === 'uploading' && 'This may take a moment'}
+                                {saveStage === 'saving' && 'Almost there...'}
+                                {saveStage === 'done' && ''}
+                            </p>
+                        </motion.div>
+
+                        {saveStage !== 'done' && (
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                {[0, 1, 2].map((i) => (
+                                    <motion.div
+                                        key={i}
+                                        animate={{
+                                            scale: [1, 1.4, 1],
+                                            opacity: [0.3, 1, 0.3],
+                                        }}
+                                        transition={{
+                                            duration: 1.2,
+                                            repeat: Infinity,
+                                            delay: i * 0.2,
+                                        }}
+                                        style={{
+                                            width: 7,
+                                            height: 7,
+                                            borderRadius: '50%',
+                                            background: 'var(--primary)',
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Header */}
             <div style={{
                 display: 'flex',
@@ -346,10 +491,11 @@ export function EditProfileView({ onBack }) {
                 <h2 style={{ flex: 1, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
                     Edit Profile
                 </h2>
-                <motion.button onClick={handleSave} whileTap={{ scale: 0.95 }} style={{
+                <motion.button onClick={handleSave} disabled={isSaving} whileTap={{ scale: 0.95 }} style={{
                     padding: '8px 16px', borderRadius: 10,
-                    background: 'var(--gradient-primary)', border: 'none',
-                    color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                    background: isSaving ? 'var(--primary-muted)' : 'var(--gradient-primary)', border: 'none',
+                    color: 'white', fontSize: 14, fontWeight: 600, cursor: isSaving ? 'wait' : 'pointer',
+                    opacity: isSaving ? 0.7 : 1,
                 }}>
                     {isSaving ? 'Saving...' : 'Save'}
                 </motion.button>
@@ -499,9 +645,10 @@ export function EditProfileView({ onBack }) {
 
                         <SectionTitle>Portfolio</SectionTitle>
                         <div style={{ marginBottom: 24 }}>
-                            <PortfolioUploadEdit
+                            <PortfolioUpload
                                 images={profile.portfolioImages || []}
                                 onImagesChange={(imgs) => setProfile({ ...profile, portfolioImages: imgs })}
+                                maxImages={6}
                             />
                         </div>
 
@@ -613,60 +760,6 @@ function RadioOption({ item, selected, onClick }) {
     );
 }
 
-// Portfolio Upload for Edit
-function PortfolioUploadEdit({ images, onImagesChange }) {
-    const inputRef = React.useRef(null);
-
-    const handleFileChange = (e) => {
-        const files = Array.from(e.target.files || []);
-        files.forEach(file => {
-            if (images.length >= 6) return;
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                onImagesChange([...images, reader.result]);
-            };
-            reader.readAsDataURL(file);
-        });
-        e.target.value = '';
-    };
-
-    const handleRemove = (index) => {
-        onImagesChange(images.filter((_, i) => i !== index));
-    };
-
-    return (
-        <div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                {images.map((img, i) => (
-                    <div key={i} style={{
-                        aspectRatio: '1', borderRadius: 12,
-                        background: `url(${img}) center/cover`,
-                        position: 'relative', border: '2px solid var(--primary)',
-                    }}>
-                        <button onClick={() => handleRemove(i)} style={{
-                            position: 'absolute', top: 4, right: 4,
-                            width: 22, height: 22, borderRadius: '50%',
-                            background: 'rgba(0,0,0,0.6)', border: 'none',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                        }}>
-                            <X size={12} color="white" />
-                        </button>
-                    </div>
-                ))}
-                {images.length < 6 && (
-                    <button onClick={() => inputRef.current?.click()} style={{
-                        aspectRatio: '1', borderRadius: 12,
-                        background: 'var(--pastel-green)', border: '2px dashed var(--pastel-mint)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                    }}>
-                        <span style={{ fontSize: 24, color: 'var(--text-muted)' }}>+</span>
-                    </button>
-                )}
-            </div>
-            <input ref={inputRef} type="file" accept="image/*" multiple onChange={handleFileChange} style={{ display: 'none' }} />
-        </div>
-    );
-}
 
 // Liked Profiles Page
 export function LikedProfilesView({ onBack, likedProfiles = [] }) {

@@ -8,7 +8,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AvatarUpload, PortfolioUpload } from '../../components/ImageUpload';
 import {
     User, MapPin, Wallet, Palette, Building2, Briefcase,
-    ArrowRight, ArrowLeft, Check, Leaf, Camera, Image as ImageIcon, Star
+    ArrowRight, ArrowLeft, Check, Leaf, Camera, Image as ImageIcon, Star,
+    Loader2, Upload, CloudUpload
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -86,6 +87,7 @@ export default function ProfileSetup() {
     const { showToast } = useToast();
     const [currentStep, setCurrentStep] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [saveStage, setSaveStage] = useState(''); // 'uploading', 'saving', 'done'
     const [errors, setErrors] = useState({});
 
     const isCompany = user?.role === 'COMPANY';
@@ -198,26 +200,45 @@ export default function ProfileSetup() {
             if (isSubmitting) return; // Prevent double submission
 
             setIsSubmitting(true);
+
+            // Determine if we have images to upload
             const profileData = isCompany ? companyData : seekerData;
+            const hasAvatar = profileData.avatar && profileData.avatar.startsWith('data:');
+            const hasPortfolio = profileData.portfolioImages?.some(img => img?.startsWith('data:'));
+
+            if (hasAvatar || hasPortfolio) {
+                setSaveStage('uploading');
+            } else {
+                setSaveStage('saving');
+            }
+
             console.log('📝 Saving profile to Firebase:', profileData);
             console.log('👤 User ID:', user?.id, 'Role:', user?.role);
 
             try {
+                // Brief delay so animation renders before heavy work
+                await new Promise(r => setTimeout(r, 300));
+
                 const result = await completeProfile(profileData);
 
                 if (result && result.success) {
+                    setSaveStage('done');
                     console.log('✅ Profile saved to Firebase, navigating to home');
+                    // Let the success animation play briefly
+                    await new Promise(r => setTimeout(r, 1200));
                     // Use replace so back button doesn't go through onboarding flow
                     router.replace('/');
                 } else {
                     console.error('❌ Failed to save profile:', result?.error);
                     showToast('Failed to save profile: ' + (result?.error || 'Unknown error'), 'error');
                     setIsSubmitting(false);
+                    setSaveStage('');
                 }
             } catch (error) {
                 console.error('❌ Exception saving profile:', error);
                 showToast('Error saving profile: ' + error.message, 'error');
                 setIsSubmitting(false);
+                setSaveStage('');
             }
         }
     };
@@ -252,6 +273,134 @@ export default function ProfileSetup() {
             flexDirection: 'column',
             overflow: 'hidden',
         }}>
+            {/* ====== SAVE OVERLAY ====== */}
+            <AnimatePresence>
+                {saveStage && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            zIndex: 99999,
+                            background: 'rgba(255,255,255,0.92)',
+                            backdropFilter: 'blur(12px)',
+                            WebkitBackdropFilter: 'blur(12px)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 20,
+                        }}
+                    >
+                        {saveStage === 'done' ? (
+                            <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ type: 'spring', damping: 12 }}
+                                style={{
+                                    width: 80,
+                                    height: 80,
+                                    borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, #16A34A, #22C55E)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    boxShadow: '0 8px 32px rgba(22, 163, 74, 0.3)',
+                                }}
+                            >
+                                <Check size={40} color="white" strokeWidth={3} />
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                style={{
+                                    width: 80,
+                                    height: 80,
+                                    borderRadius: '50%',
+                                    background: 'var(--pastel-green)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    position: 'relative',
+                                }}
+                            >
+                                {/* Spinning ring */}
+                                <motion.div
+                                    animate={{ rotate: 360 }}
+                                    transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+                                    style={{
+                                        position: 'absolute',
+                                        inset: -4,
+                                        borderRadius: '50%',
+                                        border: '3px solid transparent',
+                                        borderTopColor: 'var(--primary)',
+                                        borderRightColor: 'var(--primary)',
+                                    }}
+                                />
+                                {saveStage === 'uploading' ? (
+                                    <CloudUpload size={32} color="var(--primary)" />
+                                ) : (
+                                    <Loader2 size={32} color="var(--primary)" />
+                                )}
+                            </motion.div>
+                        )}
+
+                        <motion.div
+                            key={saveStage}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            style={{ textAlign: 'center' }}
+                        >
+                            <p style={{
+                                fontSize: 20,
+                                fontWeight: 700,
+                                color: saveStage === 'done' ? '#16A34A' : 'var(--text-primary)',
+                                fontFamily: 'var(--font-display)',
+                                marginBottom: 4,
+                            }}>
+                                {saveStage === 'uploading' && 'Uploading your photo...'}
+                                {saveStage === 'saving' && 'Saving your profile...'}
+                                {saveStage === 'done' && 'All set! \uD83C\uDF89'}
+                            </p>
+                            <p style={{
+                                fontSize: 14,
+                                color: 'var(--text-muted)',
+                            }}>
+                                {saveStage === 'uploading' && 'This may take a moment'}
+                                {saveStage === 'saving' && 'Almost there...'}
+                                {saveStage === 'done' && 'Welcome to PlyShip'}
+                            </p>
+                        </motion.div>
+
+                        {/* Progress dots */}
+                        {saveStage !== 'done' && (
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                {[0, 1, 2].map((i) => (
+                                    <motion.div
+                                        key={i}
+                                        animate={{
+                                            scale: [1, 1.4, 1],
+                                            opacity: [0.3, 1, 0.3],
+                                        }}
+                                        transition={{
+                                            duration: 1.2,
+                                            repeat: Infinity,
+                                            delay: i * 0.2,
+                                        }}
+                                        style={{
+                                            width: 8,
+                                            height: 8,
+                                            borderRadius: '50%',
+                                            background: 'var(--primary)',
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </motion.div>
+                )}
+            </AnimatePresence>
             {/* Header */}
             <div style={{
                 padding: '20px 24px',
@@ -404,8 +553,12 @@ export default function ProfileSetup() {
                         opacity: isSubmitting ? 0.7 : 1,
                     }}
                 >
-                    {isSubmitting ? 'Saving...' : (currentStep === STEPS.length - 1 ? 'Complete Setup' : 'Continue')}
-                    {!isSubmitting && (currentStep === STEPS.length - 1 ? <Check size={20} /> : <ArrowRight size={20} />)}
+                    {isSubmitting ? (
+                        <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</>
+                    ) : (
+                        <>{currentStep === STEPS.length - 1 ? 'Complete Setup' : 'Continue'}
+                        {currentStep === STEPS.length - 1 ? <Check size={20} /> : <ArrowRight size={20} />}</>
+                    )}
                 </motion.button>
             </div>
         </div>
