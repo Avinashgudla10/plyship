@@ -61,7 +61,7 @@ export function TopUpModal({ onClose, onSuccess }) {
                 amount: orderData.amount,
                 currency: orderData.currency,
                 name: 'Plyship',
-                description: 'Wallet Top Up',
+                description: 'Service Deposit — Interior Consultation',
                 order_id: orderData.orderId,
                 handler: async function (response) {
                     // 3. Verify payment on server
@@ -163,7 +163,7 @@ export function TopUpModal({ onClose, onSuccess }) {
                 }}
                 onClick={(e) => e.stopPropagation()}
             >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                     <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
                         Top Up Wallet
                     </h2>
@@ -171,6 +171,11 @@ export function TopUpModal({ onClose, onSuccess }) {
                         <X size={20} color="var(--text-muted)" />
                     </button>
                 </div>
+
+                {/* App Store compliance: deposit clarification */}
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 16, padding: '8px 10px', background: '#F0FDF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
+                    Wallet funds are a refundable deposit used only for confirmed offline interior consultation meetings. Not used for digital goods.
+                </p>
 
                 {/* Preset Amounts */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
@@ -244,6 +249,11 @@ export function TopUpModal({ onClose, onSuccess }) {
                     </div>
                 )}
 
+                {/* Pre-payment clarification */}
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 12 }}>
+                    No charge until meeting is confirmed
+                </p>
+
                 {/* Pay Button */}
                 <motion.button
                     whileHover={{ scale: 1.02 }}
@@ -277,7 +287,7 @@ export function TopUpModal({ onClose, onSuccess }) {
                 </motion.button>
 
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 12 }}>
-                    Secure payment powered by Razorpay
+                    Secure payment powered by Razorpay. Deposit is fully refundable.
                 </p>
             </motion.div>
         </motion.div>
@@ -342,6 +352,9 @@ function CompanyWalletView({ onBack }) {
                     <div style={{ fontSize: 13, opacity: 0.85 }}>
                         {meetingsAvailable} meetings available
                     </div>
+                    <div style={{ fontSize: 11, opacity: 0.75, marginTop: 8, lineHeight: 1.4 }}>
+                        Wallet funds are a refundable deposit for offline interior consultation meetings only.
+                    </div>
                 </motion.div>
 
                 {/* Low Balance Warning */}
@@ -362,7 +375,7 @@ function CompanyWalletView({ onBack }) {
                     >
                         <AlertCircle size={20} color="#D97706" />
                         <span style={{ fontSize: 13, color: '#92400E' }}>
-                            Low balance! Top up to continue scheduling meetings.
+                            Low balance! Top up your service deposit to continue scheduling offline meetings.
                         </span>
                     </motion.div>
                 )}
@@ -418,7 +431,7 @@ function CompanyWalletView({ onBack }) {
                     <TopUpModal
                         onClose={() => setShowTopUp(false)}
                         onSuccess={(amount) => {
-                            showToast(`Wallet topped up with ₹${amount}!`, 'success');
+                            showToast(`Service deposit of ₹${amount} added successfully!`, 'success');
                             loadWalletData();
                         }}
                     />
@@ -515,6 +528,9 @@ function SeekerWalletView({ onBack }) {
                     <div style={{ fontSize: 36, fontWeight: 800 }}>
                         ₹{availableBalance.toLocaleString('en-IN')}
                     </div>
+                    <div style={{ fontSize: 11, opacity: 0.75, marginTop: 8, lineHeight: 1.4 }}>
+                        Earnings from confirmed offline interior consultation meetings.
+                    </div>
                 </motion.div>
 
                 {/* Locked Balance Card */}
@@ -539,7 +555,7 @@ function SeekerWalletView({ onBack }) {
                             ₹{lockedBalance.toLocaleString('en-IN')}
                         </div>
                         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                            Complete a project to unlock your earnings. Select a company, pay the advance, and get confirmation.
+                            Complete a project to unlock your earnings. Confirm an offline interior consultation to release locked funds.
                         </p>
                     </motion.div>
                 )}
@@ -595,6 +611,11 @@ function SeekerWalletView({ onBack }) {
                     <MessageCircle size={20} />
                     Withdraw via WhatsApp
                 </motion.button>
+
+                {/* Withdrawal policy notice */}
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5, marginBottom: 12, padding: '8px 10px', background: '#F0FDF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
+                    Unused wallet balance is fully refundable. Withdrawals are processed after project confirmation to ensure genuine interactions.
+                </p>
 
                 {!canWithdraw && availableBalance < 250 && (
                     <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
@@ -753,11 +774,11 @@ function TransactionItem({ transaction }) {
 
     const getReasonLabel = (reason) => {
         switch (reason) {
-            case 'MEETING_FEE': return 'Meeting Fee';
-            case 'MEETING_EARNINGS': return 'Meeting Reward';
-            case 'TOP_UP': return 'Wallet Top Up';
-            case 'WITHDRAWAL': return 'Bank Withdrawal';
-            case 'REFUND': return 'Refund';
+            case 'MEETING_FEE': return 'Consultation Meeting Fee';
+            case 'MEETING_EARNINGS': return 'Meeting Earnings';
+            case 'TOP_UP': return 'Service Deposit';
+            case 'WITHDRAWAL': return 'Balance Withdrawal';
+            case 'REFUND': return 'Deposit Refund';
             default: return reason || 'Transaction';
         }
     };

@@ -98,7 +98,7 @@ export default function MeetingsView({ onBack }) {
             if (result.dispute) {
                 showToast('Dispute raised — the other party said they did not meet. Admin will review.', 'warning');
             } else if (result.bothConfirmed) {
-                showToast('Meeting confirmed! ₹250 has been credited to your wallet.', 'success');
+                showToast('Meeting confirmed! Amount will be used only for this confirmed appointment.', 'success');
             } else {
                 showToast('You confirmed the meeting. Waiting for the other party to respond.', 'success');
             }
@@ -107,7 +107,7 @@ export default function MeetingsView({ onBack }) {
             if (result.notYetTime) {
                 showToast('Meeting time hasn\'t passed yet. You can confirm after the scheduled time.', 'warning');
             } else if (result.insufficientBalance) {
-                showToast('Company has insufficient wallet balance to confirm meeting.', 'warning');
+                showToast('Company has insufficient service deposit to confirm meeting.', 'warning');
             } else {
                 showToast(result.error, 'error');
             }
@@ -271,8 +271,8 @@ export default function MeetingsView({ onBack }) {
                     <IndianRupee size={20} color="var(--primary)" />
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {isCompany
-                            ? '₹500 is charged when both confirm the meeting happened'
-                            : '₹250 is credited when both confirm the meeting happened'
+                            ? '₹500 deposit is charged when both confirm the offline meeting happened'
+                            : '₹250 is credited when both confirm the offline meeting happened'
                         }
                     </span>
                 </div>
@@ -871,7 +871,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                         }}>
                             <AlertCircle size={18} color="#D97706" />
                             <span style={{ fontSize: 12, color: '#92400E' }}>
-                                You need at least ₹500 in wallet. Current: ₹{companyBalance}
+                                You need at least ₹500 service deposit in wallet. Current: ₹{companyBalance}
                             </span>
                         </div>
                         <motion.button
@@ -896,7 +896,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                             }}
                         >
                             <Wallet size={16} />
-                            Add Money to Wallet
+                            Add Service Deposit
                         </motion.button>
                     </div>
                 )}
@@ -963,11 +963,14 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                 </label>
 
                 {/* Info */}
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
                     {isCompany
-                        ? '₹500 will be charged when both parties confirm the meeting'
-                        : 'You\'ll earn ₹250 when both parties confirm the meeting'
+                        ? 'Payment is required only for confirmed interior consultation. ₹500 will be charged when both parties confirm the offline meeting.'
+                        : 'You\'ll earn ₹250 when both parties confirm the offline interior consultation meeting.'
                     }
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
+                    No charge until meeting is confirmed
                 </p>
 
                 {/* Submit */}
@@ -1000,7 +1003,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                     <TopUpModal
                         onClose={() => setShowTopUp(false)}
                         onSuccess={(amount) => {
-                            showToast(`Wallet topped up with ₹${amount}!`, 'success');
+                            showToast(`Service deposit of ₹${amount} added successfully!`, 'success');
                             getWallet().then(setWallet);
                             setShowTopUp(false);
                         }}
