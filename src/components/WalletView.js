@@ -614,7 +614,7 @@ function SeekerWalletView({ onBack }) {
 
                 {/* Withdrawal policy notice */}
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5, marginBottom: 12, padding: '8px 10px', background: '#F0FDF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
-                    Unused wallet balance is fully refundable. Withdrawals are processed after project confirmation to ensure genuine interactions.
+                    Any unused amount is fully refundable. Withdrawals are processed after project confirmation to ensure genuine interactions.
                 </p>
 
                 {!canWithdraw && availableBalance < 250 && (

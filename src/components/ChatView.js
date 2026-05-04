@@ -818,7 +818,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             marginBottom: 8,
                                         }}>
                                             <p style={{ fontSize: 12, color: '#92400E', fontWeight: 500 }}>
-                                                ⚠️ Your wallet balance is low (₹{walletBalance})
+                                                ⚠️ Your service deposit is low (₹{walletBalance})
                                             </p>
                                             <p style={{ fontSize: 11, color: '#B45309', marginTop: 2 }}>
                                                 You need ₹{MEETING_FEE} to accept this meeting
@@ -1051,7 +1051,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         } else if (result.wrongOTP) {
                                             showToast('Incorrect code. Please check with the company.', 'error');
                                         } else if (result.insufficientBalance) {
-                                            showToast('Company has insufficient wallet balance.', 'warning');
+                                            showToast('Company has insufficient service deposit.', 'warning');
                                         } else if (result.error) {
                                             showToast(result.error, 'error');
                                         }

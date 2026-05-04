@@ -272,7 +272,7 @@ export default function MeetingsView({ onBack }) {
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {isCompany
                             ? '₹500 deposit is charged when both confirm the offline meeting happened'
-                            : '₹250 is credited when both confirm the offline meeting happened'
+                            : '₹250 is paid to you when both confirm the offline meeting happened'
                         }
                     </span>
                 </div>
