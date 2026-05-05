@@ -1944,6 +1944,22 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
+    // Get withdrawal requests for the current user
+    const getWithdrawals = useCallback(async () => {
+        if (!user || !user.id) return [];
+        try {
+            const q = query(
+                collection(db, 'withdrawals'),
+                where('userId', '==', user.id)
+            );
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (error) {
+            console.error('Error fetching withdrawals:', error);
+            return [];
+        }
+    }, [user]);
+
     // ============ PROJECT FUNCTIONS ============
 
     // Create a project request (either seeker or company can request)
@@ -2563,6 +2579,7 @@ export const AuthProvider = ({ children }) => {
             addTransaction,
             topUpWallet,
             requestWithdrawal,
+            getWithdrawals,
             scheduleMeeting,
             getMeetings,
             acceptMeeting,

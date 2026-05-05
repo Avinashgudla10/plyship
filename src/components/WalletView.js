@@ -7,7 +7,7 @@ import { useToast } from '../context/ToastContext';
 import {
     Wallet, ArrowLeft, Plus, ArrowDownLeft, ArrowUpRight,
     Clock, CheckCircle, AlertCircle, Lock, Unlock, CreditCard,
-    TrendingUp, IndianRupee, ChevronRight, Building2, User, X, MessageCircle
+    TrendingUp, IndianRupee, ChevronRight, Building2, User, X
 } from 'lucide-react';
 
 // Main Wallet View - Routes to appropriate view based on role
@@ -296,16 +296,21 @@ export function TopUpModal({ onClose, onSuccess }) {
 
 // ============ COMPANY WALLET VIEW ============
 function CompanyWalletView({ onBack }) {
-    const { user, getWallet, getTransactions, requestWithdrawal } = useAuth();
+    const { user, getWallet, getTransactions, requestWithdrawal, getWithdrawals } = useAuth();
     const { showToast } = useToast();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showTopUp, setShowTopUp] = useState(false);
+    const [hasPendingWithdrawal, setHasPendingWithdrawal] = useState(false);
+    const [withdrawRequesting, setWithdrawRequesting] = useState(false);
 
     const loadWalletData = async () => {
         const walletData = await getWallet();
         const txns = await getTransactions();
+        // Check for existing pending withdrawal
+        const wds = await getWithdrawals();
+        setHasPendingWithdrawal(wds.some(w => w.status === 'PENDING' || w.status === 'PROCESSING'));
         setWallet(walletData);
         setTransactions(txns);
         setLoading(false);
@@ -410,50 +415,53 @@ function CompanyWalletView({ onBack }) {
 
                     {/* Withdraw Button */}
                     <motion.button
-                        whileHover={balance >= 500 ? { scale: 1.02 } : {}}
-                        whileTap={balance >= 500 ? { scale: 0.98 } : {}}
-                        disabled={balance < 500}
+                        whileHover={balance >= 500 && !hasPendingWithdrawal ? { scale: 1.02 } : {}}
+                        whileTap={balance >= 500 && !hasPendingWithdrawal ? { scale: 0.98 } : {}}
+                        disabled={balance < 500 || hasPendingWithdrawal || withdrawRequesting}
                         style={{
                             flex: 1,
                             padding: 16,
                             borderRadius: 14,
-                            background: balance >= 500 ? 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)' : '#E5E7EB',
+                            background: hasPendingWithdrawal
+                                ? 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)'
+                                : balance >= 500
+                                    ? 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)'
+                                    : '#E5E7EB',
                             border: 'none',
-                            color: balance >= 500 ? 'white' : '#9CA3AF',
+                            color: hasPendingWithdrawal || balance >= 500 ? 'white' : '#9CA3AF',
                             fontSize: 15,
                             fontWeight: 700,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: 8,
-                            cursor: balance >= 500 ? 'pointer' : 'not-allowed',
+                            cursor: balance >= 500 && !hasPendingWithdrawal ? 'pointer' : 'not-allowed',
                         }}
                         onClick={async () => {
-                            if (balance < 500) return;
-                            // Create withdrawal record for admin tracking
+                            if (balance < 500 || hasPendingWithdrawal) return;
+                            setWithdrawRequesting(true);
                             const result = await requestWithdrawal(balance);
-                            if (!result.success) {
+                            if (result.success) {
+                                setHasPendingWithdrawal(true);
+                                showToast('Withdrawal request submitted! Admin will process it shortly.', 'success');
+                            } else {
                                 showToast(result.error, 'error');
-                                return;
                             }
-
-                            const companyName = user?.profile?.companyName || user?.profile?.name || 'Company';
-                            const phone = '918465834152';
-                            const message = encodeURIComponent(
-                                `Hi, I would like to withdraw ₹${balance} from my Plyship company wallet.\n\n` +
-                                `Company: ${companyName}\n` +
-                                `Amount: ₹${balance}\n` +
-                                `Email: ${user?.email || 'N/A'}`
-                            );
-                            window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+                            setWithdrawRequesting(false);
                         }}
                     >
                         <ArrowUpRight size={18} />
-                        Withdraw
+                        {withdrawRequesting ? 'Requesting...' : hasPendingWithdrawal ? 'Withdraw Requested ✓' : 'Withdraw'}
                     </motion.button>
                 </div>
 
-                {balance < 500 && balance > 0 && (
+                {hasPendingWithdrawal && (
+                    <p style={{ fontSize: 12, color: '#D97706', textAlign: 'center', marginTop: -16, marginBottom: 20, fontWeight: 500 }}>
+                        Your withdrawal is being processed by admin
+                    </p>
+                )}
+
+                {!hasPendingWithdrawal && balance < 500 && balance > 0 && (
                     <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginTop: -16, marginBottom: 20 }}>
                         Minimum withdrawal amount is ₹500
                     </p>
@@ -495,12 +503,14 @@ function CompanyWalletView({ onBack }) {
 
 // ============ SEEKER WALLET VIEW ============
 function SeekerWalletView({ onBack }) {
-    const { user, getWallet, getTransactions, getProjects, requestWithdrawal } = useAuth();
+    const { user, getWallet, getTransactions, getProjects, requestWithdrawal, getWithdrawals } = useAuth();
     const { showToast } = useToast();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [hasConfirmedProject, setHasConfirmedProject] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [hasPendingWithdrawal, setHasPendingWithdrawal] = useState(false);
+    const [withdrawRequesting, setWithdrawRequesting] = useState(false);
 
     useEffect(() => {
         const loadWalletData = async () => {
@@ -513,6 +523,10 @@ function SeekerWalletView({ onBack }) {
             // Also check if wallet isLocked field is explicitly false
             const walletUnlocked = walletData?.isLocked === false;
             setHasConfirmedProject(!!acceptedProject || walletUnlocked);
+
+            // Check for existing pending withdrawal
+            const wds = await getWithdrawals();
+            setHasPendingWithdrawal(wds.some(w => w.status === 'PENDING' || w.status === 'PROCESSING'));
 
             setWallet(walletData);
             setTransactions(txns);
@@ -529,29 +543,21 @@ function SeekerWalletView({ onBack }) {
     const lockedBalance = wallet?.lockedBalance || 0;
     const totalEarnings = wallet?.totalEarnings || 0;
 
-    // Can only withdraw if: balance >= 250 AND (has accepted project OR wallet is unlocked)
-    const canWithdraw = availableBalance >= 250 && hasConfirmedProject;
+    // Can only withdraw if: balance >= 250 AND (has accepted project OR wallet is unlocked) AND no pending withdrawal
+    const canWithdraw = availableBalance >= 250 && hasConfirmedProject && !hasPendingWithdrawal && !withdrawRequesting;
     const hasBalanceButNoProject = availableBalance >= 250 && !hasConfirmedProject;
 
-    // WhatsApp withdrawal handler
+    // Withdrawal handler
     const handleWithdrawal = async () => {
-        // Create withdrawal record in Firestore for admin tracking
+        setWithdrawRequesting(true);
         const result = await requestWithdrawal(availableBalance);
-        if (!result.success) {
+        if (result.success) {
+            setHasPendingWithdrawal(true);
+            showToast('Withdrawal request submitted! Admin will process it shortly.', 'success');
+        } else {
             showToast(result.error, 'error');
-            return;
         }
-
-        const userName = user?.profile?.name || 'User';
-        const phone = '918465834152'; // WhatsApp number with country code
-        const message = encodeURIComponent(
-            `Hi, I would like to withdraw ₹${availableBalance} from my Plyship wallet.\n\n` +
-            `Name: ${userName}\n` +
-            `Amount: ₹${availableBalance}\n` +
-            `Email: ${user?.email || 'N/A'}`
-        );
-
-        window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+        setWithdrawRequesting(false);
     };
 
     return (
@@ -646,9 +652,13 @@ function SeekerWalletView({ onBack }) {
                         width: '100%',
                         padding: 16,
                         borderRadius: 14,
-                        background: canWithdraw ? 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)' : '#E5E7EB',
+                        background: hasPendingWithdrawal
+                            ? 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)'
+                            : canWithdraw
+                                ? 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)'
+                                : '#E5E7EB',
                         border: 'none',
-                        color: canWithdraw ? 'white' : '#9CA3AF',
+                        color: hasPendingWithdrawal || canWithdraw ? 'white' : '#9CA3AF',
                         fontSize: 16,
                         fontWeight: 700,
                         display: 'flex',
@@ -660,16 +670,22 @@ function SeekerWalletView({ onBack }) {
                     }}
                     onClick={() => canWithdraw && handleWithdrawal()}
                 >
-                    <MessageCircle size={20} />
-                    Withdraw via WhatsApp
+                    <ArrowUpRight size={20} />
+                    {withdrawRequesting ? 'Requesting...' : hasPendingWithdrawal ? 'Withdraw Requested ✓' : 'Withdraw Earnings'}
                 </motion.button>
+
+                {hasPendingWithdrawal && (
+                    <p style={{ fontSize: 12, color: '#D97706', textAlign: 'center', marginBottom: 12, fontWeight: 500 }}>
+                        Your withdrawal is being processed by admin
+                    </p>
+                )}
 
                 {/* Withdrawal policy notice */}
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5, marginBottom: 12, padding: '8px 10px', background: '#F0FDF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
                     Any unused amount is fully refundable. Withdrawals are processed after project confirmation to ensure genuine interactions.
                 </p>
 
-                {!canWithdraw && availableBalance < 250 && (
+                {!hasPendingWithdrawal && !canWithdraw && availableBalance < 250 && (
                     <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
                         Minimum withdrawal amount is ₹250
                     </p>
@@ -678,12 +694,6 @@ function SeekerWalletView({ onBack }) {
                 {hasBalanceButNoProject && (
                     <p style={{ fontSize: 12, color: '#D97706', textAlign: 'center', marginBottom: 24 }}>
                         Confirm a project with an Interior Company to enable withdrawals
-                    </p>
-                )}
-
-                {canWithdraw && (
-                    <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
-                        You'll be redirected to WhatsApp to request withdrawal
                     </p>
                 )}
 
