@@ -1396,7 +1396,8 @@ export const AuthProvider = ({ children }) => {
     }, [user, getChatId]);
 
     // Cancel a scheduled meeting
-    const cancelMeeting = useCallback(async (meetingId, reason = '') => {
+    // options.silent = true skips chat notification (used during reschedule)
+    const cancelMeeting = useCallback(async (meetingId, reason = '', options = {}) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
@@ -1448,14 +1449,16 @@ export const AuthProvider = ({ children }) => {
                 updatedAt: new Date().toISOString(),
             });
 
-            // Sync meeting status to chat doc
-            const chatId = getChatId(meeting.companyId, meeting.seekerId);
-            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'CANCELLED', meetingId }, { merge: true });
-            await addDoc(collection(db, 'chats', chatId, 'messages'), {
-                senderId: 'system', senderName: 'PlyShip',
-                text: `🚫 Meeting cancelled${reason ? ': ' + reason : ''}.`,
-                type: 'meeting_update', createdAt: serverTimestamp(),
-            });
+            // Sync meeting status to chat doc (skip during silent reschedule)
+            if (!options.silent) {
+                const chatId = getChatId(meeting.companyId, meeting.seekerId);
+                await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'CANCELLED', meetingId }, { merge: true });
+                await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                    senderId: 'system', senderName: 'PlyShip',
+                    text: `🚫 Meeting cancelled${reason ? ': ' + reason : ''}.`,
+                    type: 'meeting_update', createdAt: serverTimestamp(),
+                });
+            }
 
             return { success: true };
         } catch (error) {
@@ -1904,16 +1907,28 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Insufficient balance' };
             }
 
-            if (amount < 250) {
-                return { success: false, error: 'Minimum withdrawal is ₹250' };
+            const isCompany = user.role === 'COMPANY';
+            const minWithdrawal = isCompany ? 500 : 250;
+
+            if (amount < minWithdrawal) {
+                return { success: false, error: `Minimum withdrawal is ₹${minWithdrawal}` };
             }
 
-            // Create withdrawal record
+            // Create withdrawal record (role-aware)
             const withdrawalData = {
-                seekerId: user.id,
-                seekerName: user.profile?.name || user.email || 'Unknown',
-                seekerEmail: user.email || '',
-                seekerPhone: user.profile?.phone || '',
+                userId: user.id,
+                userRole: user.role,
+                ...(isCompany ? {
+                    companyId: user.id,
+                    companyName: user.profile?.companyName || user.email || 'Unknown',
+                    companyEmail: user.email || '',
+                    companyPhone: user.profile?.phone || '',
+                } : {
+                    seekerId: user.id,
+                    seekerName: user.profile?.name || user.email || 'Unknown',
+                    seekerEmail: user.email || '',
+                    seekerPhone: user.profile?.phone || '',
+                }),
                 amount,
                 walletBalance: wallet.balance || 0,
                 status: 'PENDING',

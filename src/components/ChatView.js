@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown, Search } from 'lucide-react';
+import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown, Search, CreditCard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { subscribeToMessages } from '../lib/firebase';
@@ -383,7 +383,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
 // Individual chat view
 export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetingModalShown }) {
     const {
-        user, sendMessage, getChatId, getWallet,
+        user, sendMessage, getChatId, getWallet, topUpWallet,
         getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP,
         getProjects, acceptProject, declineProject
     } = useAuth();
@@ -794,6 +794,104 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
                     // Show low balance warning for company receiving a meeting request
                     if (isReceiver && hasLowBalance) {
+                        // Inline pay-and-accept handler (like Uber pay-per-ride)
+                        const handlePayAndAccept = async () => {
+                            setActionLoading('payAccept');
+                            try {
+                                // 1. Create Razorpay order for meeting fee
+                                const orderRes = await fetch('/api/razorpay/create-order', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ amount: MEETING_FEE, userId: user.id }),
+                                });
+                                const orderData = await orderRes.json();
+                                if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
+
+                                // 2. Open Razorpay checkout
+                                const options = {
+                                    key: orderData.keyId,
+                                    amount: orderData.amount,
+                                    currency: orderData.currency,
+                                    name: 'Plyship',
+                                    description: `Meeting Fee — ${name || 'Consultation'}`,
+                                    order_id: orderData.orderId,
+                                    handler: async function (response) {
+                                        try {
+                                            // 3. Verify payment
+                                            const verifyRes = await fetch('/api/razorpay/verify-payment', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    razorpay_order_id: response.razorpay_order_id,
+                                                    razorpay_payment_id: response.razorpay_payment_id,
+                                                    razorpay_signature: response.razorpay_signature,
+                                                    userId: user.id,
+                                                    amount: MEETING_FEE,
+                                                }),
+                                            });
+                                            const verifyData = await verifyRes.json();
+                                            if (!verifyData.success) {
+                                                showToast('Payment verification failed', 'error');
+                                                setActionLoading(null);
+                                                return;
+                                            }
+
+                                            // 4. Credit wallet
+                                            const topUpResult = await topUpWallet(MEETING_FEE, response.razorpay_payment_id, response.razorpay_order_id);
+                                            if (!topUpResult.success) {
+                                                showToast('Payment succeeded but wallet update failed. Contact support.', 'error');
+                                                setActionLoading(null);
+                                                return;
+                                            }
+
+                                            // 5. Update local wallet balance
+                                            setWalletBalance(topUpResult.newBalance);
+
+                                            // 6. Auto-accept the meeting
+                                            const acceptResult = await acceptMeeting(activeMeeting.id);
+                                            if (acceptResult.success) {
+                                                showToast('Payment successful! Meeting accepted.', 'success');
+                                                await refreshMeetings();
+                                            } else {
+                                                showToast(acceptResult.error || 'Meeting could not be accepted. Try again from the banner.', 'error');
+                                            }
+                                        } catch (err) {
+                                            showToast(err.message || 'Something went wrong', 'error');
+                                        }
+                                        setActionLoading(null);
+                                    },
+                                    prefill: {
+                                        name: user?.profile?.companyName || user?.profile?.name || '',
+                                        email: user?.email || '',
+                                    },
+                                    theme: { color: '#22C55E' },
+                                    modal: {
+                                        ondismiss: function () {
+                                            setActionLoading(null);
+                                        },
+                                    },
+                                };
+
+                                // Load Razorpay script dynamically if needed
+                                if (!window.Razorpay) {
+                                    const script = document.createElement('script');
+                                    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                                    script.async = true;
+                                    document.body.appendChild(script);
+                                    script.onload = () => {
+                                        const rzp = new window.Razorpay(options);
+                                        rzp.open();
+                                    };
+                                } else {
+                                    const rzp = new window.Razorpay(options);
+                                    rzp.open();
+                                }
+                            } catch (err) {
+                                showToast(err.message || 'Payment failed', 'error');
+                                setActionLoading(null);
+                            }
+                        };
+
                         return (
                             <motion.div
                                 initial={{ opacity: 0, height: 0 }}
@@ -801,37 +899,27 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                 style={{ padding: 12, background: '#FEF3C7', borderBottom: '1px solid var(--border-light)' }}
                             >
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                                    <AlertCircle size={18} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
+                                    <Calendar size={18} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
                                     <div style={{ flex: 1 }}>
                                         <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
                                             Meeting request received
                                         </p>
-                                        <p style={{ fontSize: 11, color: '#D97706', marginBottom: 6 }}>
+                                        <p style={{ fontSize: 11, color: '#D97706', marginBottom: 8 }}>
                                             {meetingTime.toLocaleDateString('en-IN', {
                                                 weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                                             })}
                                         </p>
-                                        <div style={{
-                                            padding: '8px 10px',
-                                            borderRadius: 8,
-                                            background: '#FDE68A',
-                                            marginBottom: 8,
-                                        }}>
-                                            <p style={{ fontSize: 12, color: '#92400E', fontWeight: 500 }}>
-                                                ⚠️ Your service deposit is low (₹{walletBalance})
-                                            </p>
-                                            <p style={{ fontSize: 11, color: '#B45309', marginTop: 2 }}>
-                                                You need ₹{MEETING_FEE} to accept this meeting
-                                            </p>
-                                        </div>
+
+                                        {/* Pay & Accept — primary action */}
                                         <motion.button
-                                            onClick={() => onNavigate?.('wallet')}
+                                            onClick={handlePayAndAccept}
+                                            disabled={actionLoading}
                                             whileTap={{ scale: 0.95 }}
                                             style={{
                                                 width: '100%',
                                                 padding: '10px 14px',
                                                 borderRadius: 10,
-                                                background: 'var(--gradient-primary)',
+                                                background: actionLoading === 'payAccept' ? '#A7F3D0' : 'var(--gradient-primary)',
                                                 border: 'none',
                                                 color: 'white',
                                                 fontSize: 13,
@@ -840,13 +928,66 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 gap: 6,
-                                                cursor: 'pointer',
+                                                cursor: actionLoading ? 'wait' : 'pointer',
                                                 boxShadow: 'var(--shadow-sm)',
+                                                marginBottom: 6,
                                             }}
                                         >
-                                            <Wallet size={16} />
-                                            Add Funds to Wallet
+                                            <CreditCard size={16} />
+                                            {actionLoading === 'payAccept' ? 'Processing...' : `Pay ₹${MEETING_FEE} & Accept`}
                                         </motion.button>
+
+                                        {/* Secondary row: Top Up Wallet + Decline */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <motion.button
+                                                onClick={() => onNavigate?.('wallet')}
+                                                whileTap={{ scale: 0.95 }}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px 10px',
+                                                    borderRadius: 8,
+                                                    background: 'white',
+                                                    border: '1px solid var(--border)',
+                                                    color: 'var(--text-secondary)',
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: 4,
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                <Wallet size={14} />
+                                                Top Up Wallet
+                                            </motion.button>
+                                            <motion.button
+                                                onClick={async () => {
+                                                    setActionLoading('decline');
+                                                    await declineMeeting(activeMeeting.id);
+                                                    await refreshMeetings();
+                                                    setActionLoading(null);
+                                                }}
+                                                disabled={actionLoading}
+                                                whileTap={{ scale: 0.95 }}
+                                                style={{
+                                                    padding: '8px 10px',
+                                                    borderRadius: 8,
+                                                    background: '#FEE2E2',
+                                                    border: 'none',
+                                                    color: '#EF4444',
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                <X size={14} />
+                                            </motion.button>
+                                        </div>
+
+                                        <p style={{ fontSize: 10, color: '#B45309', marginTop: 6, textAlign: 'center' }}>
+                                            Pay for this meeting only, or top up wallet for multiple
+                                        </p>
                                     </div>
                                 </div>
                             </motion.div>
@@ -1458,9 +1599,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                         onClose={() => setShowRescheduleModal(false)}
                         onScheduled={async () => {
                             setShowRescheduleModal(false);
-                            // Cancel the old meeting and refresh
+                            // Silently cancel the old meeting (no cancelled notification in chat)
                             if (activeMeeting) {
-                                await cancelMeeting(activeMeeting.id);
+                                await cancelMeeting(activeMeeting.id, '', { silent: true });
                             }
                             const updated = await getMeetings();
                             setMeetings(updated.filter(m =>

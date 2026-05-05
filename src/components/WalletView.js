@@ -296,7 +296,7 @@ export function TopUpModal({ onClose, onSuccess }) {
 
 // ============ COMPANY WALLET VIEW ============
 function CompanyWalletView({ onBack }) {
-    const { getWallet, getTransactions } = useAuth();
+    const { user, getWallet, getTransactions, requestWithdrawal } = useAuth();
     const { showToast } = useToast();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
@@ -380,32 +380,84 @@ function CompanyWalletView({ onBack }) {
                     </motion.div>
                 )}
 
-                {/* Top Up Button */}
-                <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    style={{
-                        width: '100%',
-                        padding: 16,
-                        borderRadius: 14,
-                        background: 'var(--gradient-primary)',
-                        border: 'none',
-                        color: 'white',
-                        fontSize: 16,
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8,
-                        cursor: 'pointer',
-                        marginBottom: 24,
-                        boxShadow: 'var(--shadow-glow-soft)',
-                    }}
-                    onClick={() => setShowTopUp(true)}
-                >
-                    <Plus size={20} />
-                    Top Up Wallet
-                </motion.button>
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+                    {/* Top Up Button */}
+                    <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        style={{
+                            flex: 1,
+                            padding: 16,
+                            borderRadius: 14,
+                            background: 'var(--gradient-primary)',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: 15,
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            cursor: 'pointer',
+                            boxShadow: 'var(--shadow-glow-soft)',
+                        }}
+                        onClick={() => setShowTopUp(true)}
+                    >
+                        <Plus size={18} />
+                        Top Up
+                    </motion.button>
+
+                    {/* Withdraw Button */}
+                    <motion.button
+                        whileHover={balance >= 500 ? { scale: 1.02 } : {}}
+                        whileTap={balance >= 500 ? { scale: 0.98 } : {}}
+                        disabled={balance < 500}
+                        style={{
+                            flex: 1,
+                            padding: 16,
+                            borderRadius: 14,
+                            background: balance >= 500 ? 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)' : '#E5E7EB',
+                            border: 'none',
+                            color: balance >= 500 ? 'white' : '#9CA3AF',
+                            fontSize: 15,
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            cursor: balance >= 500 ? 'pointer' : 'not-allowed',
+                        }}
+                        onClick={async () => {
+                            if (balance < 500) return;
+                            // Create withdrawal record for admin tracking
+                            const result = await requestWithdrawal(balance);
+                            if (!result.success) {
+                                showToast(result.error, 'error');
+                                return;
+                            }
+
+                            const companyName = user?.profile?.companyName || user?.profile?.name || 'Company';
+                            const phone = '918465834152';
+                            const message = encodeURIComponent(
+                                `Hi, I would like to withdraw ₹${balance} from my Plyship company wallet.\n\n` +
+                                `Company: ${companyName}\n` +
+                                `Amount: ₹${balance}\n` +
+                                `Email: ${user?.email || 'N/A'}`
+                            );
+                            window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+                        }}
+                    >
+                        <ArrowUpRight size={18} />
+                        Withdraw
+                    </motion.button>
+                </div>
+
+                {balance < 500 && balance > 0 && (
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginTop: -16, marginBottom: 20 }}>
+                        Minimum withdrawal amount is ₹500
+                    </p>
+                )}
 
                 {/* Quick Stats */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>

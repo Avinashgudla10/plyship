@@ -8,12 +8,12 @@ import { TopUpModal } from './WalletView';
 import {
     Calendar, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
     User, Building2, MapPin, ChevronRight, Plus, X, IndianRupee,
-    RefreshCw, Check, Ban, Wallet
+    RefreshCw, Check, Ban, Wallet, CreditCard
 } from 'lucide-react';
 
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
-    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting } = useAuth();
+    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet } = useAuth();
     const { showToast, showConfirm } = useToast();
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -22,6 +22,7 @@ export default function MeetingsView({ onBack }) {
     const [rescheduleModal, setRescheduleModal] = useState(null);
 
     const isCompany = user?.role === 'COMPANY';
+    const MEETING_FEE = 500;
 
     useEffect(() => {
         let isMounted = true;
@@ -48,13 +49,104 @@ export default function MeetingsView({ onBack }) {
         setRefreshKey(prev => prev + 1);
     };
 
-    // Accept a pending meeting request
+    // Pay & Accept: inline Razorpay payment then auto-accept
+    const handlePayAndAccept = async (meetingId) => {
+        setActionId(meetingId);
+        try {
+            const orderRes = await fetch('/api/razorpay/create-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: MEETING_FEE, userId: user.id }),
+            });
+            const orderData = await orderRes.json();
+            if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
+
+            const options = {
+                key: orderData.keyId,
+                amount: orderData.amount,
+                currency: orderData.currency,
+                name: 'Plyship',
+                description: 'Meeting Fee — Consultation',
+                order_id: orderData.orderId,
+                handler: async function (response) {
+                    try {
+                        const verifyRes = await fetch('/api/razorpay/verify-payment', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_signature: response.razorpay_signature,
+                                userId: user.id,
+                                amount: MEETING_FEE,
+                            }),
+                        });
+                        const verifyData = await verifyRes.json();
+                        if (!verifyData.success) {
+                            showToast('Payment verification failed', 'error');
+                            setActionId(null);
+                            return;
+                        }
+
+                        const topUpResult = await topUpWallet(MEETING_FEE, response.razorpay_payment_id, response.razorpay_order_id);
+                        if (!topUpResult.success) {
+                            showToast('Payment succeeded but wallet update failed. Contact support.', 'error');
+                            setActionId(null);
+                            return;
+                        }
+
+                        const acceptResult = await acceptMeeting(meetingId);
+                        if (acceptResult.success) {
+                            showToast('Payment successful! Meeting accepted.', 'success');
+                            refreshMeetings();
+                        } else {
+                            showToast(acceptResult.error || 'Could not accept meeting', 'error');
+                        }
+                    } catch (err) {
+                        showToast(err.message || 'Something went wrong', 'error');
+                    }
+                    setActionId(null);
+                },
+                prefill: {
+                    name: user?.profile?.companyName || user?.profile?.name || '',
+                    email: user?.email || '',
+                },
+                theme: { color: '#22C55E' },
+                modal: { ondismiss: () => setActionId(null) },
+            };
+
+            if (!window.Razorpay) {
+                const script = document.createElement('script');
+                script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                script.async = true;
+                document.body.appendChild(script);
+                script.onload = () => new window.Razorpay(options).open();
+            } else {
+                new window.Razorpay(options).open();
+            }
+        } catch (err) {
+            showToast(err.message || 'Payment failed', 'error');
+            setActionId(null);
+        }
+    };
+
+    // Accept a pending meeting request — with pay-per-meeting fallback
     const handleAccept = async (meetingId) => {
         setActionId(meetingId);
         const result = await acceptMeeting(meetingId);
         if (result.success) {
             showToast('Meeting accepted! It is now scheduled.', 'success');
             refreshMeetings();
+        } else if (result.insufficientFunds) {
+            // Offer inline payment
+            const payNow = await showConfirm(
+                `Insufficient wallet balance (₹${result.current}). Pay ₹${MEETING_FEE} now to accept this meeting?`,
+                'Pay & Accept'
+            );
+            if (payNow) {
+                await handlePayAndAccept(meetingId);
+                return; // actionId is managed inside handlePayAndAccept
+            }
         } else {
             showToast(result.error, 'error');
         }
