@@ -110,7 +110,7 @@ function LoadingScreen() {
             gap: 24,
         }}>
             <img
-                src="/logo.png"
+                src="/loader-logo.png"
                 alt="PLYSHIP"
                 style={{
                     height: 48,

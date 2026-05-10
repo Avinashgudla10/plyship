@@ -156,7 +156,7 @@ export default function Home() {
         gap: 24,
       }}>
         <motion.img
-          src="/logo.png"
+          src="/loader-logo.png"
           alt="PLYSHIP"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
