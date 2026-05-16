@@ -1,0 +1,30 @@
+{
+	"appId": "com.plyship.app",
+	"appName": "PLYSHIP",
+	"webDir": "out",
+	"server": {
+		"url": "https://plyship.com",
+		"cleartext": false
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchAutoHide": true,
+			"launchShowDuration": 2000,
+			"backgroundColor": "#0A0A0F",
+			"showSpinner": false
+		},
+		"StatusBar": {
+			"style": "DARK",
+			"backgroundColor": "#FFFFFF",
+			"overlaysWebView": false
+		}
+	},
+	"android": {
+		"allowMixedContent": false,
+		"backgroundColor": "#FFFFFF"
+	},
+	"ios": {
+		"contentInset": "automatic",
+		"backgroundColor": "#FFFFFF"
+	}
+}

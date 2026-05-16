@@ -1,0 +1,463 @@
+package com.plyship.app;
+
+import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+
+import com.getcapacitor.BridgeActivity;
+
+/**
+ * Custom Capacitor Activity for PLYSHIP Android.
+ * Feature parity with iOS PlyshipViewController:
+ * 1. Pull-to-refresh via injected JavaScript
+ * 2. External links open in system browser, plyship.com stays in-app
+ * 3. Network monitoring with offline banner + full-screen error page
+ * 4. Auto-reload when connectivity is restored
+ * 5. Proper status bar styling (white bg, dark icons)
+ */
+public class MainActivity extends BridgeActivity {
+
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean isConnected = true;
+    private boolean didFailToLoad = false;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // Offline UI references
+    private View offlineBanner;
+    private View offlineFullScreen;
+
+    // ==================== Lifecycle ====================
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setupStatusBar();
+        // Delay setup to ensure Capacitor bridge is initialized
+        mainHandler.postDelayed(this::setupAfterBridgeReady, 800);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (connectivityManager != null && networkCallback != null) {
+            try { connectivityManager.unregisterNetworkCallback(networkCallback); }
+            catch (Exception ignored) {}
+        }
+    }
+
+    private void setupAfterBridgeReady() {
+        try {
+            if (getBridge() == null || getBridge().getWebView() == null) {
+                mainHandler.postDelayed(this::setupAfterBridgeReady, 500);
+                return;
+            }
+            setupWebViewClient();
+            injectPullToRefreshScript();
+            startNetworkMonitoring();
+        } catch (Exception e) {
+            mainHandler.postDelayed(this::setupAfterBridgeReady, 500);
+        }
+    }
+
+    // ==================== Status Bar ====================
+
+    private void setupStatusBar() {
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        getWindow().setStatusBarColor(Color.WHITE);
+        getWindow().setNavigationBarColor(Color.WHITE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsetsController c = getWindow().getInsetsController();
+            if (c != null) {
+                c.setSystemBarsAppearance(
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            int flags = getWindow().getDecorView().getSystemUiVisibility();
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            getWindow().getDecorView().setSystemUiVisibility(flags);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getWindow().getAttributes().layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+    }
+
+    // ==================== WebView Client ====================
+
+    private void setupWebViewClient() {
+        WebView webView = getBridge().getWebView();
+        if (webView == null) return;
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri url = request.getUrl();
+                if (isInternalURL(url)) {
+                    return false;
+                } else {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, url));
+                    } catch (Exception ignored) {}
+                    return true;
+                }
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                didFailToLoad = false;
+                hideOfflineFullScreen();
+                injectPullToRefreshScript();
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request.isForMainFrame()) {
+                    didFailToLoad = true;
+                    showOfflineFullScreen();
+                }
+            }
+        });
+    }
+
+    private boolean isInternalURL(Uri url) {
+        if (url == null) return true;
+        String scheme = url.getScheme();
+        if (scheme == null) return true;
+        if ("about".equals(scheme) || "blob".equals(scheme) || "data".equals(scheme)) return true;
+
+        String host = url.getHost();
+        if (host == null) return true;
+        host = host.toLowerCase();
+
+        if ("plyship.com".equals(host) || host.endsWith(".plyship.com")) return true;
+        if (host.endsWith(".firebaseapp.com")) return true;
+        if (host.endsWith(".googleapis.com")) return true;
+        if (host.endsWith(".google.com")) return true;
+        if (host.endsWith(".razorpay.com")) return true;
+        // reCAPTCHA / Firebase Auth domains — required for Phone OTP
+        if (host.endsWith(".gstatic.com")) return true;
+        if (host.endsWith(".recaptcha.net")) return true;
+
+        return false;
+    }
+
+    // ==================== Pull to Refresh ====================
+
+    private void injectPullToRefreshScript() {
+        WebView webView = getBridge().getWebView();
+        if (webView == null) return;
+
+        String js = "(function(){" +
+            "if(window.__plyPTR)return;window.__plyPTR=true;" +
+            "var startY=0,pulling=false,el=null;" +
+            "function mkEl(){if(el)return;el=document.createElement('div');" +
+            "el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:999999;display:flex;" +
+            "justify-content:center;padding-top:env(safe-area-inset-top,24px);pointer-events:none;" +
+            "opacity:0;transition:opacity 0.2s;';" +
+            "var dot=document.createElement('div');" +
+            "dot.style.cssText='width:36px;height:36px;margin-top:8px;border-radius:50%;background:#fff;" +
+            "box-shadow:0 2px 12px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;';" +
+            "dot.innerHTML='<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" " +
+            "stroke=\"#22C55E\" stroke-width=\"2.5\" stroke-linecap=\"round\">" +
+            "<polyline points=\"23 4 23 10 17 10\"/>" +
+            "<path d=\"M20.49 15a9 9 0 1 1-2.12-9.36L23 10\"/></svg>';" +
+            "el.appendChild(dot);document.body.appendChild(el);}" +
+            "function atTop(){var t=document.elementFromPoint(window.innerWidth/2,100);" +
+            "while(t&&t!==document.body&&t!==document.documentElement){if(t.scrollTop>5)return false;" +
+            "t=t.parentElement;}return(document.documentElement.scrollTop||0)<=5;}" +
+            "document.addEventListener('touchstart',function(e){" +
+            "if(atTop()){startY=e.touches[0].clientY;pulling=true;}},{passive:true});" +
+            "document.addEventListener('touchmove',function(e){if(!pulling)return;" +
+            "var dy=e.touches[0].clientY-startY;if(dy>10){mkEl();var p=Math.min(dy/120,1);" +
+            "el.style.opacity=String(Math.min(p*1.5,1));var svg=el.querySelector('svg');" +
+            "if(svg)svg.style.transform='rotate('+(p*360)+'deg)';}else if(dy<-5){pulling=false;" +
+            "if(el)el.style.opacity='0';}},{passive:true});" +
+            "document.addEventListener('touchend',function(e){if(!pulling)return;pulling=false;" +
+            "var dy=(e.changedTouches[0]?e.changedTouches[0].clientY:0)-startY;" +
+            "if(dy>100){if(el){var svg=el.querySelector('svg');" +
+            "if(svg)svg.style.animation='spin 0.6s linear infinite';" +
+            "if(!document.getElementById('__ptr_style')){var s=document.createElement('style');" +
+            "s.id='__ptr_style';s.textContent='@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';" +
+            "document.head.appendChild(s);}}setTimeout(function(){window.location.reload();},300);" +
+            "}else{if(el)el.style.opacity='0';}},{passive:true});})();";
+
+        webView.evaluateJavascript(js, null);
+    }
+
+    // ==================== Network Monitoring ====================
+
+    private void startNetworkMonitoring() {
+        connectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (connectivityManager == null) return;
+
+        // Check initial connectivity
+        NetworkCapabilities caps = null;
+        if (connectivityManager.getActiveNetwork() != null) {
+            caps = connectivityManager.getNetworkCapabilities(connectivityManager.getActiveNetwork());
+        }
+        isConnected = caps != null && (
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));
+
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(@NonNull Network network) {
+                mainHandler.post(() -> {
+                    if (!isConnected) {
+                        isConnected = true;
+                        hideOfflineBanner();
+                        hideOfflineFullScreen();
+                        showOnlineToast();
+                        if (didFailToLoad) {
+                            didFailToLoad = false;
+                            WebView wv = getBridge().getWebView();
+                            if (wv != null) wv.reload();
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onLost(@NonNull Network network) {
+                mainHandler.post(() -> {
+                    isConnected = false;
+                    showOfflineBanner();
+                });
+            }
+        };
+
+        NetworkRequest request = new NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build();
+        connectivityManager.registerNetworkCallback(request, networkCallback);
+    }
+
+    // ==================== Offline Banner ====================
+
+    private void showOfflineBanner() {
+        if (offlineBanner != null) return;
+
+        int bannerH = dpToPx(40);
+        int statusH = getStatusBarHeight();
+
+        FrameLayout banner = new FrameLayout(this);
+        banner.setBackgroundColor(Color.parseColor("#F2DC2626"));
+        banner.setClickable(false);
+
+        TextView label = new TextView(this);
+        label.setText("No Internet Connection");
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        label.setTypeface(null, Typeface.BOLD);
+        label.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, bannerH);
+        lp.topMargin = statusH;
+        label.setLayoutParams(lp);
+        banner.addView(label);
+
+        FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, statusH + bannerH);
+        bannerParams.gravity = Gravity.TOP;
+        banner.setLayoutParams(bannerParams);
+
+        banner.setTranslationY(-(statusH + bannerH));
+        getRootContent().addView(banner);
+        banner.animate().translationY(0).setDuration(350).start();
+        offlineBanner = banner;
+    }
+
+    private void hideOfflineBanner() {
+        if (offlineBanner == null) return;
+        final View b = offlineBanner;
+        offlineBanner = null;
+        b.animate().translationY(-b.getHeight()).setDuration(250).withEndAction(() -> {
+            getRootContent().removeView(b);
+        }).start();
+    }
+
+    // ==================== Online Toast ====================
+
+    private void showOnlineToast() {
+        int toastH = dpToPx(40);
+        int statusH = getStatusBarHeight();
+
+        FrameLayout toast = new FrameLayout(this);
+        toast.setBackgroundColor(Color.parseColor("#F216A34A"));
+        toast.setClickable(false);
+
+        TextView label = new TextView(this);
+        label.setText("Back Online");
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        label.setTypeface(null, Typeface.BOLD);
+        label.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, toastH);
+        lp.topMargin = statusH;
+        label.setLayoutParams(lp);
+        toast.addView(label);
+
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, statusH + toastH);
+        params.gravity = Gravity.TOP;
+        toast.setLayoutParams(params);
+
+        toast.setTranslationY(-(statusH + toastH));
+        getRootContent().addView(toast);
+
+        toast.animate().translationY(0).setDuration(300).withEndAction(() -> {
+            mainHandler.postDelayed(() -> {
+                toast.animate().translationY(-(statusH + toastH)).setDuration(250).withEndAction(() -> {
+                    try { getRootContent().removeView(toast); } catch (Exception ignored) {}
+                }).start();
+            }, 2000);
+        }).start();
+    }
+
+    // ==================== Offline Full Screen ====================
+
+    private void showOfflineFullScreen() {
+        if (offlineFullScreen != null) return;
+
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(Color.WHITE);
+        overlay.setLayoutParams(new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        overlay.setClickable(true); // Block touches to WebView behind
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        content.setLayoutParams(contentParams);
+
+        // Icon
+        TextView icon = new TextView(this);
+        icon.setText("\uD83D\uDCE1"); // 📡
+        icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 56);
+        icon.setGravity(Gravity.CENTER);
+        content.addView(icon);
+
+        // Title
+        TextView title = new TextView(this);
+        title.setText("No Internet Connection");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setTextColor(Color.parseColor("#1E1E1E"));
+        title.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams titleP = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleP.topMargin = dpToPx(16);
+        title.setLayoutParams(titleP);
+        content.addView(title);
+
+        // Subtitle
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Please check your connection and try again");
+        subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        subtitle.setTextColor(Color.GRAY);
+        subtitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subP = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subP.topMargin = dpToPx(8);
+        subtitle.setLayoutParams(subP);
+        content.addView(subtitle);
+
+        // Retry button
+        TextView retryBtn = new TextView(this);
+        retryBtn.setText("Retry");
+        retryBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        retryBtn.setTypeface(null, Typeface.BOLD);
+        retryBtn.setTextColor(Color.WHITE);
+        retryBtn.setGravity(Gravity.CENTER);
+        retryBtn.setPadding(dpToPx(32), dpToPx(12), dpToPx(32), dpToPx(12));
+
+        GradientDrawable btnBg = new GradientDrawable();
+        btnBg.setColor(Color.parseColor("#22C55E"));
+        btnBg.setCornerRadius(dpToPx(12));
+        retryBtn.setBackground(btnBg);
+
+        LinearLayout.LayoutParams btnP = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        btnP.topMargin = dpToPx(24);
+        retryBtn.setLayoutParams(btnP);
+        retryBtn.setOnClickListener(v -> {
+            if (isConnected) {
+                hideOfflineFullScreen();
+                WebView wv = getBridge().getWebView();
+                if (wv != null) wv.reload();
+            }
+        });
+        content.addView(retryBtn);
+
+        overlay.addView(content);
+        getRootContent().addView(overlay);
+        offlineFullScreen = overlay;
+    }
+
+    private void hideOfflineFullScreen() {
+        if (offlineFullScreen == null) return;
+        final View o = offlineFullScreen;
+        offlineFullScreen = null;
+        o.animate().alpha(0f).setDuration(300).withEndAction(() -> {
+            try { getRootContent().removeView(o); } catch (Exception ignored) {}
+        }).start();
+    }
+
+    // ==================== Helpers ====================
+
+    private ViewGroup getRootContent() {
+        return (ViewGroup) findViewById(android.R.id.content);
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private int getStatusBarHeight() {
+        int result = 0;
+        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resId > 0) {
+            result = getResources().getDimensionPixelSize(resId);
+        }
+        return result;
+    }
+}
