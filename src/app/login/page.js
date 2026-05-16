@@ -66,20 +66,33 @@ export default function Login() {
     };
 
     const handleOTPChange = (index, value) => {
-        if (value.length > 1) value = value[value.length - 1];
-        if (!/^\d*$/.test(value)) return;
+        const digits = value.replace(/\D/g, '');
+        // Handle auto-fill: browser pastes full OTP code into one field
+        if (digits.length > 1) {
+            const newOtp = ['', '', '', '', '', ''];
+            for (let i = 0; i < Math.min(digits.length, 6); i++) {
+                newOtp[i] = digits[i];
+            }
+            setOtp(newOtp);
+            otpRefs.current[Math.min(digits.length, 5)]?.focus();
+            if (digits.length >= 6) {
+                handleVerifyOTP(digits.slice(0, 6));
+            }
+            return;
+        }
 
+        if (!/^\d*$/.test(digits)) return;
         const newOtp = [...otp];
-        newOtp[index] = value;
+        newOtp[index] = digits;
         setOtp(newOtp);
 
         // Auto-focus next input
-        if (value && index < 5) {
+        if (digits && index < 5) {
             otpRefs.current[index + 1]?.focus();
         }
 
         // Auto-submit when all 6 digits entered
-        if (value && index === 5 && newOtp.every(d => d !== '')) {
+        if (digits && index === 5 && newOtp.every(d => d !== '')) {
             handleVerifyOTP(newOtp.join(''));
         }
     };
@@ -87,6 +100,21 @@ export default function Login() {
     const handleOTPKeyDown = (index, e) => {
         if (e.key === 'Backspace' && !otp[index] && index > 0) {
             otpRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handlePaste = (e) => {
+        e.preventDefault();
+        const digits = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        if (!digits) return;
+        const newOtp = ['', '', '', '', '', ''];
+        for (let i = 0; i < digits.length; i++) {
+            newOtp[i] = digits[i];
+        }
+        setOtp(newOtp);
+        otpRefs.current[Math.min(digits.length, 5)]?.focus();
+        if (digits.length >= 6) {
+            handleVerifyOTP(digits);
         }
     };
 
@@ -333,10 +361,12 @@ export default function Login() {
                                             ref={el => otpRefs.current[i] = el}
                                             type="tel"
                                             inputMode="numeric"
-                                            maxLength={1}
+                                            autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                                            maxLength={i === 0 ? 6 : 1}
                                             value={digit}
                                             onChange={(e) => handleOTPChange(i, e.target.value)}
                                             onKeyDown={(e) => handleOTPKeyDown(i, e)}
+                                            onPaste={handlePaste}
                                             style={{
                                                 width: 48, height: 56, textAlign: 'center',
                                                 fontSize: 22, fontWeight: 700, borderRadius: 14,
