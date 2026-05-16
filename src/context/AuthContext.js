@@ -363,26 +363,47 @@ export const AuthProvider = ({ children }) => {
         }
 
         try {
-            // Fetch liked, passed, and meeting users in parallel
-            const [likedUsersSnapshot, passedUsersSnapshot, meetingsSnapshot] = await Promise.all([
+            // 7-day cooldown: profiles reappear after 7 days of being liked/passed
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const cooldownCutoff = sevenDaysAgo.toISOString();
+
+            // Fetch liked, passed, meeting, and matched users in parallel
+            const [likedUsersSnapshot, passedUsersSnapshot, meetingsSnapshot, matchesSnapshot] = await Promise.all([
                 getDocs(collection(db, 'likes', user.id, 'outgoing')),
                 getDocs(collection(db, 'passes', user.id, 'passed')),
                 getDocs(query(
                     collection(db, 'meetings'),
                     where(user.role === 'COMPANY' ? 'companyId' : 'seekerId', '==', user.id)
                 )),
+                getDocs(collection(db, 'matches', user.id, 'matched')),
             ]);
+
+            // Liked users — only exclude if liked within last 7 days
             const likedUserIds = new Set();
             likedUsersSnapshot.forEach((doc) => {
-                likedUserIds.add(doc.id);
+                const data = doc.data();
+                if (data.likedAt && data.likedAt > cooldownCutoff) {
+                    likedUserIds.add(doc.id);
+                }
             });
 
+            // Passed users — only exclude if passed within last 7 days
             const passedUserIds = new Set();
             passedUsersSnapshot.forEach((doc) => {
-                passedUserIds.add(doc.id);
+                const data = doc.data();
+                if (data.passedAt && data.passedAt > cooldownCutoff) {
+                    passedUserIds.add(doc.id);
+                }
             });
 
-            // Collect partner IDs from active meetings
+            // Matched users — always excluded (real engagement)
+            const matchedUserIds = new Set();
+            matchesSnapshot.forEach((doc) => {
+                matchedUserIds.add(doc.id);
+            });
+
+            // Collect partner IDs from active meetings — always excluded
             const meetingUserIds = new Set();
             meetingsSnapshot.forEach((d) => {
                 const m = d.data();
@@ -405,8 +426,8 @@ export const AuthProvider = ({ children }) => {
             const profiles = [];
 
             querySnapshot.forEach((doc) => {
-                // Don't include self, already liked, passed, or meeting users
-                if (doc.id !== user.id && !likedUserIds.has(doc.id) && !passedUserIds.has(doc.id) && !meetingUserIds.has(doc.id)) {
+                // Exclude: self, recently liked/passed (7-day cooldown), matched, or active meeting users
+                if (doc.id !== user.id && !likedUserIds.has(doc.id) && !passedUserIds.has(doc.id) && !matchedUserIds.has(doc.id) && !meetingUserIds.has(doc.id)) {
                     profiles.push({ id: doc.id, ...doc.data() });
                 }
             });
