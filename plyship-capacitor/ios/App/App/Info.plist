@@ -55,6 +55,19 @@
 	<!-- ATS: Strict HTTPS enforcement (default). No exceptions needed.
 	     plyship.com uses HTTPS. WebView content inherits default ATS. -->
 
+	<!-- URL Schemes: Required for Firebase Phone Auth reCAPTCHA redirect -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.plyship.app</string>
+				<!-- TODO: Add your REVERSED_CLIENT_ID from GoogleService-Info.plist here -->
+				<!-- Example: <string>com.googleusercontent.apps.109538013062-XXXXXXXXXXXX</string> -->
+			</array>
+		</dict>
+	</array>
+
 	<!-- Privacy: Camera & Photo access (needed for profile photo uploads in the web app) -->
 	<key>NSCameraUsageDescription</key>
 	<string>PLYSHIP needs camera access to take profile photos and share images.</string>

@@ -314,6 +314,9 @@ class PlyshipViewController: CAPBridgeViewController {
         if Self.internalHosts.contains(host) || host.hasSuffix(".plyship.com") { return true }
         if host.hasSuffix(".firebaseapp.com") || host.hasSuffix(".googleapis.com") || host.hasSuffix(".google.com") { return true }
         if host.hasSuffix(".razorpay.com") { return true }
+        // reCAPTCHA / Firebase Auth domains — required for Phone OTP to work in WebView
+        if host.hasSuffix(".gstatic.com") { return true }
+        if host.hasSuffix(".recaptcha.net") { return true }
 
         return false
     }

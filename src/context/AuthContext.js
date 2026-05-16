@@ -145,16 +145,30 @@ export const AuthProvider = ({ children }) => {
         try {
             const appVerifier = setupRecaptcha(buttonId);
             const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+            console.log('[OTP] Sending to:', formattedPhone);
             const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
             confirmationResultRef.current = confirmationResult;
+            console.log('[OTP] Successfully sent');
             return { success: true };
         } catch (error) {
+            console.error('[OTP] Error code:', error.code, '| Message:', error.message);
             // Reset recaptcha on error
             if (recaptchaVerifierRef.current) {
                 recaptchaVerifierRef.current.clear();
                 recaptchaVerifierRef.current = null;
             }
-            return { success: false, error: error.message };
+            // Map Firebase error codes to user-friendly messages
+            const errorMap = {
+                'auth/captcha-check-failed': 'Security verification failed. Please try again.',
+                'auth/too-many-requests': 'Too many attempts. Please wait a few minutes and try again.',
+                'auth/quota-exceeded': 'SMS limit reached. Please try again later.',
+                'auth/invalid-phone-number': 'Invalid phone number. Please check and try again.',
+                'auth/network-request-failed': 'Network error. Please check your internet connection.',
+                'auth/missing-phone-number': 'Please enter your phone number.',
+                'auth/internal-error': 'Something went wrong. Please close the app and try again.',
+            };
+            const friendlyError = errorMap[error.code] || error.message;
+            return { success: false, error: friendlyError };
         }
     };
 
