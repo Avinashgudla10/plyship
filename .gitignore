@@ -51,9 +51,11 @@ next-env.d.ts
 # IDE
 .idea/
 
-# Native Capacitor projects (use plyship-capacitor/ as the canonical iOS project)
-/ios/
-/android/
+# Native Capacitor — track iOS & Android projects; ignore build artifacts
+/ios/App/Pods/
+/ios/capacitor-cordova-ios-plugins/
+/android/.gradle/
+/android/app/build/
 /resources/
 
 # Misc files that shouldn't be in repo
