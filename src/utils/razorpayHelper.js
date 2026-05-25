@@ -88,9 +88,11 @@ export function buildRazorpayOptions({
             },
         },
 
-        // webview_intent is Android-only. On iOS it causes unwanted Safari
-        // redirects. On Android it enables the native UPI intent deep-link.
-        ...(inAndroidWebView && { webview_intent: true }),
+        // Enable UPI intent flow in Capacitor WebViews (iOS + Android).
+        // This tells Razorpay to open UPI apps natively (PhonePe, GPay, etc.)
+        // so the user pays in the UPI app and returns to PLYSHIP.
+        // On iOS, WKUIDelegate handles any popup windows to keep them in-app.
+        ...(inWebView && { webview_intent: true }),
 
         modal: {
             ondismiss: onDismiss || (() => {}),
