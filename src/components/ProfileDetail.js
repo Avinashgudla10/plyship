@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { X, Star, MapPin, Shield, Sparkles, Phone, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -24,9 +24,28 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
         }
     }, [isCompanyProfile, profile?.id, getCompanyReviews]);
 
-    // Disable native pull-to-refresh while this overlay is open
+    // ── Disable native pull-to-refresh while this overlay is open ──
+    // The PTR script is a document-level touchstart listener injected by the
+    // native iOS controller. We block it two ways:
+    // 1. stopPropagation on this container prevents the event from bubbling
+    //    to document (works WITHOUT rebuilding the iOS app)
+    // 2. window.__plyPTR_disabled flag (checked by updated Swift PTR JS)
+    const containerRef = useRef(null);
+
     useEffect(() => {
         window.__plyPTR_disabled = true;
+
+        const el = containerRef.current;
+        if (el) {
+            const blockPTR = (e) => { e.stopPropagation(); };
+            el.addEventListener('touchstart', blockPTR, { passive: true });
+            el.addEventListener('touchmove', blockPTR, { passive: true });
+            return () => {
+                window.__plyPTR_disabled = false;
+                el.removeEventListener('touchstart', blockPTR);
+                el.removeEventListener('touchmove', blockPTR);
+            };
+        }
         return () => { window.__plyPTR_disabled = false; };
     }, []);
 
@@ -77,6 +96,7 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
 
     return (
         <motion.div
+            ref={containerRef}
             data-no-ptr="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
