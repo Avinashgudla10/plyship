@@ -75,5 +75,16 @@
 	<string>PLYSHIP needs photo library access to upload and share photos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>PLYSHIP needs permission to save images to your photo library.</string>
+
+	<!-- URL Schemes the app needs to query (UPI payment apps for Razorpay) -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>upi</string>
+		<string>phonepe</string>
+		<string>gpay</string>
+		<string>paytm</string>
+		<string>tez</string>
+		<string>bhim</string>
+	</array>
 </dict>
 </plist>

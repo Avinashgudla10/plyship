@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, ArrowRight, ArrowLeft, Shield } from 'lucide-react';
+import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -12,7 +13,7 @@ const ADMIN_PHONES = ['+918465834152'];
 
 export default function Login() {
     const router = useRouter();
-    const { user, loading, sendOTP, loginVerifyOTP } = useAuth();
+    const { user, loading, sendOTP, loginVerifyOTP, selectRole } = useAuth();
 
     const [phone, setPhone] = useState('');
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -20,6 +21,7 @@ export default function Login() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [countdown, setCountdown] = useState(0);
+    const [showRoleSelection, setShowRoleSelection] = useState(false);
     const otpRefs = useRef([]);
 
     // Redirect if already logged in
@@ -131,19 +133,32 @@ export default function Login() {
         setIsLoading(false);
 
         if (result.success) {
-            setTimeout(() => {
-                const formattedPhone = `+91${phone.replace(/\s/g, '')}`;
-                if (ADMIN_PHONES.includes(formattedPhone)) {
-                    router.replace('/admin');
-                } else {
-                    router.replace('/');
-                }
-            }, 1000);
+            if (result.isNewUser) {
+                // New user — show role selection to complete signup
+                setShowRoleSelection(true);
+            } else {
+                setTimeout(() => {
+                    const formattedPhone = `+91${phone.replace(/\s/g, '')}`;
+                    if (ADMIN_PHONES.includes(formattedPhone)) {
+                        router.replace('/admin');
+                    } else {
+                        router.replace('/');
+                    }
+                }, 1000);
+            }
         } else {
             setError(result.error || 'Invalid OTP. Please try again.');
             setOtp(['', '', '', '', '', '']);
             otpRefs.current[0]?.focus();
         }
+    };
+
+    const handleRoleSelect = (role) => {
+        selectRole(role);
+        setShowRoleSelection(false);
+        setTimeout(() => {
+            router.replace('/profile-setup');
+        }, 100);
     };
 
     const handleResendOTP = async () => {
@@ -460,6 +475,12 @@ export default function Login() {
                     <Link href="/privacy" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Privacy Policy</Link>
                 </div>
             </motion.div>
+
+            <AnimatePresence>
+                {showRoleSelection && (
+                    <RoleSelectionModal onSelect={handleRoleSelect} />
+                )}
+            </AnimatePresence>
         </div>
     );
 }

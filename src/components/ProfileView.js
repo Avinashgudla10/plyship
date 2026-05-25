@@ -976,7 +976,7 @@ export function HelpView({ onBack }) {
         { q: 'How do I get more connections?', a: 'Swipe right on profiles you like! Complete your profile fully to get more visibility.' },
         { q: 'How does the meeting payment work?', a: 'When a meeting is confirmed via OTP, ₹500 is deducted from the company\'s wallet. The seeker receives ₹250 as locked earnings.' },
         { q: 'How do I withdraw my earnings?', a: 'Go to your Wallet page and tap "Withdraw". Withdrawals are processed within 3-5 business days.' },
-        { q: 'What is the OTP for meetings?', a: 'When a meeting is accepted, the company receives a 6-digit OTP. When you meet in person, the seeker enters this OTP to confirm the meeting happened.' },
+        { q: 'What is the OTP for meetings?', a: 'When a meeting is accepted, the seeker receives a 6-digit OTP. When you meet in person, the seeker shares this OTP with the company, and the company enters it to confirm the meeting happened.' },
         { q: 'Is my data secure?', a: 'Yes! We use industry-standard encryption to protect your data.' },
     ];
 

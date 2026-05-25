@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Home, Briefcase, ArrowRight, Leaf } from 'lucide-react';
 
@@ -26,6 +26,13 @@ export default function RoleSelectionModal({ onSelect }) {
         }
     ];
 
+    // Dismiss keyboard when modal appears
+    useEffect(() => {
+        if (document.activeElement && document.activeElement.blur) {
+            document.activeElement.blur();
+        }
+    }, []);
+
     return (
         <motion.div
             initial={{ opacity: 0 }}
@@ -34,43 +41,34 @@ export default function RoleSelectionModal({ onSelect }) {
             style={{
                 position: 'fixed',
                 inset: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.4)',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
                 zIndex: 200,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'flex-end'
+                justifyContent: 'center',
+                padding: '24px'
             }}
         >
             <motion.div
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.85 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 350 }}
                 style={{
                     width: '100%',
-                    maxWidth: 480,
+                    maxWidth: 400,
                     background: 'white',
-                    borderTop: '1px solid var(--border-light)',
-                    borderTopLeftRadius: 32,
-                    borderTopRightRadius: 32,
-                    padding: '32px 24px 48px',
+                    borderRadius: 28,
+                    padding: '32px 24px 32px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 20,
-                    boxShadow: '0 -16px 48px rgba(0,0,0,0.1)'
+                    boxShadow: '0 24px 64px rgba(0,0,0,0.2)'
                 }}
             >
-                {/* Handle */}
-                <div style={{
-                    width: 40,
-                    height: 4,
-                    borderRadius: 2,
-                    background: 'var(--border)',
-                    margin: '0 auto 8px',
-                }} />
 
                 {/* Header */}
                 <div style={{ textAlign: 'center', marginBottom: 8 }}>

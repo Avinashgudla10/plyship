@@ -21,6 +21,7 @@ import WalletView from '../components/WalletView';
 import MeetingsView from '../components/MeetingsView';
 import ProjectsView from '../components/ProjectsView';
 import LandingPage from '../components/LandingPage';
+import MeetingOTPBar from '../components/MeetingOTPBar';
 import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut } from 'lucide-react';
 
 const ADMIN_PHONES = ['+918465834152'];
@@ -545,6 +546,9 @@ export default function Home() {
         </AnimatePresence>
       </div>
 
+      {/* Meeting OTP Bar — UC-style drop-up above bottom nav (Seekers only) */}
+      {!isFullScreen && <MeetingOTPBar />}
+
       {/* Bottom Navigation */}
       {!isFullScreen && (
         <nav style={{
@@ -654,8 +658,8 @@ export default function Home() {
           <ProfileDetail
             profile={detailProfile}
             onClose={() => setDetailProfile(null)}
-            onLike={() => handleMatch(detailProfile, 'right')}
-            onPass={() => handleMatch(detailProfile, 'left')}
+            onMeet={() => { handleMatch(detailProfile, 'meet'); setDetailProfile(null); }}
+            onReject={() => { handleMatch(detailProfile, 'left'); setDetailProfile(null); }}
             viewerRole={user?.role}
           />
         )}

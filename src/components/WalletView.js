@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 import {
     Wallet, ArrowLeft, Plus, ArrowDownLeft, ArrowUpRight,
     Clock, CheckCircle, AlertCircle, Lock, Unlock, CreditCard,
@@ -55,14 +56,17 @@ export function TopUpModal({ onClose, onSuccess }) {
                 throw new Error(orderData.error || 'Failed to create order');
             }
 
-            // 2. Open Razorpay checkout
-            const options = {
+            // 2. Open Razorpay checkout (UPI-first, in-app)
+            const options = buildRazorpayOptions({
                 key: orderData.keyId,
                 amount: orderData.amount,
                 currency: orderData.currency,
-                name: 'Plyship',
+                orderId: orderData.orderId,
                 description: 'Service Deposit — Interior Consultation',
-                order_id: orderData.orderId,
+                prefill: {
+                    name: user?.profile?.companyName || user?.profile?.name || '',
+                    email: user?.email || '',
+                },
                 handler: async function (response) {
                     // 3. Verify payment on server
                     const verifyRes = await fetch('/api/razorpay/verify-payment', {
@@ -98,34 +102,12 @@ export function TopUpModal({ onClose, onSuccess }) {
                     }
                     setLoading(false);
                 },
-                prefill: {
-                    name: user?.profile?.companyName || user?.profile?.name || '',
-                    email: user?.email || '',
+                onDismiss: function () {
+                    setLoading(false);
                 },
-                theme: {
-                    color: '#22C55E',
-                },
-                modal: {
-                    ondismiss: function () {
-                        setLoading(false);
-                    },
-                },
-            };
+            });
 
-            // Load Razorpay script dynamically
-            if (!window.Razorpay) {
-                const script = document.createElement('script');
-                script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-                script.async = true;
-                document.body.appendChild(script);
-                script.onload = () => {
-                    const rzp = new window.Razorpay(options);
-                    rzp.open();
-                };
-            } else {
-                const rzp = new window.Razorpay(options);
-                rzp.open();
-            }
+            openRazorpayCheckout(options);
         } catch (err) {
             console.error('Payment error:', err);
             setError(err.message || 'Payment failed. Please try again.');

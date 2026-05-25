@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { TopUpModal } from './WalletView';
+import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 import {
     Calendar, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
     User, Building2, MapPin, ChevronRight, Plus, X, IndianRupee,
@@ -61,13 +62,16 @@ export default function MeetingsView({ onBack }) {
             const orderData = await orderRes.json();
             if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
 
-            const options = {
+            const options = buildRazorpayOptions({
                 key: orderData.keyId,
                 amount: orderData.amount,
                 currency: orderData.currency,
-                name: 'Plyship',
+                orderId: orderData.orderId,
                 description: 'Meeting Fee — Consultation',
-                order_id: orderData.orderId,
+                prefill: {
+                    name: user?.profile?.companyName || user?.profile?.name || '',
+                    email: user?.email || '',
+                },
                 handler: async function (response) {
                     try {
                         const verifyRes = await fetch('/api/razorpay/verify-payment', {
@@ -107,23 +111,10 @@ export default function MeetingsView({ onBack }) {
                     }
                     setActionId(null);
                 },
-                prefill: {
-                    name: user?.profile?.companyName || user?.profile?.name || '',
-                    email: user?.email || '',
-                },
-                theme: { color: '#22C55E' },
-                modal: { ondismiss: () => setActionId(null) },
-            };
+                onDismiss: () => setActionId(null),
+            });
 
-            if (!window.Razorpay) {
-                const script = document.createElement('script');
-                script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-                script.async = true;
-                document.body.appendChild(script);
-                script.onload = () => new window.Razorpay(options).open();
-            } else {
-                new window.Razorpay(options).open();
-            }
+            openRazorpayCheckout(options);
         } catch (err) {
             showToast(err.message || 'Payment failed', 'error');
             setActionId(null);
@@ -505,7 +496,7 @@ function MeetingCard({
     const canAccept = meeting.status === 'PENDING_ACCEPTANCE' && !iAmRequester;
     const canCancel = meeting.status === 'PENDING_ACCEPTANCE' && iAmRequester;
     const canCancelScheduled = meeting.status === 'SCHEDULED' && !isPastMeeting;
-    const canConfirm = meeting.status === 'SCHEDULED' && isPastMeeting && !hasResponded;
+    const canConfirm = meeting.status === 'SCHEDULED' && !hasResponded;
     const canReschedule = ['CANCELLED', 'DECLINED'].includes(meeting.status);
     const isDispute = meeting.status === 'DISPUTE';
 
@@ -598,21 +589,21 @@ function MeetingCard({
                 </p>
             )}
 
-            {/* OTP Info for SCHEDULED meetings that are past */}
-            {meeting.status === 'SCHEDULED' && isPastMeeting && (
+            {/* OTP Info for SCHEDULED meetings */}
+            {meeting.status === 'SCHEDULED' && (
                 <div style={{
                     marginBottom: 12,
                     padding: '8px 12px',
                     borderRadius: 8,
-                    background: isCompany ? '#ECFDF5' : '#FFF7ED',
-                    border: `1px solid ${isCompany ? '#22C55E' : '#F59E0B'}`,
+                    background: !isCompany ? '#ECFDF5' : '#FFF7ED',
+                    border: `1px solid ${!isCompany ? '#22C55E' : '#F59E0B'}`,
                 }}>
-                    {isCompany ? (
+                    {!isCompany ? (
                         <>
                             <p style={{ fontSize: 11, fontWeight: 600, color: '#166534', marginBottom: 4 }}>
                                 📋 Verification Code
                             </p>
-                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 6 }}>
                                 {String(meeting.meetingOTP || '------').split('').map((digit, i) => (
                                     <span key={i} style={{
                                         display: 'inline-flex',
@@ -629,7 +620,15 @@ function MeetingCard({
                                         fontFamily: 'monospace',
                                     }}>{digit}</span>
                                 ))}
-                                <span style={{ fontSize: 10, color: '#16A34A', marginLeft: 6 }}>Share with seeker</span>
+                            </div>
+                            <div style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 3,
+                                padding: '3px 8px', borderRadius: 5,
+                                background: '#FEF2F2', border: '1px solid #FECACA',
+                            }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: '#DC2626' }}>
+                                    ⚠️ Share ONLY after the meeting
+                                </span>
                             </div>
                         </>
                     ) : (
@@ -733,26 +732,26 @@ function MeetingCard({
                     </motion.button>
                 )}
 
-                {/* OTP actions — company: show OTP in card above; seeker: go to chat */}
-                {canConfirm && isCompany && (
+                {/* OTP actions — seeker: show OTP in card above; company: go to chat */}
+                {canConfirm && !isCompany && (
                     <div style={{
                         width: '100%',
                         padding: 12,
                         borderRadius: 10,
-                        background: '#ECFDF5',
-                        border: '1px solid #22C55E',
+                        background: '#FEF2F2',
+                        border: '1.5px solid #FECACA',
                         textAlign: 'center',
                     }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 2 }}>
-                            ✅ Share the code above
+                        <p style={{ fontSize: 13, fontWeight: 700, color: '#DC2626', marginBottom: 2 }}>
+                            ⚠️ Do NOT share before meeting
                         </p>
-                        <p style={{ fontSize: 11, color: '#16A34A' }}>
-                            The seeker will enter it in chat to confirm
+                        <p style={{ fontSize: 11, color: '#991B1B' }}>
+                            Share the OTP with the company only after meeting in person
                         </p>
                     </div>
                 )}
 
-                {canConfirm && !isCompany && (
+                {canConfirm && isCompany && (
                     <div style={{
                         width: '100%',
                         padding: 12,
@@ -765,7 +764,7 @@ function MeetingCard({
                             🔑 Verify in Chat
                         </p>
                         <p style={{ fontSize: 11, color: '#B45309' }}>
-                            Open the chat to enter the 6-digit code from the company
+                            Open the chat to enter the 6-digit code from the seeker
                         </p>
                     </div>
                 )}
@@ -859,13 +858,14 @@ function ConfirmBadge({ label, confirmed }) {
 
 // Schedule Meeting Modal
 export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
-    const { scheduleMeeting, user, getWallet } = useAuth();
+    const { scheduleMeeting, user, getWallet, getMeetings } = useAuth();
     const { showToast } = useToast();
     const [date, setDate] = useState('');
     const [time, setTime] = useState('');
     const [notes, setNotes] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [wallet, setWallet] = useState(null);
+    const [activeMeetingCount, setActiveMeetingCount] = useState(0);
     const [showTopUp, setShowTopUp] = useState(false);
     const canCloseRef = useRef(false);
 
@@ -877,12 +877,22 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
     }, []);
 
     const isCompany = user?.role === 'COMPANY';
+    const MEETING_COST = 500;
 
     useEffect(() => {
-        if (isCompany) {
-            getWallet().then(setWallet);
-        }
-    }, [isCompany, getWallet]);
+        const fetchData = async () => {
+            if (isCompany) {
+                const [w, meetings] = await Promise.all([getWallet(), getMeetings()]);
+                setWallet(w);
+                // Count active meetings (PENDING_ACCEPTANCE or SCHEDULED)
+                const activeCount = meetings.filter(m =>
+                    m.status === 'PENDING_ACCEPTANCE' || m.status === 'SCHEDULED'
+                ).length;
+                setActiveMeetingCount(activeCount);
+            }
+        };
+        fetchData();
+    }, [isCompany, getWallet, getMeetings]);
 
     const handleSubmit = async () => {
         if (!date || !time) {
@@ -899,13 +909,19 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
         if (result.success) {
             onScheduled?.();
             onClose();
+        } else if (result.insufficientBalance || result.meetingLimitReached) {
+            // Show specific wallet/slot error inline — don't close
+            showToast(result.error, 'warning');
         } else {
             showToast(result.error, 'error');
         }
     };
 
     const companyBalance = wallet?.balance || 0;
-    const hasEnoughBalance = companyBalance >= 500;
+    const maxSlots = Math.floor(companyBalance / MEETING_COST);
+    const remainingSlots = Math.max(0, maxSlots - activeMeetingCount);
+    const hasEnoughBalance = companyBalance >= MEETING_COST;
+    const hasAvailableSlot = remainingSlots > 0;
 
     return (
         <motion.div
@@ -947,49 +963,55 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                     </button>
                 </div>
 
-                {/* Balance Warning for Companies */}
-                {isCompany && !hasEnoughBalance && (
+                {/* Balance & Slot Info for Companies */}
+                {isCompany && (
                     <div style={{
                         padding: 12,
                         borderRadius: 10,
-                        background: '#FEF3C7',
+                        background: !hasEnoughBalance || !hasAvailableSlot ? '#FEF2F2' : '#ECFDF5',
+                        border: `1px solid ${!hasEnoughBalance || !hasAvailableSlot ? '#FECACA' : '#BBF7D0'}`,
                         marginBottom: 16,
                     }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            marginBottom: 10,
-                        }}>
-                            <AlertCircle size={18} color="#D97706" />
-                            <span style={{ fontSize: 12, color: '#92400E' }}>
-                                You need at least ₹500 service deposit in wallet. Current: ₹{companyBalance}
+                        {/* Slot info */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: !hasAvailableSlot ? '#DC2626' : '#166534' }}>
+                                {!hasEnoughBalance
+                                    ? '⚠️ Insufficient Service Deposit'
+                                    : !hasAvailableSlot
+                                        ? '⚠️ No meeting slots available'
+                                        : `✅ ${remainingSlots} meeting slot${remainingSlots > 1 ? 's' : ''} available`
+                                }
                             </span>
                         </div>
-                        <motion.button
-                            onClick={() => setShowTopUp(true)}
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            style={{
-                                width: '100%',
-                                padding: '10px 16px',
-                                borderRadius: 10,
-                                background: 'var(--gradient-primary)',
-                                border: 'none',
-                                color: 'white',
-                                fontSize: 14,
-                                fontWeight: 600,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                                cursor: 'pointer',
-                                boxShadow: 'var(--shadow-glow-soft)',
-                            }}
-                        >
-                            <Wallet size={16} />
-                            Add Service Deposit
-                        </motion.button>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: hasEnoughBalance && hasAvailableSlot ? 0 : 10 }}>
+                            Wallet: ₹{companyBalance} • Active meetings: {activeMeetingCount} • ₹500/meeting
+                        </div>
+                        {(!hasEnoughBalance || !hasAvailableSlot) && (
+                            <motion.button
+                                onClick={() => setShowTopUp(true)}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 16px',
+                                    borderRadius: 10,
+                                    background: 'var(--gradient-primary)',
+                                    border: 'none',
+                                    color: 'white',
+                                    fontSize: 14,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    cursor: 'pointer',
+                                    boxShadow: 'var(--shadow-glow-soft)',
+                                }}
+                            >
+                                <Wallet size={16} />
+                                {!hasEnoughBalance ? 'Add Service Deposit' : `Add ₹500 for another slot`}
+                            </motion.button>
+                        )}
                     </div>
                 )}
 
@@ -1068,21 +1090,21 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                 {/* Submit */}
                 <motion.button
                     onClick={handleSubmit}
-                    disabled={submitting || (isCompany && !hasEnoughBalance)}
+                    disabled={submitting || (isCompany && (!hasEnoughBalance || !hasAvailableSlot))}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     style={{
                         width: '100%',
                         padding: 14,
                         borderRadius: 12,
-                        background: (submitting || (isCompany && !hasEnoughBalance))
+                        background: (submitting || (isCompany && (!hasEnoughBalance || !hasAvailableSlot)))
                             ? '#E5E7EB'
                             : 'var(--gradient-primary)',
                         border: 'none',
-                        color: (submitting || (isCompany && !hasEnoughBalance)) ? '#9CA3AF' : 'white',
+                        color: (submitting || (isCompany && (!hasEnoughBalance || !hasAvailableSlot))) ? '#9CA3AF' : 'white',
                         fontSize: 15,
                         fontWeight: 600,
-                        cursor: (submitting || (isCompany && !hasEnoughBalance)) ? 'not-allowed' : 'pointer',
+                        cursor: (submitting || (isCompany && (!hasEnoughBalance || !hasAvailableSlot))) ? 'not-allowed' : 'pointer',
                     }}
                 >
                     {submitting ? 'Scheduling...' : 'Request Meeting'}

@@ -966,6 +966,7 @@ export default function AdminDashboard() {
                 {activeTab === 'users' && (
                     <UsersTab
                         users={users}
+                        meetings={meetings}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
                         onEdit={(user) => setEditingItem({ type: 'user', data: user })}
@@ -1049,7 +1050,7 @@ export default function AdminDashboard() {
                             : confirmDelete.type === 'meeting'
                                 ? `Are you sure you want to delete this meeting (${confirmDelete.data.status?.replace('_', ' ')})? This action is permanent.`
                                 : confirmDelete.type === 'transaction'
-                                    ? `Are you sure you want to delete this Γé╣${confirmDelete.data.amount} ${confirmDelete.data.type?.replace(/_/g, ' ')} transaction? This action is permanent.`
+                                    ? `Are you sure you want to delete this ₹${confirmDelete.data.amount} ${confirmDelete.data.type?.replace(/_/g, ' ')} transaction? This action is permanent.`
                                     : confirmDelete.type === 'chat'
                                         ? `Are you sure you want to delete this chat and all its messages? This action is permanent.`
                                         : `Are you sure you want to delete this match? Both users will lose the match. This action is permanent.`
@@ -1230,10 +1231,10 @@ function EditUserModal({ user, loading, onClose, onSave }) {
                         <FormField label="Projects Completed">
                             <input type="text" value={profile.projectsCompleted || ''} onChange={e => updateProfile('projectsCompleted', e.target.value)} style={inputStyle} />
                         </FormField>
-                        <FormField label="Min Budget (Γé╣)">
+                        <FormField label="Min Budget (₹)">
                             <input type="text" value={profile.minBudget || ''} onChange={e => updateProfile('minBudget', e.target.value)} style={inputStyle} />
                         </FormField>
-                        <FormField label="Max Budget (Γé╣)">
+                        <FormField label="Max Budget (₹)">
                             <input type="text" value={profile.maxBudget || ''} onChange={e => updateProfile('maxBudget', e.target.value)} style={inputStyle} />
                         </FormField>
                         {/* Portfolio Images (read-only count) */}
@@ -1369,7 +1370,7 @@ function EditTransactionModal({ transaction, loading, onClose, onSave }) {
                     <option value="REFUNDED">Refunded</option>
                 </select>
             </FormField>
-            <FormField label="Amount (Γé╣)">
+            <FormField label="Amount (₹)">
                 <input
                     type="number"
                     value={amount}
@@ -1431,7 +1432,7 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
         { label: 'Total Meetings', value: stats.totalMeetings, icon: Calendar, color: '#22C55E' },
         { label: 'Confirmed Meetings', value: stats.confirmedMeetings, icon: CheckCircle, color: '#10B981' },
         { label: 'Pending Meetings', value: stats.pendingMeetings, icon: Clock, color: '#F97316' },
-        { label: 'Total Revenue', value: `Γé╣${stats.totalRevenue.toLocaleString()}`, icon: DollarSign, color: '#22C55E' },
+        { label: 'Total Revenue', value: `₹${stats.totalRevenue.toLocaleString()}`, icon: DollarSign, color: '#22C55E' },
     ];
 
     const walletRows = [
@@ -1458,13 +1459,13 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
             >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
                     <div>
-                        <p style={{ fontSize: 13, opacity: 0.85, marginBottom: 4 }}>≡ƒÆ░ Admin Wallet Balance</p>
-                        <p style={{ fontSize: 36, fontWeight: 800, letterSpacing: -1 }}>Γé╣{walletBalance.toLocaleString()}</p>
+                        <p style={{ fontSize: 13, opacity: 0.85, marginBottom: 4 }}>💰 Admin Wallet Balance</p>
+                        <p style={{ fontSize: 36, fontWeight: 800, letterSpacing: -1 }}>₹{walletBalance.toLocaleString()}</p>
                     </div>
                     <div style={{ display: 'flex', gap: 24 }}>
                         <div style={{ textAlign: 'center' }}>
                             <p style={{ fontSize: 11, opacity: 0.75 }}>Total Earned</p>
-                            <p style={{ fontSize: 20, fontWeight: 700 }}>Γé╣{walletEarnings.toLocaleString()}</p>
+                            <p style={{ fontSize: 20, fontWeight: 700 }}>₹{walletEarnings.toLocaleString()}</p>
                         </div>
                         <div style={{ textAlign: 'center' }}>
                             <p style={{ fontSize: 11, opacity: 0.75 }}>From Meetings</p>
@@ -1472,7 +1473,7 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
                         </div>
                         <div style={{ textAlign: 'center' }}>
                             <p style={{ fontSize: 11, opacity: 0.75 }}>Per Meeting</p>
-                            <p style={{ fontSize: 20, fontWeight: 700 }}>Γé╣250</p>
+                            <p style={{ fontSize: 20, fontWeight: 700 }}>₹250</p>
                         </div>
                     </div>
                 </div>
@@ -1491,7 +1492,7 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 }}
             >
-                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#111' }}>≡ƒôè All Wallets Breakdown</h3>
+                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#111' }}>📊 All Wallets Breakdown</h3>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ borderBottom: '2px solid #E5E7EB' }}>
@@ -1508,13 +1509,13 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
                                     {row.label}
                                 </td>
                                 <td style={{ padding: '10px 12px', fontSize: 13, color: '#888', textAlign: 'center' }}>{row.count}</td>
-                                <td style={{ padding: '10px 12px', fontSize: 15, fontWeight: 600, textAlign: 'right', color: row.color }}>Γé╣{row.amount.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', fontSize: 15, fontWeight: 600, textAlign: 'right', color: row.color }}>₹{row.amount.toLocaleString()}</td>
                             </tr>
                         ))}
                         <tr style={{ borderTop: '2px solid #111' }}>
                             <td style={{ padding: '12px 12px', fontSize: 15, fontWeight: 700 }}>Grand Total (All Wallets)</td>
                             <td></td>
-                            <td style={{ padding: '12px 12px', fontSize: 18, fontWeight: 800, textAlign: 'right', color: '#111' }}>Γé╣{grandTotal.toLocaleString()}</td>
+                            <td style={{ padding: '12px 12px', fontSize: 18, fontWeight: 800, textAlign: 'right', color: '#111' }}>₹{grandTotal.toLocaleString()}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1523,12 +1524,12 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
                 <div style={{ marginTop: 16, padding: 12, background: '#F0FDF4', borderRadius: 10, border: '1px solid #BBF7D0' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <div>
-                            <p style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>≡ƒÆ│ Razorpay Cross-Check</p>
+                            <p style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>💳 Razorpay Cross-Check</p>
                             <p style={{ fontSize: 11, color: '#666', marginTop: 2 }}>Total top-ups received via Razorpay should match: Grand Total + Total Spent by companies</p>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                             <p style={{ fontSize: 11, color: '#888' }}>Total Top-Ups</p>
-                            <p style={{ fontSize: 20, fontWeight: 700, color: '#059669' }}>Γé╣{razorpayTopUps.toLocaleString()}</p>
+                            <p style={{ fontSize: 20, fontWeight: 700, color: '#059669' }}>₹{razorpayTopUps.toLocaleString()}</p>
                         </div>
                     </div>
                 </div>
@@ -1574,12 +1575,34 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
 }
 
 // ============ USERS TAB ============
-function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView, onLoginAs }) {
+function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onDelete, onView, onLoginAs }) {
     const filtered = users.filter(u =>
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.profile?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.profile?.companyName?.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    // Count confirmed meetings per user
+    const confirmedCounts = useMemo(() => {
+        const counts = {};
+        meetings.forEach(m => {
+            if (m.status === 'CONFIRMED') {
+                counts[m.companyId] = (counts[m.companyId] || 0) + 1;
+                counts[m.seekerId] = (counts[m.seekerId] || 0) + 1;
+            }
+        });
+        return counts;
+    }, [meetings]);
+
+    // Count total meetings (all statuses) per user
+    const totalMeetingCounts = useMemo(() => {
+        const counts = {};
+        meetings.forEach(m => {
+            counts[m.companyId] = (counts[m.companyId] || 0) + 1;
+            counts[m.seekerId] = (counts[m.seekerId] || 0) + 1;
+        });
+        return counts;
+    }, [meetings]);
 
     return (
         <div>
@@ -1625,6 +1648,7 @@ function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView, 
                             <th style={thStyle}>Email</th>
                             <th style={thStyle}>Phone</th>
                             <th style={thStyle}>Role</th>
+                            <th style={thStyle}>Meetings</th>
                             <th style={thStyle}>City</th>
                             <th style={thStyle}>Profile</th>
                             <th style={thStyle}>Joined</th>
@@ -1640,7 +1664,7 @@ function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView, 
                                 <td style={tdStyle}>{user.email}</td>
                                 <td style={tdStyle}>
                                     <span style={{ fontSize: 13, color: '#555' }}>
-                                        {user.profile?.phone || user.phone || 'ΓÇö'}
+                                        {user.profile?.phone || user.phone || '—'}
                                     </span>
                                 </td>
                                 <td style={tdStyle}>
@@ -1657,8 +1681,29 @@ function UsersTab({ users, searchTerm, setSearchTerm, onEdit, onDelete, onView, 
                                 </td>
                                 <td style={tdStyle}>
                                     <span style={{ fontSize: 13, color: '#555' }}>
-                                        {user.profile?.city || 'ΓÇö'}
+                                        {user.profile?.city || '—'}
                                     </span>
+                                </td>
+                                <td style={tdStyle}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        {/* Total meetings */}
+                                        <span style={{
+                                            padding: '2px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                                            background: totalMeetingCounts[user.id] ? '#DBEAFE' : '#F3F4F6',
+                                            color: totalMeetingCounts[user.id] ? '#2563EB' : '#9CA3AF',
+                                        }}>
+                                            {totalMeetingCounts[user.id] || 0}
+                                        </span>
+                                        {/* Confirmed meetings */}
+                                        {confirmedCounts[user.id] > 0 && (
+                                            <span style={{
+                                                padding: '2px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                                                background: '#D1FAE5', color: '#059669',
+                                            }}>
+                                                ✔ {confirmedCounts[user.id]}
+                                            </span>
+                                        )}
+                                    </div>
                                 </td>
                                 <td style={tdStyle}>
                                     {user.profileComplete ? (
@@ -1777,7 +1822,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                     }}
                 >
                     <option value="all">All Statuses</option>
-                    <option value="zero_confirmed">ΓÜá 0 Confirmed</option>
+                    <option value="zero_confirmed">⚠ 0 Confirmed</option>
                     <option value="PENDING_ACCEPTANCE">Pending</option>
                     <option value="SCHEDULED">Scheduled</option>
                     <option value="CONFIRMED">Confirmed</option>
@@ -1819,7 +1864,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                                                     padding: '2px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700,
                                                     background: '#D1FAE5', color: '#059669',
                                                 }}>
-                                                    Γ£ô {confirmedCounts[meeting.companyId]}
+                                                    ✔ {confirmedCounts[meeting.companyId]}
                                                 </span>
                                             )}
                                         </div>
@@ -1834,7 +1879,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                                                     padding: '2px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700,
                                                     background: '#D1FAE5', color: '#059669',
                                                 }}>
-                                                    Γ£ô {confirmedCounts[meeting.seekerId]}
+                                                    ✔ {confirmedCounts[meeting.seekerId]}
                                                 </span>
                                             )}
                                         </div>
@@ -1963,7 +2008,7 @@ function TransactionsTab({ transactions, users, onEdit, onDelete }) {
                                                 )}
                                             </>
                                         ) : (
-                                            <span style={{ color: '#ccc' }}>ΓÇö</span>
+                                            <span style={{ color: '#ccc' }}>—</span>
                                         )}
                                     </td>
                                     <td style={tdStyle}>
@@ -1973,7 +2018,7 @@ function TransactionsTab({ transactions, users, onEdit, onDelete }) {
                                     </td>
                                     <td style={tdStyle}>
                                         <span style={{ fontSize: 12, color: '#666' }}>
-                                            {tx.reason?.replace(/_/g, ' ') || 'ΓÇö'}
+                                            {tx.reason?.replace(/_/g, ' ') || '—'}
                                         </span>
                                     </td>
                                     <td style={tdStyle}>
@@ -1981,7 +2026,7 @@ function TransactionsTab({ transactions, users, onEdit, onDelete }) {
                                             color: isCredit ? '#22C55E' : '#EF4444',
                                             fontWeight: 600,
                                         }}>
-                                            {isCredit ? '+' : '-'}Γé╣{tx.amount}
+                                            {isCredit ? '+' : '-'}₹{tx.amount}
                                         </span>
                                     </td>
                                     <td style={tdStyle}>
@@ -2306,8 +2351,8 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                         fontSize: 13, fontWeight: 500,
                     }}>
                         {broadcastResult.success
-                            ? `Γ£à Broadcast sent to ${broadcastResult.count} users!`
-                            : `Γ¥î Failed: ${broadcastResult.error}`}
+                            ? `✅ Broadcast sent to ${broadcastResult.count} users!`
+                            : `❌ Failed: ${broadcastResult.error}`}
                     </div>
                 )}
             </div>
@@ -2375,7 +2420,7 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                                                                     background: p.role === 'admin' ? '#FEF3C7' : p.role === 'company' ? '#EEF2FF' : '#F0FDF4',
                                                                     color: p.role === 'admin' ? '#92400E' : p.role === 'company' ? '#4F46E5' : '#16A34A',
                                                                 }}>
-                                                                    {p.role === 'admin' ? '≡ƒôó' : p.role === 'company' ? 'Co' : 'Sk'}
+                                                                    {p.role === 'admin' ? '📣' : p.role === 'company' ? 'Co' : 'Sk'}
                                                                 </span>
                                                             )}
                                                         </div>
@@ -2387,7 +2432,7 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                                         </td>
                                         <td style={tdStyle}>
                                             <span style={{ fontSize: 13, color: '#555', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                                                {chat.lastMessage || chat.lastMessageText || 'ΓÇö'}
+                                                {chat.lastMessage || chat.lastMessageText || '—'}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
@@ -2395,7 +2440,7 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                                                 padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500,
                                                 background: '#EEF2FF', color: '#4F46E5',
                                             }}>
-                                                {chat.messageCount || 'ΓÇö'}
+                                                {chat.messageCount || '—'}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
@@ -2438,12 +2483,12 @@ function WalletsTab({ wallets, users, transactions, onEdit }) {
     const getUserInfo = (walletId) => {
         if (walletId === 'admin_wallet') return { name: 'Plyship (Admin)', email: 'admin', phone: null, role: 'admin' };
         const u = users.find(u => u.id === walletId);
-        if (!u) return { name: 'Unknown', email: walletId, phone: null, role: 'ΓÇö' };
+        if (!u) return { name: 'Unknown', email: walletId, phone: null, role: '—' };
         return {
             name: u.profile?.name || u.profile?.companyName || u.email || 'Unknown',
             email: u.email || null,
             phone: u.profile?.phone || null,
-            role: u.role || 'ΓÇö',
+            role: u.role || '—',
         };
     };
 
@@ -2522,27 +2567,27 @@ function WalletsTab({ wallets, users, transactions, onEdit }) {
                                                 background: typeColor.bg,
                                                 color: typeColor.color,
                                             }}>
-                                                {wallet.type || 'ΓÇö'}
+                                                {wallet.type || '—'}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
                                             <span style={{ fontWeight: 600, color: '#059669', fontSize: 15 }}>
-                                                Γé╣{(wallet.balance || 0).toLocaleString()}
+                                                ₹{(wallet.balance || 0).toLocaleString()}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
                                             <span style={{ fontWeight: 600, color: '#F59E0B', fontSize: 14 }}>
-                                                Γé╣{(wallet.lockedBalance || 0).toLocaleString()}
+                                                ₹{(wallet.lockedBalance || 0).toLocaleString()}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
                                             <span style={{ fontSize: 13, color: '#555' }}>
-                                                Γé╣{(wallet.totalEarnings || 0).toLocaleString()}
+                                                ₹{(wallet.totalEarnings || 0).toLocaleString()}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
                                             <span style={{ fontSize: 13, color: '#555' }}>
-                                                Γé╣{(wallet.totalSpent || 0).toLocaleString()}
+                                                ₹{(wallet.totalSpent || 0).toLocaleString()}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
@@ -2618,11 +2663,11 @@ function TransactionHistoryModal({ wallet, users, transactions, onClose }) {
         if (type === 'CREDIT') return { bg: '#DCFCE7', color: '#16A34A', label: 'Credit' };
         if (type === 'DEBIT') return { bg: '#FEE2E2', color: '#EF4444', label: 'Debit' };
         if (type === 'LOCK') return { bg: '#FEF3C7', color: '#D97706', label: 'Locked' };
-        return { bg: '#F3F4F6', color: '#6B7280', label: type || 'ΓÇö' };
+        return { bg: '#F3F4F6', color: '#6B7280', label: type || '—' };
     };
 
     const formatDate = (dateStr) => {
-        if (!dateStr) return 'ΓÇö';
+        if (!dateStr) return '—';
         const d = new Date(dateStr);
         return d.toLocaleDateString('en-IN', {
             day: 'numeric', month: 'short', year: 'numeric',
@@ -2666,19 +2711,19 @@ function TransactionHistoryModal({ wallet, users, transactions, onClose }) {
                 <div style={{ display: 'flex', gap: 10, padding: '12px 24px', borderBottom: '1px solid #F3F4F6' }}>
                     <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#DCFCE7', textAlign: 'center' }}>
                         <p style={{ fontSize: 11, color: '#16A34A', fontWeight: 600, margin: 0 }}>Balance</p>
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#166534', margin: 0 }}>Γé╣{walletBalance.toLocaleString()}</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#166534', margin: 0 }}>₹{walletBalance.toLocaleString()}</p>
                     </div>
                     <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#FEF3C7', textAlign: 'center' }}>
                         <p style={{ fontSize: 11, color: '#D97706', fontWeight: 600, margin: 0 }}>Locked</p>
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#92400E', margin: 0 }}>Γé╣{walletLocked.toLocaleString()}</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#92400E', margin: 0 }}>₹{walletLocked.toLocaleString()}</p>
                     </div>
                     <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#EEF2FF', textAlign: 'center' }}>
                         <p style={{ fontSize: 11, color: '#4F46E5', fontWeight: 600, margin: 0 }}>Earned</p>
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#3730A3', margin: 0 }}>Γé╣{walletEarned.toLocaleString()}</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#3730A3', margin: 0 }}>₹{walletEarned.toLocaleString()}</p>
                     </div>
                     <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: '#FEE2E2', textAlign: 'center' }}>
                         <p style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, margin: 0 }}>Spent</p>
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#991B1B', margin: 0 }}>Γé╣{walletSpent.toLocaleString()}</p>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: '#991B1B', margin: 0 }}>₹{walletSpent.toLocaleString()}</p>
                     </div>
                 </div>
 
@@ -2747,8 +2792,8 @@ function TransactionHistoryModal({ wallet, users, transactions, onClose }) {
                                             fontSize: 15, fontWeight: 700,
                                             color: txn.type === 'CREDIT' ? '#16A34A' : txn.type === 'DEBIT' ? '#EF4444' : '#D97706',
                                         }}>
-                                            {txn.type === 'CREDIT' ? '+' : txn.type === 'DEBIT' ? '-' : '≡ƒöÆ'}
-                                            Γé╣{(txn.amount || 0).toLocaleString()}
+                                            {txn.type === 'CREDIT' ? '+' : txn.type === 'DEBIT' ? '-' : '🔒'}
+                                            ₹{(txn.amount || 0).toLocaleString()}
                                         </span>
                                     </div>
                                 </div>
@@ -2797,23 +2842,23 @@ function EditWalletModal({ wallet, users, loading, onClose, onSave }) {
                 width: '100%', maxWidth: 420, boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
             }} onClick={e => e.stopPropagation()}>
                 <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Edit Wallet</h3>
-                <p style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>{getUserName()} ΓÇö {wallet.type}</p>
+                <p style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>{getUserName()} — {wallet.type}</p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div>
-                        <label style={labelStyle}>Balance (Γé╣)</label>
+                        <label style={labelStyle}>Balance (₹)</label>
                         <input type="number" value={balance} onChange={e => setBalance(e.target.value)} style={inputStyle} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Locked Balance (Γé╣)</label>
+                        <label style={labelStyle}>Locked Balance (₹)</label>
                         <input type="number" value={lockedBalance} onChange={e => setLockedBalance(e.target.value)} style={inputStyle} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Total Earnings (Γé╣)</label>
+                        <label style={labelStyle}>Total Earnings (₹)</label>
                         <input type="number" value={totalEarnings} onChange={e => setTotalEarnings(e.target.value)} style={inputStyle} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Total Spent (Γé╣)</label>
+                        <label style={labelStyle}>Total Spent (₹)</label>
                         <input type="number" value={totalSpent} onChange={e => setTotalSpent(e.target.value)} style={inputStyle} />
                     </div>
                 </div>
@@ -2854,7 +2899,7 @@ function ViewProfileModal({ user, onClose }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #F3F4F6' }}>
             <span style={{ fontSize: 13, color: '#888', fontWeight: 500 }}>{label}</span>
             <span style={{ fontSize: 13, color: '#111', fontWeight: 500, textAlign: 'right', maxWidth: '60%', wordBreak: 'break-word' }}>
-                {value || 'ΓÇö'}
+                {value || '—'}
             </span>
         </div>
     );
@@ -2868,7 +2913,7 @@ function ViewProfileModal({ user, onClose }) {
                         padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500,
                         background: '#F3F4F6', color: '#555',
                     }}>{item}</span>
-                )) : <span style={{ fontSize: 13, color: '#CCC' }}>ΓÇö</span>}
+                )) : <span style={{ fontSize: 13, color: '#CCC' }}>—</span>}
             </div>
         </div>
     );
@@ -2920,7 +2965,7 @@ function ViewProfileModal({ user, onClose }) {
                     </div>
                     <Row label="Email" value={user.email} />
                     <Row label="User ID" value={user.id} />
-                    <Row label="Profile Complete" value={user.profileComplete ? 'Γ£à Yes' : 'Γ¥î No'} />
+                    <Row label="Profile Complete" value={user.profileComplete ? '✅ Yes' : '❌ No'} />
                     <Row label="Created" value={user.createdAt ? new Date(user.createdAt).toLocaleString() : 'N/A'} />
 
                     {isCompany ? (
@@ -2935,8 +2980,8 @@ function ViewProfileModal({ user, onClose }) {
                             <Row label="Years in Business" value={p.yearsInBusiness} />
                             <Row label="City" value={p.city} />
                             <Row label="Projects Completed" value={p.projectsCompleted} />
-                            <Row label="Min Budget" value={p.minBudget ? `Γé╣${p.minBudget}` : null} />
-                            <Row label="Max Budget" value={p.maxBudget ? `Γé╣${p.maxBudget}` : null} />
+                            <Row label="Min Budget" value={p.minBudget ? `₹${p.minBudget}` : null} />
+                            <Row label="Max Budget" value={p.maxBudget ? `₹${p.maxBudget}` : null} />
                             <Row label="Portfolio Description" value={p.portfolioDescription} />
                             <ArrayRow label="Service Areas" items={p.serviceAreas} />
                             <ArrayRow label="Services" items={p.services} />
@@ -3031,7 +3076,7 @@ function ViewChatModal({ chat, messages, users, onClose }) {
                     <div>
                         <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Chat Messages</h3>
                         <p style={{ fontSize: 12, color: '#888', margin: 0 }}>
-                            {participants.map(p => p.name).join(' Γåö ')}
+                            {participants.map(p => p.name).join(' ↔ ')}
                         </p>
                     </div>
                     <button onClick={onClose} style={{
@@ -3093,7 +3138,7 @@ function ViewChatModal({ chat, messages, users, onClose }) {
                     padding: '12px 20px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB',
                     fontSize: 12, color: '#888',
                 }}>
-                    Chat ID: {chat.id} ┬╖ {messages.length} messages
+                    Chat ID: {chat.id} · {messages.length} messages
                 </div>
             </motion.div>
         </div>
@@ -3140,7 +3185,7 @@ function WithdrawalsTab({ withdrawals, users, transactions, onUpdateStatus, onVi
     };
 
     const formatDate = (dateStr) => {
-        if (!dateStr) return 'ΓÇö';
+        if (!dateStr) return '—';
         const d = new Date(dateStr);
         return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     };
@@ -3244,12 +3289,12 @@ function WithdrawalsTab({ withdrawals, users, transactions, onUpdateStatus, onVi
                                         </td>
                                         <td style={tdStyle}>
                                             <span style={{ fontWeight: 700, color: '#059669', fontSize: 16 }}>
-                                                Γé╣{(withdrawal.amount || 0).toLocaleString()}
+                                                ₹{(withdrawal.amount || 0).toLocaleString()}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
                                             <span style={{ fontSize: 13, color: '#555' }}>
-                                                Γé╣{(withdrawal.walletBalance || 0).toLocaleString()}
+                                                ₹{(withdrawal.walletBalance || 0).toLocaleString()}
                                             </span>
                                         </td>
                                         <td style={tdStyle}>
@@ -3368,7 +3413,7 @@ function WithdrawalsTab({ withdrawals, users, transactions, onUpdateStatus, onVi
 
 // ============ EARNING HISTORY MODAL ============
 function EarningHistoryModal({ seeker, transactions, users, onClose }) {
-    // Filter transactions for this seeker ΓÇö LOCK type means earnings from meetings
+    // Filter transactions for this seeker — LOCK type means earnings from meetings
     const seekerEarnings = transactions.filter(t =>
         t.userId === seeker.id && t.type === 'LOCK' && t.reason === 'MEETING_EARNINGS'
     );
@@ -3383,7 +3428,7 @@ function EarningHistoryModal({ seeker, transactions, users, onClose }) {
     };
 
     const formatDate = (dateStr) => {
-        if (!dateStr) return 'ΓÇö';
+        if (!dateStr) return '—';
         const d = new Date(dateStr);
         return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     };
@@ -3433,10 +3478,10 @@ function EarningHistoryModal({ seeker, transactions, users, onClose }) {
                 }}>
                     <div>
                         <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111' }}>
-                            ≡ƒÆ░ Earning History
+                            💰 Earning History
                         </h3>
                         <p style={{ fontSize: 13, color: '#666', marginTop: 2 }}>
-                            {seeker.name} ΓÇó {seeker.email || ''}
+                            {seeker.name} • {seeker.email || ''}
                         </p>
                     </div>
                     <button onClick={onClose} style={{
@@ -3454,7 +3499,7 @@ function EarningHistoryModal({ seeker, transactions, users, onClose }) {
                         borderRadius: 14, padding: 20, color: 'white', marginBottom: 24,
                     }}>
                         <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 4 }}>Total Earnings</div>
-                        <div style={{ fontSize: 32, fontWeight: 800 }}>Γé╣{totalEarned.toLocaleString()}</div>
+                        <div style={{ fontSize: 32, fontWeight: 800 }}>₹{totalEarned.toLocaleString()}</div>
                         <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>
                             From {seekerEarnings.length} meetings with {Object.keys(companyMap).length} companies
                         </div>
@@ -3475,7 +3520,7 @@ function EarningHistoryModal({ seeker, transactions, users, onClose }) {
                                     }}>
                                         <div>
                                             <div style={{ fontWeight: 600, fontSize: 14, color: '#111' }}>
-                                                ≡ƒÅó {data.info.name}
+                                                🏣 {data.info.name}
                                             </div>
                                             {data.info.email && (
                                                 <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
@@ -3485,7 +3530,7 @@ function EarningHistoryModal({ seeker, transactions, users, onClose }) {
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
                                             <div style={{ fontWeight: 700, fontSize: 16, color: '#059669' }}>
-                                                Γé╣{data.total.toLocaleString()}
+                                                ₹{data.total.toLocaleString()}
                                             </div>
                                             <div style={{ fontSize: 11, color: '#888' }}>
                                                 {data.meetings} meeting{data.meetings > 1 ? 's' : ''}
@@ -3529,11 +3574,11 @@ function EarningHistoryModal({ seeker, transactions, users, onClose }) {
                                                 </td>
                                                 <td style={{ ...tdStyle, fontSize: 13 }}>
                                                     <span style={{ fontWeight: 600, color: '#059669' }}>
-                                                        Γé╣{(txn.amount || 0).toLocaleString()}
+                                                        ₹{(txn.amount || 0).toLocaleString()}
                                                     </span>
                                                 </td>
                                                 <td style={{ ...tdStyle, fontSize: 11, color: '#888' }}>
-                                                    {txn.relatedMeetingId ? txn.relatedMeetingId.slice(0, 8) + '...' : 'ΓÇö'}
+                                                    {txn.relatedMeetingId ? txn.relatedMeetingId.slice(0, 8) + '...' : '—'}
                                                 </td>
                                                 <td style={{ ...tdStyle, fontSize: 13 }}>
                                                     {formatDate(txn.createdAt)}
@@ -3572,7 +3617,7 @@ function DeleteRequestsTab({ requests, onUpdateStatus, saving }) {
     };
 
     const formatDate = (dateStr) => {
-        if (!dateStr) return 'ΓÇö';
+        if (!dateStr) return '—';
         const d = new Date(dateStr);
         return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
@@ -3636,12 +3681,12 @@ function DeleteRequestsTab({ requests, onUpdateStatus, saving }) {
                                         }}>{req.status}</span>
                                     </div>
                                     <div style={{ fontSize: 13, color: '#666', lineHeight: 1.6 }}>
-                                        <span>≡ƒô▒ {req.phone}</span>
-                                        {req.email && <span style={{ marginLeft: 16 }}>Γ£ë∩╕Å {req.email}</span>}
+                                        <span>📱 {req.phone}</span>
+                                        {req.email && <span style={{ marginLeft: 16 }}>✉️ {req.email}</span>}
                                     </div>
                                     <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                                        Reason: {req.reason || 'ΓÇö'} ┬╖ Requested: {formatDate(req.requestedAt)}
-                                        {req.processedAt && <span> ┬╖ Processed: {formatDate(req.processedAt)}</span>}
+                                        Reason: {req.reason || '—'} · Requested: {formatDate(req.requestedAt)}
+                                        {req.processedAt && <span> · Processed: {formatDate(req.processedAt)}</span>}
                                     </div>
                                 </div>
                                 {req.status === 'PENDING' && (

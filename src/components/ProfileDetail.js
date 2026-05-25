@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Star, MapPin, Shield, Sparkles, Heart, Phone, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
+import { X, Star, MapPin, Shield, Sparkles, Phone, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export default function ProfileDetail({ profile, onClose, onLike, onPass, viewerRole }) {
+export default function ProfileDetail({ profile, onClose, onMeet, onReject, viewerRole }) {
     const { getCompanyReviews } = useAuth();
     const [reviews, setReviews] = useState([]);
 
@@ -71,6 +71,7 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass, viewer
 
     return (
         <motion.div
+            data-no-ptr="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -82,6 +83,8 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass, viewer
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
+                overscrollBehavior: 'none',
+                touchAction: 'pan-y',
             }}
         >
             {/* Hero Image */}
@@ -187,6 +190,8 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass, viewer
                     position: 'relative',
                     zIndex: 10,
                     overflowY: 'auto',
+                    overscrollBehavior: 'none',
+                    WebkitOverflowScrolling: 'touch',
                 }}
             >
                 {/* Header Info */}
@@ -509,7 +514,7 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass, viewer
                 }}
             >
                 <motion.button
-                    onClick={() => { onPass?.(); onClose(); }}
+                    onClick={() => { onReject?.(); onClose(); }}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     style={{
@@ -517,8 +522,8 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass, viewer
                         padding: '18px',
                         borderRadius: 16,
                         background: 'var(--bg-secondary)',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text-secondary)',
+                        border: '2px solid #FEE2E2',
+                        color: '#F87171',
                         fontSize: 16,
                         fontWeight: 600,
                         cursor: 'pointer',
@@ -528,15 +533,15 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass, viewer
                         gap: 8,
                     }}
                 >
-                    <X size={20} />
-                    Pass
+                    <X size={20} strokeWidth={3} />
+                    Reject
                 </motion.button>
                 <motion.button
-                    onClick={() => { onLike?.(); onClose(); }}
+                    onClick={() => { onMeet?.(); }}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     style={{
-                        flex: 1,
+                        flex: 2,
                         padding: '18px',
                         borderRadius: 16,
                         background: 'var(--gradient-primary)',
@@ -552,8 +557,8 @@ export default function ProfileDetail({ profile, onClose, onLike, onPass, viewer
                         cursor: 'pointer',
                     }}
                 >
-                    <Heart size={20} fill="white" />
-                    Like
+                    <Calendar size={20} />
+                    Schedule Meeting
                 </motion.button>
             </motion.div>
         </motion.div>

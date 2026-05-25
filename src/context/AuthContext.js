@@ -230,7 +230,31 @@ export const AuthProvider = ({ children }) => {
         try {
             const result = await verifyOTP(otpCode);
             if (!result.success) return result;
-            return { success: true };
+
+            // Check if user exists in Firestore (has completed signup)
+            const firebaseUser = result.user;
+            let userDoc = await getDoc(doc(db, 'seekers', firebaseUser.uid));
+            if (!userDoc.exists()) {
+                userDoc = await getDoc(doc(db, 'companies', firebaseUser.uid));
+            }
+
+            if (!userDoc.exists()) {
+                // New user — no profile in Firestore, treat as signup
+                isOnboarding.current = true;
+                setUser({
+                    id: firebaseUser.uid,
+                    name: '',
+                    email: '',
+                    phone: firebaseUser.phoneNumber || '',
+                    role: null,
+                    profileComplete: false,
+                    profile: null
+                });
+                setLoading(false);
+                return { success: true, isNewUser: true };
+            }
+
+            return { success: true, isNewUser: false };
         } catch (error) {
             return { success: false, error: error.message };
         }
@@ -1113,6 +1137,52 @@ export const AuthProvider = ({ children }) => {
             const companyId = isCompany ? user.id : targetUserId;
             const seekerId = isCompany ? targetUserId : user.id;
 
+            // ===== WALLET-BASED MEETING SLOT CHECK =====
+            // Each active meeting requires ₹500 reserved in the company's wallet
+            const MEETING_COST = 500;
+
+            // 1. Get company's wallet balance
+            const walletSnap = await getDoc(doc(db, 'wallets', companyId));
+            const companyBalance = walletSnap.exists() ? (walletSnap.data().balance || 0) : 0;
+            const maxMeetingSlots = Math.floor(companyBalance / MEETING_COST);
+
+            if (maxMeetingSlots < 1) {
+                return {
+                    success: false,
+                    error: isCompany
+                        ? `You need at least ₹${MEETING_COST} in your wallet to request a meeting. Please top up your service deposit.`
+                        : 'This company does not have sufficient service deposit for a meeting right now.',
+                    insufficientBalance: true,
+                    requiredAmount: MEETING_COST,
+                    currentBalance: companyBalance,
+                };
+            }
+
+            // 2. Count company's active meetings (PENDING_ACCEPTANCE or SCHEDULED)
+            const activeMeetingsSnap = await getDocs(query(
+                collection(db, 'meetings'),
+                where('companyId', '==', companyId),
+            ));
+            const activeMeetingCount = activeMeetingsSnap.docs.filter(d => {
+                const status = d.data().status;
+                return status === 'PENDING_ACCEPTANCE' || status === 'SCHEDULED';
+            }).length;
+
+            if (activeMeetingCount >= maxMeetingSlots) {
+                const additionalNeeded = MEETING_COST - (companyBalance - (activeMeetingCount * MEETING_COST));
+                return {
+                    success: false,
+                    error: isCompany
+                        ? `You have ${activeMeetingCount} active meeting${activeMeetingCount > 1 ? 's' : ''} and ₹${companyBalance} in your wallet. Each meeting requires ₹${MEETING_COST}. Please add ₹${Math.max(MEETING_COST, additionalNeeded)} or cancel an existing meeting.`
+                        : 'This company has reached their maximum meeting slots. Please try again later.',
+                    meetingLimitReached: true,
+                    activeMeetings: activeMeetingCount,
+                    maxSlots: maxMeetingSlots,
+                    currentBalance: companyBalance,
+                };
+            }
+            // ===== END WALLET CHECK =====
+
             // Fetch target user's name for display
             let targetName = '';
             try {
@@ -1353,19 +1423,19 @@ export const AuthProvider = ({ children }) => {
                 data: { meetingId },
             });
 
-            // Notify company to share OTP with seeker
-            createNotification(meeting.companyId, {
+            // Notify seeker to share OTP with company
+            createNotification(meeting.seekerId, {
                 type: 'meeting_otp',
-                title: '🔐 Share OTP with Seeker',
-                message: `Your meeting OTP is ${meetingOTP}. Share it with the seeker when you meet.`,
+                title: '🔐 Share OTP with Company',
+                message: `Your meeting OTP is ${meetingOTP}. Share it with the company when you meet.`,
                 data: { meetingId, otp: meetingOTP },
             });
 
-            // Notify seeker to collect OTP from company
-            createNotification(meeting.seekerId, {
+            // Notify company to collect OTP from seeker
+            createNotification(meeting.companyId, {
                 type: 'meeting_otp',
                 title: '🔐 Collect OTP at Meeting',
-                message: 'Ask the company for the 6-digit OTP when you meet, and enter it to confirm.',
+                message: 'Ask the seeker for the 6-digit OTP when you meet, and enter it to confirm.',
                 data: { meetingId },
             });
 
@@ -1827,18 +1897,8 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Meeting not found' };
             }
 
-            const meeting = meetingSnap.data();
 
-            // Check if meeting time has passed
-            const scheduledTime = new Date(meeting.scheduledAt);
-            const now = new Date();
-            if (now < scheduledTime) {
-                return {
-                    success: false,
-                    error: 'Meeting time has not yet passed. You can confirm after the scheduled time.',
-                    notYetTime: true
-                };
-            }
+            const meeting = meetingSnap.data();
 
             const isCompany = user.role === 'COMPANY';
             const confirmField = isCompany ? 'companyConfirmed' : 'seekerConfirmed';
@@ -1880,7 +1940,7 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user, processMeetingPayment]);
 
-    // Verify OTP entered by seeker to confirm meeting happened
+    // Verify OTP entered by company to confirm meeting happened
     const verifyMeetingOTP = useCallback(async (meetingId, enteredOTP) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
@@ -1896,20 +1956,14 @@ export const AuthProvider = ({ children }) => {
 
             const meeting = meetingSnap.data();
 
-            // Only the seeker should verify OTP
-            if (meeting.seekerId !== user.id) {
-                return { success: false, error: 'Only the seeker can verify the meeting OTP' };
-            }
-
-            // Check if meeting time has passed
-            const scheduledTime = new Date(meeting.scheduledAt);
-            if (new Date() < scheduledTime) {
-                return { success: false, error: 'Meeting time has not yet passed', notYetTime: true };
+            // Only the company should verify OTP
+            if (meeting.companyId !== user.id) {
+                return { success: false, error: 'Only the company can verify the meeting OTP' };
             }
 
             // Verify OTP
             if (String(enteredOTP).trim() !== String(meeting.meetingOTP)) {
-                return { success: false, error: 'Incorrect OTP. Please check the code with the company.', wrongOTP: true };
+                return { success: false, error: 'Incorrect OTP. Please check the code with the seeker.', wrongOTP: true };
             }
 
             // OTP matches! Process payment

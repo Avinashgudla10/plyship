@@ -62,7 +62,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onDestroy() {
+    public void onDestroy() {
         super.onDestroy();
         if (connectivityManager != null && networkCallback != null) {
             try { connectivityManager.unregisterNetworkCallback(networkCallback); }
@@ -125,6 +125,40 @@ public class MainActivity extends BridgeActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
+                String scheme = url.getScheme();
+
+                // Handle UPI intent URLs — these come from Razorpay checkout
+                // when the user selects a UPI app (GPay, PhonePe, Paytm, etc.)
+                if (scheme != null && (
+                    scheme.equalsIgnoreCase("upi") ||
+                    scheme.equalsIgnoreCase("intent") ||
+                    scheme.equalsIgnoreCase("phonepe") ||
+                    scheme.equalsIgnoreCase("gpay") ||
+                    scheme.equalsIgnoreCase("paytm") ||
+                    scheme.equalsIgnoreCase("tez")
+                )) {
+                    try {
+                        Intent intent;
+                        if (scheme.equalsIgnoreCase("intent")) {
+                            // Parse intent:// URIs (used by some UPI apps)
+                            intent = Intent.parseUri(url.toString(), Intent.URI_INTENT_SCHEME);
+                        } else {
+                            intent = new Intent(Intent.ACTION_VIEW, url);
+                        }
+                        // Ensure the intent can be resolved before launching
+                        if (intent.resolveActivity(getPackageManager()) != null) {
+                            startActivity(intent);
+                        } else {
+                            // If no UPI app can handle this, let Razorpay fallback
+                            // to QR code or other payment methods
+                            return false;
+                        }
+                    } catch (Exception e) {
+                        // Silently fail — Razorpay will show fallback options
+                    }
+                    return true;
+                }
+
                 if (isInternalURL(url)) {
                     return false;
                 } else {

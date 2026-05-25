@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -89,6 +89,7 @@ export default function ProfileSetup() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [saveStage, setSaveStage] = useState(''); // 'uploading', 'saving', 'done'
     const [errors, setErrors] = useState({});
+    const contentRef = useRef(null);
 
     const isCompany = user?.role === 'COMPANY';
     const STEPS = isCompany ? COMPANY_STEPS : SEEKER_STEPS;
@@ -190,7 +191,21 @@ export default function ProfileSetup() {
     };
 
     const handleNext = async () => {
-        if (!validateStep()) return;
+        if (!validateStep()) {
+            // Auto-scroll to the first error field so the user sees it
+            setTimeout(() => {
+                if (contentRef.current) {
+                    const firstErrorEl = contentRef.current.querySelector('[data-field-error="true"]');
+                    if (firstErrorEl) {
+                        firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } else {
+                        // Fallback: scroll to bottom to reveal hidden fields
+                        contentRef.current.scrollTo({ top: contentRef.current.scrollHeight, behavior: 'smooth' });
+                    }
+                }
+            }, 50);
+            return;
+        }
 
         if (currentStep < STEPS.length - 1) {
             setErrors({});
@@ -458,7 +473,7 @@ export default function ProfileSetup() {
             </div>
 
             {/* Content */}
-            <div style={{
+            <div ref={contentRef} style={{
                 flex: 1,
                 overflow: 'auto',
                 padding: '24px',
@@ -618,7 +633,7 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
                 Help us match you with the right companies
             </p>
 
-            <div style={{ marginBottom: 24 }}>
+            <div data-field="styles" {...(errors?.styles ? { 'data-field-error': 'true' } : {})} style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>Space Type</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
                     {STYLES.map((style) => (
@@ -639,7 +654,7 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
 
             {/* Hide Rooms section when only Commercial is selected */}
             {!(data.styles.length === 1 && data.styles.includes('commercial')) && (
-                <div style={{ marginBottom: 24 }}>
+                <div data-field="rooms" {...(errors?.rooms ? { 'data-field-error': 'true' } : {})} style={{ marginBottom: 24 }}>
                     <label style={labelStyle}>Rooms to Design</label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
                         {ROOM_TYPES.map((room) => (
@@ -650,7 +665,7 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
                 </div>
             )}
 
-            <div style={{ marginBottom: 24 }}>
+            <div data-field="budget" {...(errors?.budget ? { 'data-field-error': 'true' } : {})} style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>Your Budget</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {BUDGET_RANGES.map((budget) => (
@@ -660,7 +675,7 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
                 {errors?.budget && <p style={errorTextStyle}>{errors.budget}</p>}
             </div>
 
-            <div>
+            <div data-field="timeline" {...(errors?.timeline ? { 'data-field-error': 'true' } : {})}>
                 <label style={labelStyle}>When do you want to start?</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
                     {TIMELINES.map((tl) => (

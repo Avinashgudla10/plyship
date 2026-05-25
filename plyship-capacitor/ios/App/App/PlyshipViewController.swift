@@ -78,6 +78,12 @@ class PlyshipViewController: CAPBridgeViewController {
             }
 
             document.addEventListener('touchstart', function(e) {
+                // Skip pull-to-refresh inside elements marked with data-no-ptr
+                var target = e.target;
+                while (target && target !== document.body) {
+                    if (target.hasAttribute && target.hasAttribute('data-no-ptr')) return;
+                    target = target.parentElement;
+                }
                 if (atTop()) { startY = e.touches[0].clientY; pulling = true; }
             }, {passive:true});
 
@@ -306,8 +312,14 @@ class PlyshipViewController: CAPBridgeViewController {
     // MARK: - Helpers
 
     private func isInternalURL(_ url: URL) -> Bool {
-        guard let scheme = url.scheme else { return true }
+        guard let scheme = url.scheme?.lowercased() else { return true }
         if ["about", "capacitor", "blob", "data"].contains(scheme) { return true }
+
+        // UPI scheme URLs should NOT be treated as internal — they need
+        // special handling in decidePolicyFor to launch the native UPI app
+        if ["upi", "intent", "phonepe", "gpay", "paytm", "tez"].contains(scheme) {
+            return false
+        }
 
         guard let host = url.host?.lowercased() else { return true }
 
@@ -329,6 +341,18 @@ extension PlyshipViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
+            return
+        }
+
+        let scheme = url.scheme?.lowercased() ?? ""
+
+        // Handle UPI intent URLs — launch the native UPI app (GPay, PhonePe, etc.)
+        // The user completes payment in the UPI app and is returned to PLYSHIP.
+        if ["upi", "intent", "phonepe", "gpay", "paytm", "tez"].contains(scheme) {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+            decisionHandler(.cancel)
             return
         }
 

@@ -9,6 +9,7 @@ import { subscribeToMessages } from '../lib/firebase';
 import { StartProjectModal } from './ProjectsView';
 import { ScheduleMeetingModal } from './MeetingsView';
 import ReviewModal from './ReviewModal';
+import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 
 // Chat list view
 export function ChatListView({ chats = [], onChatSelect, user }) {
@@ -807,14 +808,17 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                 const orderData = await orderRes.json();
                                 if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
 
-                                // 2. Open Razorpay checkout
-                                const options = {
+                                // 2. Open Razorpay checkout (UPI-first, in-app)
+                                const options = buildRazorpayOptions({
                                     key: orderData.keyId,
                                     amount: orderData.amount,
                                     currency: orderData.currency,
-                                    name: 'Plyship',
+                                    orderId: orderData.orderId,
                                     description: `Meeting Fee — ${name || 'Consultation'}`,
-                                    order_id: orderData.orderId,
+                                    prefill: {
+                                        name: user?.profile?.companyName || user?.profile?.name || '',
+                                        email: user?.email || '',
+                                    },
                                     handler: async function (response) {
                                         try {
                                             // 3. Verify payment
@@ -860,32 +864,12 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         }
                                         setActionLoading(null);
                                     },
-                                    prefill: {
-                                        name: user?.profile?.companyName || user?.profile?.name || '',
-                                        email: user?.email || '',
+                                    onDismiss: function () {
+                                        setActionLoading(null);
                                     },
-                                    theme: { color: '#22C55E' },
-                                    modal: {
-                                        ondismiss: function () {
-                                            setActionLoading(null);
-                                        },
-                                    },
-                                };
+                                });
 
-                                // Load Razorpay script dynamically if needed
-                                if (!window.Razorpay) {
-                                    const script = document.createElement('script');
-                                    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-                                    script.async = true;
-                                    document.body.appendChild(script);
-                                    script.onload = () => {
-                                        const rzp = new window.Razorpay(options);
-                                        rzp.open();
-                                    };
-                                } else {
-                                    const rzp = new window.Razorpay(options);
-                                    rzp.open();
-                                }
+                                openRazorpayCheckout(options);
                             } catch (err) {
                                 showToast(err.message || 'Payment failed', 'error');
                                 setActionLoading(null);
@@ -1063,10 +1047,10 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     );
                 }
 
-                // SCHEDULED + EXPIRED = OTP Confirmation
-                if (activeMeeting.status === 'SCHEDULED' && isExpired) {
-                    // COMPANY sees the OTP code
-                    if (isCompanyUser) {
+                // SCHEDULED = OTP Confirmation (available anytime)
+                if (activeMeeting.status === 'SCHEDULED') {
+                    // SEEKER sees the OTP code (to share with company)
+                    if (!isCompanyUser) {
                         return (
                             <motion.div
                                 initial={{ opacity: 0, height: 0 }}
@@ -1077,9 +1061,16 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     <p style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 4 }}>
                                         📋 Meeting Verification Code
                                     </p>
-                                    <p style={{ fontSize: 11, color: '#15803D', marginBottom: 12 }}>
-                                        Share this code with the seeker to confirm the meeting
-                                    </p>
+                                    <div style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        padding: '4px 10px', borderRadius: 6,
+                                        background: '#FEF2F2', border: '1px solid #FECACA',
+                                        marginBottom: 10,
+                                    }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626' }}>
+                                            ⚠️ Share ONLY after the meeting is done
+                                        </span>
+                                    </div>
                                     <div style={{
                                         display: 'flex',
                                         justifyContent: 'center',
@@ -1116,7 +1107,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                         );
                     }
 
-                    // SEEKER sees OTP input
+                    // COMPANY sees OTP input
                     return (
                         <motion.div
                             initial={{ opacity: 0, height: 0 }}
@@ -1128,7 +1119,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     🔑 Enter Meeting Code
                                 </p>
                                 <p style={{ fontSize: 11, color: '#B45309', marginBottom: 12 }}>
-                                    Ask the company for the 6-digit verification code
+                                    Ask the seeker for the 6-digit verification code
                                 </p>
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 12 }}>
                                     {[0, 1, 2, 3, 4, 5].map(i => (
@@ -1190,9 +1181,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             setOtpInput('');
                                             showToast('Meeting confirmed! Payment transferred.', 'success');
                                         } else if (result.wrongOTP) {
-                                            showToast('Incorrect code. Please check with the company.', 'error');
+                                            showToast('Incorrect code. Please check with the seeker.', 'error');
                                         } else if (result.insufficientBalance) {
-                                            showToast('Company has insufficient service deposit.', 'warning');
+                                            showToast('Insufficient service deposit balance.', 'warning');
                                         } else if (result.error) {
                                             showToast(result.error, 'error');
                                         }
@@ -1229,47 +1220,6 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     );
                 }
 
-                // SCHEDULED + NOT EXPIRED = Show upcoming meeting
-                if (activeMeeting.status === 'SCHEDULED' && !isExpired) {
-                    return (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            style={{ padding: 12, background: '#DCFCE7', borderBottom: '1px solid var(--border-light)' }}
-                        >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <Calendar size={16} color="#16A34A" />
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#166534' }}>Meeting Confirmed!</p>
-                                    <p style={{ fontSize: 11, color: '#16A34A' }}>
-                                        {meetingTime.toLocaleDateString('en-IN', {
-                                            weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                                        })}
-                                    </p>
-                                </div>
-                                <motion.button
-                                    onClick={async () => {
-                                        const yes = await showConfirm('Are you sure you want to cancel this meeting?', 'Cancel Meeting');
-                                        if (yes) {
-                                            setActionLoading('cancel');
-                                            await cancelMeeting(activeMeeting.id);
-                                            await refreshMeetings();
-                                            setActionLoading(null);
-                                        }
-                                    }}
-                                    disabled={actionLoading}
-                                    whileTap={{ scale: 0.95 }}
-                                    style={{
-                                        padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
-                                        border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                    }}
-                                >
-                                    Cancel
-                                </motion.button>
-                            </div>
-                        </motion.div>
-                    );
-                }
 
                 return null;
             })()}
