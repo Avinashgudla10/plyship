@@ -17,6 +17,11 @@ function isCapacitorApp() {
     );
 }
 
+// Detect Android WebView specifically — webview_intent is Android-only
+function isAndroidWebView() {
+    return isCapacitorApp() && /android/i.test(navigator.userAgent);
+}
+
 /**
  * Build the Razorpay checkout options with UPI as the default method.
  *
@@ -44,6 +49,7 @@ export function buildRazorpayOptions({
     onDismiss,
 }) {
     const inWebView = isCapacitorApp();
+    const inAndroidWebView = isAndroidWebView();
 
     const options = {
         key,
@@ -82,9 +88,9 @@ export function buildRazorpayOptions({
             },
         },
 
-        // Tell Razorpay this checkout is running inside a WebView so it
-        // uses the correct UPI intent mechanism instead of page-redirect.
-        ...(inWebView && { webview_intent: true }),
+        // webview_intent is Android-only. On iOS it causes unwanted Safari
+        // redirects. On Android it enables the native UPI intent deep-link.
+        ...(inAndroidWebView && { webview_intent: true }),
 
         modal: {
             ondismiss: onDismiss || (() => {}),

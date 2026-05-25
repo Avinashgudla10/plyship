@@ -32,6 +32,7 @@ class PlyshipViewController: CAPBridgeViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         webView?.navigationDelegate = self
+        webView?.uiDelegate = self
         startNetworkMonitoring()
     }
 
@@ -325,7 +326,7 @@ class PlyshipViewController: CAPBridgeViewController {
 
         if Self.internalHosts.contains(host) || host.hasSuffix(".plyship.com") { return true }
         if host.hasSuffix(".firebaseapp.com") || host.hasSuffix(".googleapis.com") || host.hasSuffix(".google.com") { return true }
-        if host.hasSuffix(".razorpay.com") { return true }
+        if host == "razorpay.com" || host.hasSuffix(".razorpay.com") { return true }
         // reCAPTCHA / Firebase Auth domains — required for Phone OTP to work in WebView
         if host.hasSuffix(".gstatic.com") { return true }
         if host.hasSuffix(".recaptcha.net") { return true }
@@ -351,6 +352,26 @@ extension PlyshipViewController: WKNavigationDelegate {
         if ["upi", "intent", "phonepe", "gpay", "paytm", "tez"].contains(scheme) {
             if UIApplication.shared.canOpenURL(url) {
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+            decisionHandler(.cancel)
+            return
+        }
+
+        // Handle target="_blank" links (no target frame).
+        // If internal, load in current WebView; otherwise open externally.
+        if navigationAction.targetFrame == nil {
+            if isInternalURL(url) {
+                webView.load(navigationAction.request)
+            } else {
+                // During Razorpay payment, bank redirect pages must stay in-app.
+                // Check if the source is a Razorpay page before opening externally.
+                let sourceHost = navigationAction.sourceFrame.webView?.url?.host?.lowercased() ?? ""
+                let isFromRazorpay = sourceHost.hasSuffix(".razorpay.com") || sourceHost == "razorpay.com"
+                if isFromRazorpay {
+                    webView.load(navigationAction.request)
+                } else {
+                    UIApplication.shared.open(url)
+                }
             }
             decisionHandler(.cancel)
             return
@@ -390,5 +411,36 @@ extension PlyshipViewController: WKNavigationDelegate {
             didFailToLoad = true
             showOfflineFullScreen()
         }
+    }
+}
+
+// MARK: - WKUIDelegate (Popup / window.open handling)
+
+extension PlyshipViewController: WKUIDelegate {
+
+    /// Called when JavaScript calls window.open() or a link has target="_blank".
+    /// We load the URL in the current WebView instead of opening Safari.
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard let url = navigationAction.request.url else { return nil }
+
+        if isInternalURL(url) {
+            webView.load(navigationAction.request)
+        } else {
+            // Razorpay checkout uses popups for bank redirects during payment.
+            // Keep those in-app too.
+            let currentHost = webView.url?.host?.lowercased() ?? ""
+            let isPaymentFlow = currentHost.hasSuffix(".razorpay.com") || currentHost == "razorpay.com"
+                || currentHost.hasSuffix(".plyship.com") || currentHost == "plyship.com"
+            if isPaymentFlow {
+                webView.load(navigationAction.request)
+            } else {
+                UIApplication.shared.open(url)
+            }
+        }
+        // Return nil = don't create a new WebView; we handled it ourselves
+        return nil
     }
 }
