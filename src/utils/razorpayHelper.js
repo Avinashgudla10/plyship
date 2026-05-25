@@ -88,10 +88,10 @@ export function buildRazorpayOptions({
             },
         },
 
-        // Enable UPI intent flow in Capacitor WebViews (iOS + Android).
-        // This tells Razorpay to open UPI apps natively (PhonePe, GPay, etc.)
-        // so the user pays in the UPI app and returns to PLYSHIP.
-        // On iOS, WKUIDelegate handles any popup windows to keep them in-app.
+        // Enable UPI intent flow inside Capacitor WebViews (both iOS & Android).
+        // This opens the native UPI app (PhonePe, GPay, etc.) for payment,
+        // then the user returns to PLYSHIP after completing the transaction.
+        // WKUIDelegate on iOS handles any popups to keep them in-app.
         ...(inWebView && { webview_intent: true }),
 
         modal: {

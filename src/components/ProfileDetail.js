@@ -9,13 +9,6 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
     const { getCompanyReviews } = useAuth();
     const [reviews, setReviews] = useState([]);
 
-    // Disable pull-to-refresh while profile detail is open.
-    // This sets a global flag checked by the native iOS PTR script.
-    useEffect(() => {
-        window.__plyDisablePTR = true;
-        return () => { window.__plyDisablePTR = false; };
-    }, []);
-
     // Determine if we're viewing a company or seeker profile
     const isCompanyProfile = profile?.role === 'COMPANY';
     const profileData = profile?.profile || {};
@@ -30,6 +23,12 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
             fetchReviews();
         }
     }, [isCompanyProfile, profile?.id, getCompanyReviews]);
+
+    // Disable native pull-to-refresh while this overlay is open
+    useEffect(() => {
+        window.__plyPTR_disabled = true;
+        return () => { window.__plyPTR_disabled = false; };
+    }, []);
 
     // Calculate average rating
     const averageRating = reviews.length > 0

@@ -79,9 +79,9 @@ class PlyshipViewController: CAPBridgeViewController {
             }
 
             document.addEventListener('touchstart', function(e) {
-                // Global flag: ProfileDetail sets window.__plyDisablePTR = true
-                if (window.__plyDisablePTR) return;
-                // Also check for data-no-ptr attribute on ancestors
+                // Global kill switch — set by overlay views (e.g. ProfileDetail)
+                if (window.__plyPTR_disabled) return;
+                // Skip pull-to-refresh inside elements marked with data-no-ptr
                 var target = e.target;
                 while (target && target !== document.body) {
                     if (target.hasAttribute && target.hasAttribute('data-no-ptr')) return;
