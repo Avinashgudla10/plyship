@@ -2,6 +2,7 @@ import UIKit
 import Capacitor
 import WebKit
 import Network
+import CoreLocation
 
 /// Custom Capacitor WebView controller for PLYSHIP.
 /// Features:
@@ -9,6 +10,7 @@ import Network
 /// 2. External links open in Safari, plyship.com stays in-app
 /// 3. Network monitoring with offline banner + error page handling
 /// 4. Auto-reload when connectivity is restored
+/// 5. Native CLLocationManager authorization so WebView navigator.geolocation works
 class PlyshipViewController: CAPBridgeViewController {
 
     // MARK: - Properties
@@ -27,6 +29,16 @@ class PlyshipViewController: CAPBridgeViewController {
     private var offlineBanner: UIView?
     private var offlineFullScreen: UIView?
 
+    // Location: WKWebView's navigator.geolocation silently fails unless the
+    // native app has requested CLLocationManager authorization first.
+    // We hold a strong reference to keep the manager alive.
+    private lazy var locationManager: CLLocationManager = {
+        let mgr = CLLocationManager()
+        mgr.delegate = self
+        mgr.desiredAccuracy = kCLLocationAccuracyBest
+        return mgr
+    }()
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -34,6 +46,18 @@ class PlyshipViewController: CAPBridgeViewController {
         webView?.navigationDelegate = self
         webView?.uiDelegate = self
         startNetworkMonitoring()
+        requestNativeLocationPermission()
+    }
+
+    /// Request native location authorization. This ensures the OS-level
+    /// "Allow <App> to use your location?" prompt fires. Once the user
+    /// grants "While Using the App", navigator.geolocation inside the
+    /// WKWebView will start working.
+    private func requestNativeLocationPermission() {
+        let status = locationManager.authorizationStatus
+        if status == .notDetermined {
+            locationManager.requestWhenInUseAuthorization()
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -475,6 +499,24 @@ extension PlyshipViewController: WKUIDelegate {
             decisionHandler(.grant)
         } else {
             decisionHandler(.deny)
+        }
+    }
+}
+
+// MARK: - CLLocationManagerDelegate
+
+extension PlyshipViewController: CLLocationManagerDelegate {
+
+    /// Called when the user responds to the native "Allow location?" prompt.
+    /// If they grant access, reload the WebView so navigator.geolocation works.
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        if status == .authorizedWhenInUse || status == .authorizedAlways {
+            // The user just granted permission — reload so the web page's
+            // pending geolocation request picks up the new authorization.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.webView?.reload()
+            }
         }
     }
 }

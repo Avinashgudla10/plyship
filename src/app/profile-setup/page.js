@@ -684,10 +684,24 @@ function SeekerBasicInfo({ data, setData, errors }) {
         setLocStatus('detecting');
         setLocMessage('Detecting your location...');
 
+        // Timeout must be long enough for the native iOS permission dialog to appear
+        // and for the user to respond (can take 10+ seconds on first launch)
         navigator.geolocation.getCurrentPosition(
             (pos) => { if (mountedRef.current) { applyLocation(pos, false); startGPSRefinement(); } },
-            () => { if (mountedRef.current) startGPSRefinement(); },
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+            (err) => {
+                console.log('📍 getCurrentPosition error:', err.code, err.message);
+                if (mountedRef.current) {
+                    if (err.code === 1) {
+                        // Permission denied — show clear message
+                        setLocStatus('denied');
+                        setLocMessage('Location permission denied. Please enable in Settings.');
+                    } else {
+                        // Timeout or position unavailable — try watchPosition
+                        startGPSRefinement();
+                    }
+                }
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
         );
     };
 
@@ -704,7 +718,7 @@ function SeekerBasicInfo({ data, setData, errors }) {
             else { setLocStatus('error'); setLocMessage('Could not get precise location. Please retry.'); }
         };
 
-        const settleTimer = setTimeout(settle, 10000);
+        const settleTimer = setTimeout(settle, 20000);
 
         gpsWatchId.current = navigator.geolocation.watchPosition(
             (pos) => {
@@ -723,7 +737,7 @@ function SeekerBasicInfo({ data, setData, errors }) {
                     else { setLocStatus(err.code === 1 ? 'denied' : 'error'); setLocMessage(err.code === 1 ? 'Location permission denied' : 'Location unavailable. Please retry.'); }
                 }
             },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
         );
     };
 
@@ -984,8 +998,18 @@ function CompanyBasicInfo({ data, setData, errors }) {
         setLocStatus('detecting'); setLocMessage('Detecting your location...');
         navigator.geolocation.getCurrentPosition(
             (pos) => { if (mountedRef.current) { applyLocation(pos, false); startGPSRefinement(); } },
-            () => { if (mountedRef.current) startGPSRefinement(); },
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+            (err) => {
+                console.log('📍 getCurrentPosition error:', err.code, err.message);
+                if (mountedRef.current) {
+                    if (err.code === 1) {
+                        setLocStatus('denied');
+                        setLocMessage('Location permission denied. Please enable in Settings.');
+                    } else {
+                        startGPSRefinement();
+                    }
+                }
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
         );
     };
 
@@ -1002,7 +1026,7 @@ function CompanyBasicInfo({ data, setData, errors }) {
             else { setLocStatus('error'); setLocMessage('Could not get precise location. Please retry.'); }
         };
 
-        const settleTimer = setTimeout(settle, 10000);
+        const settleTimer = setTimeout(settle, 20000);
 
         gpsWatchId.current = navigator.geolocation.watchPosition(
             (pos) => {
@@ -1021,7 +1045,7 @@ function CompanyBasicInfo({ data, setData, errors }) {
                     else { setLocStatus(err.code === 1 ? 'denied' : 'error'); setLocMessage(err.code === 1 ? 'Location permission denied' : 'Location unavailable. Please retry.'); }
                 }
             },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
         );
     };
 
