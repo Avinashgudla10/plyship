@@ -14,13 +14,14 @@ import {
 
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
-    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet } = useAuth();
+    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet, acceptAndScheduleMeeting } = useAuth();
     const { showToast, showConfirm } = useToast();
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionId, setActionId] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
     const [rescheduleModal, setRescheduleModal] = useState(null);
+    const [acceptScheduleModal, setAcceptScheduleModal] = useState(null);  // For seeker to accept + schedule
 
     const isCompany = user?.role === 'COMPANY';
     const MEETING_FEE = 500;
@@ -221,6 +222,7 @@ export default function MeetingsView({ onBack }) {
 
     const getStatusColor = (status) => {
         switch (status) {
+            case 'REQUESTED': return '#8B5CF6';
             case 'PENDING_ACCEPTANCE': return '#3B82F6';
             case 'SCHEDULED': return '#F59E0B';
             case 'CONFIRMED': return '#22C55E';
@@ -234,6 +236,8 @@ export default function MeetingsView({ onBack }) {
         const iAmRequester = meeting.requestedBy === user?.id;
 
         switch (meeting.status) {
+            case 'REQUESTED':
+                return iAmRequester ? 'Request sent' : 'Set details & accept';
             case 'PENDING_ACCEPTANCE':
                 return iAmRequester ? 'Waiting for response' : 'Accept?';
             case 'SCHEDULED':
@@ -291,7 +295,7 @@ export default function MeetingsView({ onBack }) {
     }
 
     // Group meetings by status
-    const pendingMeetings = meetings.filter(m => m.status === 'PENDING_ACCEPTANCE');
+    const pendingMeetings = meetings.filter(m => m.status === 'PENDING_ACCEPTANCE' || m.status === 'REQUESTED');
     const scheduledMeetings = meetings.filter(m => m.status === 'SCHEDULED');
     const pastMeetings = meetings.filter(m => ['CONFIRMED', 'CANCELLED', 'DECLINED'].includes(m.status));
 
@@ -390,6 +394,7 @@ export default function MeetingsView({ onBack }) {
                                             onConfirm={handleConfirm}
                                             onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
+                                            onAcceptAndSchedule={(m) => setAcceptScheduleModal(m)}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
                                             formatDate={formatDate}
@@ -420,6 +425,7 @@ export default function MeetingsView({ onBack }) {
                                             onConfirm={handleConfirm}
                                             onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
+                                            onAcceptAndSchedule={(m) => setAcceptScheduleModal(m)}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
                                             formatDate={formatDate}
@@ -450,6 +456,7 @@ export default function MeetingsView({ onBack }) {
                                             onConfirm={handleConfirm}
                                             onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
+                                            onAcceptAndSchedule={(m) => setAcceptScheduleModal(m)}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
                                             formatDate={formatDate}
@@ -476,17 +483,31 @@ export default function MeetingsView({ onBack }) {
                     />
                 )}
             </AnimatePresence>
+
+            {/* Accept & Schedule Modal (Seeker sets date/time/location) */}
+            <AnimatePresence>
+                {acceptScheduleModal && (
+                    <AcceptAndScheduleModal
+                        meeting={acceptScheduleModal}
+                        onClose={() => setAcceptScheduleModal(null)}
+                        onScheduled={() => {
+                            setAcceptScheduleModal(null);
+                            refreshMeetings();
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }
 
 // Meeting Card Component
 function MeetingCard({
-    meeting, user, isCompany, actionId, onAccept, onDecline, onCancel, onConfirm, onDeny, onReschedule,
+    meeting, user, isCompany, actionId, onAccept, onDecline, onCancel, onConfirm, onDeny, onReschedule, onAcceptAndSchedule,
     getStatusColor, getStatusText, formatDate, isPast
 }) {
     const iAmRequester = meeting.requestedBy === user?.id;
-    const isPastMeeting = isPast(meeting.scheduledAt);
+    const isPastMeeting = meeting.scheduledAt ? isPast(meeting.scheduledAt) : false;
     const myConfirmed = isCompany ? meeting.companyConfirmed : meeting.seekerConfirmed;
     const myDenied = isCompany ? meeting.companyDenied : meeting.seekerDenied;
     const hasResponded = myConfirmed || myDenied;
@@ -494,7 +515,8 @@ function MeetingCard({
 
     // Determine what actions are available
     const canAccept = meeting.status === 'PENDING_ACCEPTANCE' && !iAmRequester;
-    const canCancel = meeting.status === 'PENDING_ACCEPTANCE' && iAmRequester;
+    const canAcceptAndSchedule = meeting.status === 'REQUESTED' && !iAmRequester;  // Seeker accepts company request
+    const canCancel = (meeting.status === 'PENDING_ACCEPTANCE' || meeting.status === 'REQUESTED') && iAmRequester;
     const canCancelScheduled = meeting.status === 'SCHEDULED' && !isPastMeeting;
     const canConfirm = meeting.status === 'SCHEDULED' && !hasResponded;
     const canReschedule = ['CANCELLED', 'DECLINED'].includes(meeting.status);
@@ -562,21 +584,68 @@ function MeetingCard({
                 </span>
             </div>
 
-            {/* Date */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginBottom: 8,
-            }}>
-                <Clock size={16} color="var(--text-muted)" />
-                <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500 }}>
-                    {formatDate(meeting.scheduledAt)}
-                </span>
-                {isPastMeeting && meeting.status === 'SCHEDULED' && (
-                    <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500 }}>• Past</span>
-                )}
-            </div>
+            {/* Date — only show if scheduledAt exists */}
+            {meeting.scheduledAt ? (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: 8,
+                }}>
+                    <Clock size={16} color="var(--text-muted)" />
+                    <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {formatDate(meeting.scheduledAt)}
+                    </span>
+                    {isPastMeeting && meeting.status === 'SCHEDULED' && (
+                        <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500 }}>• Past</span>
+                    )}
+                </div>
+            ) : (
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+                }}>
+                    <Clock size={16} color="var(--text-muted)" />
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        Awaiting date & time
+                    </span>
+                </div>
+            )}
+
+            {/* Location — clickable to open Google Maps */}
+            {meeting.location && (() => {
+                // Parse location format: "address||lat,lng" or just "address"
+                const parts = meeting.location.split('||');
+                const displayAddress = parts[0] || meeting.location;
+                const coords = parts[1]; // "lat,lng" or undefined
+                const mapsUrl = coords
+                    ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
+
+                return (
+                    <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+                            textDecoration: 'none', cursor: 'pointer',
+                            padding: '6px 10px', borderRadius: 8,
+                            background: '#F0FDF4', border: '1px solid #BBF7D0',
+                        }}
+                    >
+                        <MapPin size={16} color="#22C55E" />
+                        <span style={{
+                            fontSize: 13, color: '#166534', fontWeight: 500,
+                            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                            {displayAddress.length > 50 ? displayAddress.substring(0, 50) + '...' : displayAddress}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#22C55E', fontWeight: 600, flexShrink: 0 }}>
+                            Open ↗
+                        </span>
+                    </a>
+                );
+            })()}
 
             {/* Notes */}
             {meeting.notes && (
@@ -641,6 +710,53 @@ function MeetingCard({
 
             {/* Action Buttons */}
             <div style={{ display: 'flex', gap: 8 }}>
+                {/* Accept & Set Details for REQUESTED meetings (seeker) */}
+                {canAcceptAndSchedule && (
+                    <>
+                        <motion.button
+                            onClick={() => onAcceptAndSchedule(meeting)}
+                            disabled={isLoading}
+                            whileTap={{ scale: 0.95 }}
+                            style={{
+                                flex: 1,
+                                padding: 12,
+                                borderRadius: 10,
+                                background: 'var(--gradient-primary)',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: 14,
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                cursor: isLoading ? 'wait' : 'pointer',
+                                opacity: isLoading ? 0.7 : 1,
+                            }}
+                        >
+                            <Calendar size={16} />
+                            Accept & Set Details
+                        </motion.button>
+                        <motion.button
+                            onClick={() => onDecline(meeting.id)}
+                            disabled={isLoading}
+                            whileTap={{ scale: 0.95 }}
+                            style={{
+                                padding: 12,
+                                borderRadius: 10,
+                                background: 'var(--bg-secondary)',
+                                border: '1px solid var(--border)',
+                                color: 'var(--text-secondary)',
+                                fontSize: 14,
+                                fontWeight: 600,
+                                cursor: isLoading ? 'wait' : 'pointer',
+                            }}
+                        >
+                            <X size={16} />
+                        </motion.button>
+                    </>
+                )}
+
                 {/* Accept/Decline for pending */}
                 {canAccept && (
                     <>
@@ -862,6 +978,9 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
     const { showToast } = useToast();
     const [date, setDate] = useState('');
     const [time, setTime] = useState('');
+    const [location, setLocation] = useState(null); // { lat, lng, address }
+    const [showLocationPicker, setShowLocationPicker] = useState(false);
+    const [LocationPickerComponent, setLocationPickerComponent] = useState(null);
     const [notes, setNotes] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [wallet, setWallet] = useState(null);
@@ -874,6 +993,13 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
         canCloseRef.current = false;
         const timer = setTimeout(() => { canCloseRef.current = true; }, 400);
         return () => clearTimeout(timer);
+    }, []);
+
+    // Dynamically import LocationPicker to avoid SSR
+    useEffect(() => {
+        import('./LocationPicker').then(mod => {
+            setLocationPickerComponent(() => mod.default);
+        });
     }, []);
 
     const isCompany = user?.role === 'COMPANY';
@@ -895,22 +1021,33 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
     }, [isCompany, getWallet, getMeetings]);
 
     const handleSubmit = async () => {
-        if (!date || !time) {
+        // Companies just send a request — no date/time needed
+        if (!isCompany && (!date || !time)) {
             showToast('Please select date and time', 'warning');
             return;
         }
+        // Seekers must provide a location
+        if (!isCompany && !location) {
+            showToast('Please select the meeting location on the map', 'warning');
+            return;
+        }
 
-        const scheduledAt = new Date(`${date}T${time}`).toISOString();
+        const scheduledAt = isCompany ? null : new Date(`${date}T${time}`).toISOString();
+        const locationStr = location ? `${location.address}||${location.lat},${location.lng}` : '';
 
         setSubmitting(true);
-        const result = await scheduleMeeting(match.id, scheduledAt, notes);
+        const result = await scheduleMeeting(match.id, scheduledAt, notes, locationStr);
         setSubmitting(false);
 
         if (result.success) {
+            showToast(isCompany ? 'Meeting request sent! The seeker will set the details.' : 'Meeting request sent!', 'success');
+            onScheduled?.();
+            onClose();
+        } else if (result.messageSent) {
+            showToast('Message sent to the company! They\'ll reach out to schedule a meeting.', 'success');
             onScheduled?.();
             onClose();
         } else if (result.insufficientBalance || result.meetingLimitReached) {
-            // Show specific wallet/slot error inline — don't close
             showToast(result.error, 'warning');
         } else {
             showToast(result.error, 'error');
@@ -1015,66 +1152,143 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                     </div>
                 )}
 
-                {/* Date */}
-                <label style={{ display: 'block', marginBottom: 16 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
-                        Date
-                    </span>
-                    <input
-                        type="date"
-                        value={date}
-                        onChange={(e) => setDate(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]}
-                        style={{
-                            width: '100%',
-                            padding: 12,
-                            borderRadius: 10,
-                            border: '1px solid var(--border)',
-                            fontSize: 15,
-                        }}
-                    />
-                </label>
+                {/* Date — only for seekers (companies just request) */}
+                {!isCompany && (
+                    <label style={{ display: 'block', marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Date
+                        </span>
+                        <input
+                            type="date"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            style={{
+                                width: '100%',
+                                padding: 12,
+                                borderRadius: 10,
+                                border: '1px solid var(--border)',
+                                fontSize: 15,
+                            }}
+                        />
+                    </label>
+                )}
 
-                {/* Time */}
-                <label style={{ display: 'block', marginBottom: 16 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
-                        Time
-                    </span>
-                    <input
-                        type="time"
-                        value={time}
-                        onChange={(e) => setTime(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: 12,
-                            borderRadius: 10,
-                            border: '1px solid var(--border)',
-                            fontSize: 15,
-                        }}
-                    />
-                </label>
+                {/* Time — only for seekers */}
+                {!isCompany && (
+                    <label style={{ display: 'block', marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Time
+                        </span>
+                        <input
+                            type="time"
+                            value={time}
+                            onChange={(e) => setTime(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: 12,
+                                borderRadius: 10,
+                                border: '1px solid var(--border)',
+                                fontSize: 15,
+                            }}
+                        />
+                    </label>
+                )}
 
-                {/* Notes */}
-                <label style={{ display: 'block', marginBottom: 20 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
-                        Notes (optional)
-                    </span>
-                    <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Meeting location, agenda, etc."
-                        style={{
-                            width: '100%',
-                            padding: 12,
-                            borderRadius: 10,
-                            border: '1px solid var(--border)',
-                            fontSize: 14,
-                            minHeight: 80,
-                            resize: 'vertical',
-                            fontFamily: 'inherit',
-                        }}
-                    />
-                </label>
+                {/* Location — only for seekers */}
+                {!isCompany && (
+                    <div style={{ marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Meeting Location *
+                        </span>
+                        <motion.div
+                            onClick={() => setShowLocationPicker(true)}
+                            whileTap={{ scale: 0.98 }}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                padding: 12, borderRadius: 12,
+                                border: location ? '1.5px solid #22C55E' : '1.5px dashed #D1D5DB',
+                                background: location ? '#F0FDF4' : '#F9FAFB',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                            }}
+                        >
+                            <div style={{
+                                width: 40, height: 40, borderRadius: 10,
+                                background: location ? '#DCFCE7' : '#E5E7EB',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                <MapPin size={20} color={location ? '#22C55E' : '#9CA3AF'} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                {location ? (
+                                    <>
+                                        <p style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 2 }}>
+                                            📍 Location selected
+                                        </p>
+                                        <p style={{
+                                            fontSize: 12, color: '#6B7280', lineHeight: 1.3,
+                                            overflow: 'hidden', textOverflow: 'ellipsis',
+                                            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                        }}>
+                                            {location.address}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>
+                                            Select on Map
+                                        </p>
+                                        <p style={{ fontSize: 12, color: '#9CA3AF' }}>
+                                            Tap to open the map and pin the meeting spot
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                            <ChevronRight size={18} color="#9CA3AF" />
+                        </motion.div>
+                    </div>
+                )}
+
+                {/* Notes — only for seekers */}
+                {!isCompany && (
+                    <label style={{ display: 'block', marginBottom: 20 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Notes (optional)
+                        </span>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="Any specific requirements..."
+                            style={{
+                                width: '100%',
+                                padding: 12,
+                                borderRadius: 10,
+                                border: '1px solid var(--border)',
+                                fontSize: 14,
+                                minHeight: 80,
+                                resize: 'vertical',
+                                fontFamily: 'inherit',
+                            }}
+                        />
+                    </label>
+                )}
+
+                {/* Company info — explain the new flow */}
+                {isCompany && (
+                    <div style={{
+                        padding: 14,
+                        borderRadius: 12,
+                        background: '#F0F9FF',
+                        border: '1px solid #BAE6FD',
+                        marginBottom: 16,
+                    }}>
+                        <p style={{ fontSize: 13, color: '#0369A1', fontWeight: 500, lineHeight: 1.5 }}>
+                            📋 You'll send a meeting request. The seeker will set the date, time, and meeting location when they accept.
+                        </p>
+                    </div>
+                )}
 
                 {/* Info */}
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
@@ -1107,7 +1321,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                         cursor: (submitting || (isCompany && (!hasEnoughBalance || !hasAvailableSlot))) ? 'not-allowed' : 'pointer',
                     }}
                 >
-                    {submitting ? 'Scheduling...' : 'Request Meeting'}
+                    {submitting ? 'Sending...' : 'Request Meeting'}
                 </motion.button>
             </motion.div>
 
@@ -1121,6 +1335,19 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                             getWallet().then(setWallet);
                             setShowTopUp(false);
                         }}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Full-screen Location Picker (seeker only) */}
+            <AnimatePresence>
+                {showLocationPicker && LocationPickerComponent && (
+                    <LocationPickerComponent
+                        onSelect={(loc) => {
+                            setLocation(loc);
+                            setShowLocationPicker(false);
+                        }}
+                        onClose={() => setShowLocationPicker(false)}
                     />
                 )}
             </AnimatePresence>
@@ -1303,5 +1530,251 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
                 </motion.button>
             </motion.div>
         </motion.div>
+    );
+}
+
+// Accept & Schedule Modal — Seeker sets date/time/location when accepting a company's request
+export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
+    const { acceptAndScheduleMeeting } = useAuth();
+    const { showToast } = useToast();
+    const [date, setDate] = useState('');
+    const [time, setTime] = useState('');
+    const [location, setLocation] = useState(null); // { lat, lng, address }
+    const [notes, setNotes] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [showLocationPicker, setShowLocationPicker] = useState(false);
+    const [LocationPickerComponent, setLocationPickerComponent] = useState(null);
+    const canCloseRef = useRef(false);
+
+    useEffect(() => {
+        canCloseRef.current = false;
+        const timer = setTimeout(() => { canCloseRef.current = true; }, 400);
+        return () => clearTimeout(timer);
+    }, []);
+
+    // Dynamically import LocationPicker to avoid SSR
+    useEffect(() => {
+        import('./LocationPicker').then(mod => {
+            setLocationPickerComponent(() => mod.default);
+        });
+    }, []);
+
+    const handleSubmit = async () => {
+        if (!date || !time) {
+            showToast('Please select date and time', 'warning');
+            return;
+        }
+        if (!location) {
+            showToast('Please select the meeting location on the map', 'warning');
+            return;
+        }
+
+        const scheduledAt = new Date(`${date}T${time}`).toISOString();
+
+        // Build location string with coordinates for storage
+        // Format: "address||lat,lng" so we can parse it later for Google Maps
+        const locationStr = `${location.address}||${location.lat},${location.lng}`;
+
+        setSubmitting(true);
+        const result = await acceptAndScheduleMeeting(meeting.id, scheduledAt, locationStr, notes);
+        setSubmitting(false);
+
+        if (result.success) {
+            showToast('Meeting accepted and scheduled! 🎉', 'success');
+            onScheduled?.();
+            onClose();
+        } else {
+            showToast(result.error || 'Failed to accept meeting', 'error');
+        }
+    };
+
+    return (
+        <>
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                style={{
+                    position: 'fixed', inset: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: 20, zIndex: 100,
+                }}
+                onClick={(e) => { if (e.target === e.currentTarget && canCloseRef.current) onClose(); }}
+            >
+                <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    style={{
+                        width: '100%', maxWidth: 400,
+                        background: 'white', borderRadius: 20, padding: 24,
+                        maxHeight: '90vh', overflow: 'auto',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                        <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Accept & Set Details
+                        </h2>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <X size={20} color="var(--text-muted)" />
+                        </button>
+                    </div>
+
+                    {/* Company name info */}
+                    <div style={{
+                        padding: 12, borderRadius: 10,
+                        background: '#F0FDF4', border: '1px solid #BBF7D0',
+                        marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8,
+                    }}>
+                        <Building2 size={16} color="#16A34A" />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#166534' }}>
+                            Meeting with {meeting.companyName || 'Company'}
+                        </span>
+                    </div>
+
+                    {/* Date */}
+                    <label style={{ display: 'block', marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Date *
+                        </span>
+                        <input
+                            type="date"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            style={{
+                                width: '100%', padding: 12, borderRadius: 10,
+                                border: '1px solid var(--border)', fontSize: 15,
+                            }}
+                        />
+                    </label>
+
+                    {/* Time */}
+                    <label style={{ display: 'block', marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Time *
+                        </span>
+                        <input
+                            type="time"
+                            value={time}
+                            onChange={(e) => setTime(e.target.value)}
+                            style={{
+                                width: '100%', padding: 12, borderRadius: 10,
+                                border: '1px solid var(--border)', fontSize: 15,
+                            }}
+                        />
+                    </label>
+
+                    {/* Location — tap to open map picker */}
+                    <div style={{ marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Meeting Location *
+                        </span>
+                        <motion.div
+                            onClick={() => setShowLocationPicker(true)}
+                            whileTap={{ scale: 0.98 }}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                padding: 12, borderRadius: 12,
+                                border: location ? '1.5px solid #22C55E' : '1.5px dashed #D1D5DB',
+                                background: location ? '#F0FDF4' : '#F9FAFB',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                            }}
+                        >
+                            <div style={{
+                                width: 40, height: 40, borderRadius: 10,
+                                background: location ? '#DCFCE7' : '#E5E7EB',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                <MapPin size={20} color={location ? '#22C55E' : '#9CA3AF'} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                {location ? (
+                                    <>
+                                        <p style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 2 }}>
+                                            📍 Location selected
+                                        </p>
+                                        <p style={{
+                                            fontSize: 12, color: '#6B7280', lineHeight: 1.3,
+                                            overflow: 'hidden', textOverflow: 'ellipsis',
+                                            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                        }}>
+                                            {location.address}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>
+                                            Select on Map
+                                        </p>
+                                        <p style={{ fontSize: 12, color: '#9CA3AF' }}>
+                                            Tap to open the map and pin the meeting spot
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                            <ChevronRight size={18} color="#9CA3AF" />
+                        </motion.div>
+                    </div>
+
+                    {/* Notes */}
+                    <label style={{ display: 'block', marginBottom: 20 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Notes (optional)
+                        </span>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="Any additional info for the company..."
+                            style={{
+                                width: '100%', padding: 12, borderRadius: 10,
+                                border: '1px solid var(--border)', fontSize: 14,
+                                minHeight: 70, resize: 'vertical', fontFamily: 'inherit',
+                            }}
+                        />
+                    </label>
+
+                    {/* Info */}
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
+                        You'll earn ₹250 when both parties confirm the offline meeting happened.
+                    </p>
+
+                    {/* Submit */}
+                    <motion.button
+                        onClick={handleSubmit}
+                        disabled={submitting}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        style={{
+                            width: '100%', padding: 14, borderRadius: 12,
+                            background: submitting ? '#E5E7EB' : 'var(--gradient-primary)',
+                            border: 'none',
+                            color: submitting ? '#9CA3AF' : 'white',
+                            fontSize: 15, fontWeight: 600,
+                            cursor: submitting ? 'wait' : 'pointer',
+                        }}
+                    >
+                        {submitting ? 'Scheduling...' : 'Accept & Schedule Meeting'}
+                    </motion.button>
+                </motion.div>
+            </motion.div>
+
+            {/* Full-screen Location Picker */}
+            <AnimatePresence>
+                {showLocationPicker && LocationPickerComponent && (
+                    <LocationPickerComponent
+                        onSelect={(loc) => {
+                            setLocation(loc);
+                            setShowLocationPicker(false);
+                        }}
+                        onClose={() => setShowLocationPicker(false)}
+                    />
+                )}
+            </AnimatePresence>
+        </>
     );
 }

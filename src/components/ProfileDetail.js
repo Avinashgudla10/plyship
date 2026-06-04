@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { X, Star, MapPin, Shield, Sparkles, Phone, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
+import { X, Star, MapPin, Shield, Sparkles, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function ProfileDetail({ profile, onClose, onMeet, onReject, viewerRole }) {
@@ -72,6 +72,7 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
         'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&q=80&w=1000';
 
     // Build stats based on profile type
+    const TIMELINE_LABELS = { immediate: 'Immediately', '1-3months': '1-3 Months', '3-6months': '3-6 Months', exploring: 'Just Exploring' };
     const stats = isCompanyProfile
         ? [
             { label: 'Projects', value: profileData.projectsCompleted || '0', icon: Sparkles },
@@ -81,7 +82,7 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
         : [
             { label: 'Property', value: profileData.propertyType || 'N/A', icon: Home },
             { label: 'Budget', value: profileData.budget ? `₹${profileData.budget}L` : 'Flexible', icon: Wallet },
-            { label: 'Timeline', value: profileData.timeline?.replace('-', ' ') || 'Flexible', icon: Calendar },
+            { label: 'Timeline', value: TIMELINE_LABELS[profileData.timeline] || profileData.timeline || 'Flexible', icon: Calendar },
         ];
 
     // Get tags/specializations
@@ -510,15 +511,7 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
                         {aboutText}
                     </p>
 
-                    {/* Contact Info — only show company phone to seekers, never show seeker phone to companies */}
-                    {profileData.phone && isCompanyProfile && (
-                        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <Phone size={16} color="var(--primary)" />
-                            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                                {profileData.phone}
-                            </span>
-                        </div>
-                    )}
+                    {/* Contact info removed — phone numbers are revealed in chat after meeting request */}
                 </div>
             </motion.div>
 

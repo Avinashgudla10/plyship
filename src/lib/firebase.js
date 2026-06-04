@@ -1,7 +1,7 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { getStorage, ref, uploadString, getDownloadURL, listAll, deleteObject } from "firebase/storage";
+import { getStorage, ref, uploadString, uploadBytes, getDownloadURL, listAll, deleteObject } from "firebase/storage";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -117,6 +117,25 @@ export const uploadImages = async (base64Images, basePath) => {
         uploadImage(img, `${basePath}/image_${i}_${Date.now()}.jpg`)
     );
     return Promise.all(uploadPromises);
+};
+
+/**
+ * Upload a file blob to Firebase Storage and return the download URL
+ * @param {Blob|File} file - The file/blob to upload
+ * @param {string} path - The storage path
+ * @param {string} contentType - MIME type of the file
+ * @returns {Promise<string>} - The download URL
+ */
+export const uploadFile = async (file, path, contentType) => {
+    try {
+        const storageRef = ref(storage, path);
+        const metadata = contentType ? { contentType } : {};
+        const snapshot = await uploadBytes(storageRef, file, metadata);
+        const downloadURL = await getDownloadURL(snapshot.ref);
+        return downloadURL;
+    } catch (error) {
+        throw error;
+    }
 };
 
 export default app;

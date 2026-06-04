@@ -99,6 +99,9 @@ export default function ProfileSetup() {
         name: user?.name || '',
         avatar: null,
         city: '',
+        locality: '',
+        lat: null,
+        lng: null,
         propertyType: '',
         styles: [],
         rooms: [],
@@ -113,6 +116,10 @@ export default function ProfileSetup() {
         avatar: null,
         yearsInBusiness: '',
         city: '',
+        locality: '',
+        lat: null,
+        lng: null,
+        serviceRadius: 50,
         services: [],
         specializations: [],
         portfolioImages: [],
@@ -176,6 +183,10 @@ export default function ProfileSetup() {
                 if (!companyData.companyName || companyData.companyName.trim().length < 2) {
                     newErrors.companyName = 'Company name must be at least 2 characters';
                 }
+                if (!companyData.city || companyData.city.trim().length < 2) {
+                    newErrors.city = 'City is required';
+                }
+
             } else if (currentStep === 1) {
                 if (!companyData.services || companyData.services.length === 0) {
                     newErrors.services = 'Select at least one service';
@@ -583,6 +594,139 @@ export default function ProfileSetup() {
 // ============ SEEKER FORM COMPONENTS ============
 
 function SeekerBasicInfo({ data, setData, errors }) {
+    const [locStatus, setLocStatus] = useState('idle');
+    const [locMessage, setLocMessage] = useState('');
+    const [accuracy, setAccuracy] = useState(null);
+    const locAttempted = useRef(false);
+    const gpsWatchId = useRef(null);
+    const gotCityRef = useRef(!!data.city);
+    const mountedRef = useRef(true);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            if (gpsWatchId.current !== null) {
+                navigator.geolocation.clearWatch(gpsWatchId.current);
+                gpsWatchId.current = null;
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (locAttempted.current || data.city) return;
+        locAttempted.current = true;
+        detectLocation();
+    }, []);
+
+    const reverseGeocode = async (lat, lng) => {
+        const res = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCncjupkxXNL-AwNpyMSuEdfRSOHNZf-so&language=en`
+        );
+        const geo = await res.json();
+        if (geo.status === 'OK' && geo.results?.length > 0) {
+            let city = '', locality = '', localityFallback = '';
+            for (const result of geo.results) {
+                const components = result.address_components || [];
+                for (const c of components) {
+                    // sublocality_level_1 = actual area (Gachibowli, Madhapur)
+                    if (!locality && c.types.includes('sublocality_level_1')) {
+                        locality = c.long_name;
+                    }
+                    // sublocality_level_2 = fallback area
+                    if (!localityFallback && c.types.includes('sublocality_level_2')) {
+                        localityFallback = c.long_name;
+                    }
+                    if (!city && c.types.includes('locality')) {
+                        city = c.long_name;
+                    }
+                    if (!city && (c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))) {
+                        city = city || c.long_name;
+                    }
+                }
+                if (city && locality) break;
+            }
+            return { city, locality: locality || localityFallback };
+        }
+        return { city: '', locality: '' };
+    };
+
+    const applyLocation = async (position, isFinal) => {
+        if (!mountedRef.current) return;
+        const { latitude, longitude, accuracy: acc } = position.coords;
+        setAccuracy(Math.round(acc));
+        try {
+            const { city, locality } = await reverseGeocode(latitude, longitude);
+            if (!mountedRef.current) return;
+            if (city) {
+                gotCityRef.current = true;
+                setData(prev => ({
+                    ...prev, city, locality,
+                    lat: parseFloat(latitude.toFixed(6)),
+                    lng: parseFloat(longitude.toFixed(6)),
+                }));
+                setLocStatus(isFinal ? 'success' : 'refining');
+                setLocMessage(`📍 ${locality ? locality + ', ' : ''}${city}`);
+            } else if (isFinal) {
+                setLocStatus('error');
+                setLocMessage('Could not determine city. Please retry.');
+            }
+        } catch (e) {
+            if (!mountedRef.current) return;
+            if (isFinal) { setLocStatus('error'); setLocMessage('Geocoding failed. Please retry.'); }
+        }
+    };
+
+    const detectLocation = () => {
+        if (!navigator.geolocation) {
+            setLocStatus('error'); setLocMessage('Geolocation not supported'); return;
+        }
+        setLocStatus('detecting');
+        setLocMessage('Detecting your location...');
+
+        navigator.geolocation.getCurrentPosition(
+            (pos) => { if (mountedRef.current) { applyLocation(pos, false); startGPSRefinement(); } },
+            () => { if (mountedRef.current) startGPSRefinement(); },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+        );
+    };
+
+    const startGPSRefinement = () => {
+        if (gpsWatchId.current !== null) navigator.geolocation.clearWatch(gpsWatchId.current);
+        let bestAcc = Infinity, settled = false;
+
+        const settle = () => {
+            if (settled) return;
+            settled = true;
+            if (gpsWatchId.current !== null) { navigator.geolocation.clearWatch(gpsWatchId.current); gpsWatchId.current = null; }
+            if (!mountedRef.current) return;
+            if (gotCityRef.current) { setLocStatus('success'); }
+            else { setLocStatus('error'); setLocMessage('Could not get precise location. Please retry.'); }
+        };
+
+        const settleTimer = setTimeout(settle, 10000);
+
+        gpsWatchId.current = navigator.geolocation.watchPosition(
+            (pos) => {
+                if (!mountedRef.current || settled) return;
+                const acc = pos.coords.accuracy;
+                if (acc < bestAcc) { bestAcc = acc; applyLocation(pos, false); }
+                if (acc <= 100) { clearTimeout(settleTimer); applyLocation(pos, true); settle(); }
+            },
+            (err) => {
+                clearTimeout(settleTimer);
+                if (!mountedRef.current) return;
+                if (!settled) {
+                    settled = true;
+                    if (gpsWatchId.current !== null) { navigator.geolocation.clearWatch(gpsWatchId.current); gpsWatchId.current = null; }
+                    if (gotCityRef.current) { setLocStatus('success'); }
+                    else { setLocStatus(err.code === 1 ? 'denied' : 'error'); setLocMessage(err.code === 1 ? 'Location permission denied' : 'Location unavailable. Please retry.'); }
+                }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
+
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -605,7 +749,70 @@ function SeekerBasicInfo({ data, setData, errors }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <InputField label="Full Name" value={data.name} onChange={(v) => setData({ ...data, name: v })} placeholder="Your name" error={errors?.name} />
-                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Hyderabad" error={errors?.city} />
+
+                {/* ── Location Section (GPS only, no manual) ── */}
+                <div>
+                    <label style={labelStyle}>Your Location</label>
+
+                    {/* Detection status card */}
+                    {locStatus !== 'idle' && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            style={{
+                                padding: '14px 16px', borderRadius: 14, marginBottom: 12,
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                background: (locStatus === 'detecting' || locStatus === 'refining') ? '#F0F9FF'
+                                    : locStatus === 'success' ? '#F0FDF4'
+                                    : '#FEF2F2',
+                                border: `1px solid ${(locStatus === 'detecting' || locStatus === 'refining') ? '#BAE6FD'
+                                    : locStatus === 'success' ? '#BBF7D0'
+                                    : '#FECACA'}`,
+                            }}
+                        >
+                            {(locStatus === 'detecting' || locStatus === 'refining') ? (
+                                <motion.div
+                                    animate={{ rotate: 360 }}
+                                    transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                                >
+                                    <Loader2 size={18} color="#0284C7" />
+                                </motion.div>
+                            ) : locStatus === 'success' ? (
+                                <MapPin size={18} color="#16A34A" />
+                            ) : (
+                                <MapPin size={18} color="#DC2626" />
+                            )}
+                            <div style={{ flex: 1 }}>
+                                <p style={{
+                                    fontSize: 14, fontWeight: 600, margin: 0,
+                                    color: (locStatus === 'detecting' || locStatus === 'refining') ? '#0284C7'
+                                        : locStatus === 'success' ? '#16A34A'
+                                        : '#DC2626',
+                                }}>
+                                    {locMessage}
+                                </p>
+                                {locStatus === 'refining' && (
+                                    <p style={{ fontSize: 11, color: '#0284C7', margin: '2px 0 0' }}>Refining with GPS...</p>
+                                )}
+                                {locStatus === 'success' && accuracy && (
+                                    <p style={{ fontSize: 11, color: '#888', margin: '2px 0 0' }}>Accuracy: ~{accuracy}m</p>
+                                )}
+                            </div>
+                            {(locStatus === 'success' || locStatus === 'denied' || locStatus === 'error') && (
+                                <button
+                                    onClick={() => { locAttempted.current = false; gotCityRef.current = false; detectLocation(); }}
+                                    style={{
+                                        padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                        background: 'rgba(0,0,0,0.06)', color: '#555', border: 'none', cursor: 'pointer',
+                                    }}
+                                >
+                                    {locStatus === 'success' ? 'Re-detect' : 'Retry'}
+                                </button>
+                            )}
+                        </motion.div>
+                    )}
+                    {errors?.city && <p style={errorTextStyle}>{errors.city}</p>}
+                </div>
 
                 <div>
                     <label style={labelStyle}>Property Type</label>
@@ -690,7 +897,134 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
 
 // ============ COMPANY FORM COMPONENTS ============
 
+
+
 function CompanyBasicInfo({ data, setData, errors }) {
+    const [locStatus, setLocStatus] = useState('idle');
+    const [locMessage, setLocMessage] = useState('');
+    const [accuracy, setAccuracy] = useState(null);
+    const locAttempted = useRef(false);
+    const gpsWatchId = useRef(null);
+    const gotCityRef = useRef(!!data.city);
+    const mountedRef = useRef(true);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            if (gpsWatchId.current !== null) { navigator.geolocation.clearWatch(gpsWatchId.current); gpsWatchId.current = null; }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (locAttempted.current || data.city) return;
+        locAttempted.current = true;
+        detectLocation();
+    }, []);
+
+    const reverseGeocode = async (lat, lng) => {
+        const res = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCncjupkxXNL-AwNpyMSuEdfRSOHNZf-so&language=en`
+        );
+        const geo = await res.json();
+        if (geo.status === 'OK' && geo.results?.length > 0) {
+            let city = '', locality = '', localityFallback = '';
+            for (const result of geo.results) {
+                const components = result.address_components || [];
+                for (const c of components) {
+                    if (!locality && c.types.includes('sublocality_level_1')) {
+                        locality = c.long_name;
+                    }
+                    if (!localityFallback && c.types.includes('sublocality_level_2')) {
+                        localityFallback = c.long_name;
+                    }
+                    if (!city && c.types.includes('locality')) {
+                        city = c.long_name;
+                    }
+                    if (!city && (c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))) {
+                        city = city || c.long_name;
+                    }
+                }
+                if (city && locality) break;
+            }
+            return { city, locality: locality || localityFallback };
+        }
+        return { city: '', locality: '' };
+    };
+
+    const applyLocation = async (position, isFinal) => {
+        if (!mountedRef.current) return;
+        const { latitude, longitude, accuracy: acc } = position.coords;
+        setAccuracy(Math.round(acc));
+        try {
+            const { city, locality } = await reverseGeocode(latitude, longitude);
+            if (!mountedRef.current) return;
+            if (city) {
+                gotCityRef.current = true;
+                setData(prev => ({
+                    ...prev, city, locality,
+                    lat: parseFloat(latitude.toFixed(6)),
+                    lng: parseFloat(longitude.toFixed(6)),
+                }));
+                setLocStatus(isFinal ? 'success' : 'refining');
+                setLocMessage(`📍 ${locality ? locality + ', ' : ''}${city}`);
+            } else if (isFinal) {
+                setLocStatus('error'); setLocMessage('Could not determine city. Please retry.');
+            }
+        } catch (e) {
+            if (!mountedRef.current) return;
+            if (isFinal) { setLocStatus('error'); setLocMessage('Geocoding failed. Please retry.'); }
+        }
+    };
+
+    const detectLocation = () => {
+        if (!navigator.geolocation) {
+            setLocStatus('error'); setLocMessage('Geolocation not supported'); return;
+        }
+        setLocStatus('detecting'); setLocMessage('Detecting your location...');
+        navigator.geolocation.getCurrentPosition(
+            (pos) => { if (mountedRef.current) { applyLocation(pos, false); startGPSRefinement(); } },
+            () => { if (mountedRef.current) startGPSRefinement(); },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+        );
+    };
+
+    const startGPSRefinement = () => {
+        if (gpsWatchId.current !== null) navigator.geolocation.clearWatch(gpsWatchId.current);
+        let bestAcc = Infinity, settled = false;
+
+        const settle = () => {
+            if (settled) return;
+            settled = true;
+            if (gpsWatchId.current !== null) { navigator.geolocation.clearWatch(gpsWatchId.current); gpsWatchId.current = null; }
+            if (!mountedRef.current) return;
+            if (gotCityRef.current) { setLocStatus('success'); }
+            else { setLocStatus('error'); setLocMessage('Could not get precise location. Please retry.'); }
+        };
+
+        const settleTimer = setTimeout(settle, 10000);
+
+        gpsWatchId.current = navigator.geolocation.watchPosition(
+            (pos) => {
+                if (!mountedRef.current || settled) return;
+                const acc = pos.coords.accuracy;
+                if (acc < bestAcc) { bestAcc = acc; applyLocation(pos, false); }
+                if (acc <= 100) { clearTimeout(settleTimer); applyLocation(pos, true); settle(); }
+            },
+            (err) => {
+                clearTimeout(settleTimer);
+                if (!mountedRef.current) return;
+                if (!settled) {
+                    settled = true;
+                    if (gpsWatchId.current !== null) { navigator.geolocation.clearWatch(gpsWatchId.current); gpsWatchId.current = null; }
+                    if (gotCityRef.current) { setLocStatus('success'); }
+                    else { setLocStatus(err.code === 1 ? 'denied' : 'error'); setLocMessage(err.code === 1 ? 'Location permission denied' : 'Location unavailable. Please retry.'); }
+                }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
+
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -714,7 +1048,48 @@ function CompanyBasicInfo({ data, setData, errors }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <InputField label="Company Name" value={data.companyName} onChange={(v) => setData({ ...data, companyName: v })} placeholder="Your company name" error={errors?.companyName} />
                 <InputField label="Tagline" value={data.tagline} onChange={(v) => setData({ ...data, tagline: v })} placeholder="e.g., Modern designs for modern living" />
-                <InputField label="City" value={data.city} onChange={(v) => setData({ ...data, city: v })} placeholder="e.g., Hyderabad" />
+
+                {/* ── Auto Location (GPS only, no manual) ── */}
+                <div>
+                    <label style={labelStyle}>Your Location</label>
+                    {locStatus !== 'idle' && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                            style={{
+                                padding: '14px 16px', borderRadius: 14, marginBottom: 12,
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                background: (locStatus === 'detecting' || locStatus === 'refining') ? '#F0F9FF' : locStatus === 'success' ? '#F0FDF4' : '#FEF2F2',
+                                border: `1px solid ${(locStatus === 'detecting' || locStatus === 'refining') ? '#BAE6FD' : locStatus === 'success' ? '#BBF7D0' : '#FECACA'}`,
+                            }}
+                        >
+                            {(locStatus === 'detecting' || locStatus === 'refining') ? (
+                                <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
+                                    <Loader2 size={18} color="#0284C7" />
+                                </motion.div>
+                            ) : locStatus === 'success' ? (
+                                <MapPin size={18} color="#16A34A" />
+                            ) : (
+                                <MapPin size={18} color="#DC2626" />
+                            )}
+                            <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: (locStatus === 'detecting' || locStatus === 'refining') ? '#0284C7' : locStatus === 'success' ? '#16A34A' : '#DC2626' }}>
+                                    {locMessage}
+                                </p>
+                                {locStatus === 'refining' && <p style={{ fontSize: 11, color: '#0284C7', margin: '2px 0 0' }}>Refining with GPS...</p>}
+                                {locStatus === 'success' && accuracy && <p style={{ fontSize: 11, color: '#888', margin: '2px 0 0' }}>Accuracy: ~{accuracy}m</p>}
+                            </div>
+                            {(locStatus === 'success' || locStatus === 'denied' || locStatus === 'error') && (
+                                <button onClick={() => { locAttempted.current = false; gotCityRef.current = false; detectLocation(); }} style={{ padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: 'rgba(0,0,0,0.06)', color: '#555', border: 'none', cursor: 'pointer' }}>
+                                    {locStatus === 'success' ? 'Re-detect' : 'Retry'}
+                                </button>
+                            )}
+                        </motion.div>
+                    )}
+                    {errors?.city && <p style={errorTextStyle}>{errors.city}</p>}
+                </div>
+
+
+
                 <InputField label="Years in Business" value={data.yearsInBusiness} onChange={(v) => setData({ ...data, yearsInBusiness: v })} placeholder="e.g., 5" type="number" />
             </div>
         </div>

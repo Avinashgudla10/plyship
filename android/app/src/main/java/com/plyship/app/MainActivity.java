@@ -1,6 +1,8 @@
 package com.plyship.app;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -11,13 +13,19 @@ import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
@@ -27,25 +35,47 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.io.File;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
 /**
  * Custom Capacitor Activity for PLYSHIP Android.
- * Feature parity with iOS PlyshipViewController:
+ * Features:
  * 1. Pull-to-refresh via injected JavaScript
  * 2. External links open in system browser, plyship.com stays in-app
  * 3. Network monitoring with offline banner + full-screen error page
  * 4. Auto-reload when connectivity is restored
  * 5. Proper status bar styling (white bg, dark icons)
+ * 6. Geolocation, camera, mic, file-upload permission handling
+ * 7. File chooser for image/document uploads from WebView
  */
 public class MainActivity extends BridgeActivity {
+
+    private static final int ALL_PERMISSIONS_REQUEST = 1001;
+    private static final int FILE_CHOOSER_REQUEST = 1002;
 
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean isConnected = true;
     private boolean didFailToLoad = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // File upload callback from WebChromeClient
+    private ValueCallback<Uri[]> fileUploadCallback;
+
+    // URI for camera-captured photo (camera returns result via this URI, not intent data)
+    private Uri cameraPhotoUri;
 
     // Offline UI references
     private View offlineBanner;
@@ -57,6 +87,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setupStatusBar();
+        requestAllPermissions();
         // Delay setup to ensure Capacitor bridge is initialized
         mainHandler.postDelayed(this::setupAfterBridgeReady, 800);
     }
@@ -70,6 +101,95 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    // ==================== Permissions ====================
+
+    private void requestAllPermissions() {
+        List<String> needed = new ArrayList<>();
+
+        // Camera
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.CAMERA);
+        }
+        // Location
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.ACCESS_FINE_LOCATION);
+            needed.add(android.Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        // Microphone (for voice notes)
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.RECORD_AUDIO);
+        }
+        // Storage / Media
+        if (Build.VERSION.SDK_INT >= 33) {
+            // Android 13+ granular media permissions
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES)
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.READ_MEDIA_IMAGES);
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.READ_EXTERNAL_STORAGE);
+            }
+        }
+
+        if (!needed.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                needed.toArray(new String[0]),
+                ALL_PERMISSIONS_REQUEST);
+        }
+    }
+
+    // ==================== Camera Helper ====================
+
+    /**
+     * Creates a temporary image file for the camera to write into.
+     * The file is stored in the app's external pictures directory.
+     */
+    private File createImageFile() throws IOException {
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        String imageFileName = "PLYSHIP_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        return File.createTempFile(imageFileName, ".jpg", storageDir);
+    }
+
+    // ==================== File Upload Result ====================
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == FILE_CHOOSER_REQUEST) {
+            if (fileUploadCallback == null) return;
+
+            if (resultCode == Activity.RESULT_OK) {
+                Uri result = null;
+
+                // Check if result came from gallery/file picker (via intent data)
+                if (data != null && data.getData() != null) {
+                    result = data.getData();
+                }
+                // If no data in intent, check if camera wrote to our pre-set URI
+                else if (cameraPhotoUri != null) {
+                    result = cameraPhotoUri;
+                }
+
+                if (result != null) {
+                    fileUploadCallback.onReceiveValue(new Uri[]{result});
+                } else {
+                    fileUploadCallback.onReceiveValue(null);
+                }
+            } else {
+                fileUploadCallback.onReceiveValue(null);
+            }
+            fileUploadCallback = null;
+            cameraPhotoUri = null;
+        }
+    }
+
     private void setupAfterBridgeReady() {
         try {
             if (getBridge() == null || getBridge().getWebView() == null) {
@@ -77,6 +197,7 @@ public class MainActivity extends BridgeActivity {
                 return;
             }
             setupWebViewClient();
+            setupWebChromeClient();
             injectPullToRefreshScript();
             startNetworkMonitoring();
         } catch (Exception e) {
@@ -87,9 +208,17 @@ public class MainActivity extends BridgeActivity {
     // ==================== Status Bar ====================
 
     private void setupStatusBar() {
+        // Clear any translucent flags that would cause content to draw behind system bars
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         getWindow().setStatusBarColor(Color.WHITE);
         getWindow().setNavigationBarColor(Color.WHITE);
+
+        // Ensure WebView does NOT draw behind system bars
+        View decorView = getWindow().getDecorView();
+        decorView.setFitsSystemWindows(true);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             android.view.WindowInsetsController c = getWindow().getInsetsController();
@@ -101,17 +230,12 @@ public class MainActivity extends BridgeActivity {
                         | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            int flags = getWindow().getDecorView().getSystemUiVisibility();
+            int flags = decorView.getSystemUiVisibility();
             flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             }
-            getWindow().getDecorView().setSystemUiVisibility(flags);
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            getWindow().getAttributes().layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            decorView.setSystemUiVisibility(flags);
         }
     }
 
@@ -184,6 +308,118 @@ public class MainActivity extends BridgeActivity {
                     didFailToLoad = true;
                     showOfflineFullScreen();
                 }
+            }
+        });
+    }
+
+    // ==================== WebChromeClient (File Upload, Geolocation, Mic) ====================
+
+    private void setupWebChromeClient() {
+        WebView webView = getBridge().getWebView();
+        if (webView == null) return;
+
+        // Critical WebView settings for media capture
+        webView.getSettings().setGeolocationEnabled(true);
+        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        webView.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+        webView.getSettings().setDomStorageEnabled(true);
+        webView.getSettings().setDatabaseEnabled(true);
+
+        webView.setWebChromeClient(new WebChromeClient() {
+
+            // Handle <input type="file"> from web page — CRITICAL for image uploads
+            @Override
+            public boolean onShowFileChooser(WebView webView,
+                                              ValueCallback<Uri[]> filePathCallback,
+                                              FileChooserParams fileChooserParams) {
+                // Cancel any previous callback
+                if (fileUploadCallback != null) {
+                    fileUploadCallback.onReceiveValue(null);
+                }
+                fileUploadCallback = filePathCallback;
+
+                try {
+                    // Detect if the <input> has capture attribute (i.e. "Take Photo")
+                    boolean isCaptureMode = fileChooserParams.isCaptureEnabled();
+                    String[] acceptTypes = fileChooserParams.getAcceptTypes();
+                    boolean isImageAccept = false;
+                    if (acceptTypes != null) {
+                        for (String type : acceptTypes) {
+                            if (type != null && (type.startsWith("image/") || type.equals("image/*"))) {
+                                isImageAccept = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (isCaptureMode && isImageAccept) {
+                        // "Take Photo" — launch camera directly
+                        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                        if (cameraIntent.resolveActivity(getPackageManager()) != null) {
+                            File photoFile = createImageFile();
+                            cameraPhotoUri = FileProvider.getUriForFile(
+                                MainActivity.this,
+                                getApplicationContext().getPackageName() + ".fileprovider",
+                                photoFile);
+                            cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, cameraPhotoUri);
+                            startActivityForResult(cameraIntent, FILE_CHOOSER_REQUEST);
+                        } else {
+                            fileUploadCallback.onReceiveValue(null);
+                            fileUploadCallback = null;
+                            cameraPhotoUri = null;
+                            return false;
+                        }
+                    } else {
+                        // "Photo Library" or other file types — use gallery/file picker
+                        // Also build a camera intent as a secondary option in the chooser
+                        Intent galleryIntent = fileChooserParams.createIntent();
+
+                        // Try to add camera as an option too
+                        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                        if (isImageAccept && cameraIntent.resolveActivity(getPackageManager()) != null) {
+                            try {
+                                File photoFile = createImageFile();
+                                cameraPhotoUri = FileProvider.getUriForFile(
+                                    MainActivity.this,
+                                    getApplicationContext().getPackageName() + ".fileprovider",
+                                    photoFile);
+                                cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, cameraPhotoUri);
+
+                                Intent chooser = Intent.createChooser(galleryIntent, "Select Image");
+                                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
+                                startActivityForResult(chooser, FILE_CHOOSER_REQUEST);
+                            } catch (IOException e) {
+                                // Fallback to gallery only
+                                startActivityForResult(galleryIntent, FILE_CHOOSER_REQUEST);
+                            }
+                        } else {
+                            startActivityForResult(galleryIntent, FILE_CHOOSER_REQUEST);
+                        }
+                    }
+                } catch (Exception e) {
+                    fileUploadCallback = null;
+                    cameraPhotoUri = null;
+                    return false;
+                }
+                return true;
+            }
+
+            // Auto-grant geolocation for our domain
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                if (origin != null && origin.contains("plyship.com")) {
+                    callback.invoke(origin, true, false);
+                } else {
+                    callback.invoke(origin, false, false);
+                }
+            }
+
+            // Auto-grant ALL media capture permissions (mic, camera) for voice notes
+            // This is called by WebView when getUserMedia() is invoked from JavaScript
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                // Grant all requested resources for our app
+                request.grant(request.getResources());
             }
         });
     }

@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown, Search, CreditCard } from 'lucide-react';
+import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown, Search, CreditCard, Mic, Plus, FileText, Image as ImageIcon, Square, Play, Pause, Loader2, Camera, Phone, MapPin, UserCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { subscribeToMessages } from '../lib/firebase';
+import { subscribeToMessages, uploadFile } from '../lib/firebase';
 import { StartProjectModal } from './ProjectsView';
-import { ScheduleMeetingModal } from './MeetingsView';
+import { ScheduleMeetingModal, AcceptAndScheduleModal } from './MeetingsView';
 import ReviewModal from './ReviewModal';
+import ProfileDetail from './ProfileDetail';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 
 // Chat list view
@@ -19,6 +20,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
     const isCompany = user?.role === 'COMPANY';
 
     const MEETING_STATUS_CONFIG = {
+        REQUESTED: { label: 'Requested', color: '#8B5CF6', bg: '#F5F3FF', icon: '📩' },
         PENDING_ACCEPTANCE: { label: 'Pending', color: '#3B82F6', bg: '#EFF6FF', icon: '⏳' },
         SCHEDULED: { label: 'Scheduled', color: '#F59E0B', bg: '#FFFBEB', icon: '📅' },
         CONFIRMED: { label: 'Completed', color: '#22C55E', bg: '#F0FDF4', icon: '✓' },
@@ -37,7 +39,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
     ];
 
     // Meeting priority: PENDING first, then SCHEDULED, then rest
-    const meetingPriority = { PENDING_ACCEPTANCE: 3, SCHEDULED: 2 };
+    const meetingPriority = { REQUESTED: 4, PENDING_ACCEPTANCE: 3, SCHEDULED: 2 };
 
     const filteredChats = chats
         .filter(chat => {
@@ -285,7 +287,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
                                 padding: 14,
                                 borderRadius: 14,
                                 background: 'white',
-                                border: statusConfig && chat.meetingStatus === 'PENDING_ACCEPTANCE'
+                                border: statusConfig && (chat.meetingStatus === 'PENDING_ACCEPTANCE' || chat.meetingStatus === 'REQUESTED')
                                     ? '1.5px solid #3B82F640'
                                     : '1px solid var(--border-light)',
                                 cursor: 'pointer',
@@ -385,7 +387,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
 export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetingModalShown }) {
     const {
         user, sendMessage, getChatId, getWallet, topUpWallet,
-        getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP,
+        getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP, acceptAndScheduleMeeting,
         getProjects, acceptProject, declineProject
     } = useAuth();
     const { showToast, showConfirm } = useToast();
@@ -401,9 +403,190 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const [actionLoading, setActionLoading] = useState(null);
     const [walletBalance, setWalletBalance] = useState(null);
     const [showReviewModal, setShowReviewModal] = useState(false);
-    const [reviewData, setReviewData] = useState(null); // { type: 'MEETING' | 'PROJECT', relatedId: string }
+    const [reviewData, setReviewData] = useState(null);
+    const [showProfileDetail, setShowProfileDetail] = useState(false);
+    const [showAcceptScheduleModal, setShowAcceptScheduleModal] = useState(false);
     const [otpInput, setOtpInput] = useState('');
     const messagesEndRef = useRef(null);
+
+    // Voice recording state
+    const [isRecording, setIsRecording] = useState(false);
+    const [micConnecting, setMicConnecting] = useState(false);
+    const [recordingDuration, setRecordingDuration] = useState(0);
+    const [uploadingFile, setUploadingFile] = useState(false);
+    const [uploadingFiles, setUploadingFiles] = useState([]); // {id, name, type, localUrl, fileType}
+    const [showAttachMenu, setShowAttachMenu] = useState(false);
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const recordingTimerRef = useRef(null);
+    const cameraInputRef = useRef(null);
+    const galleryInputRef = useRef(null);
+    const docInputRef = useRef(null);
+
+    const MAX_VOICE_DURATION = 300; // 5 minutes in seconds
+    const ALLOWED_FILE_TYPES = {
+        'image/jpeg': 'image', 'image/png': 'image', 'image/gif': 'image', 'image/webp': 'image',
+        'application/pdf': 'pdf',
+        'application/msword': 'document', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'document',
+    };
+    const ALLOWED_EXTENSIONS = '.jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx';
+
+    // Cleanup recording on unmount
+    useEffect(() => {
+        return () => {
+            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                mediaRecorderRef.current.stop();
+            }
+        };
+    }, []);
+
+    // Voice recording handlers
+    const getSupportedMimeType = () => {
+        const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg', ''];
+        for (const t of types) {
+            if (t === '' || MediaRecorder.isTypeSupported(t)) return t;
+        }
+        return '';
+    };
+
+    const startRecording = async () => {
+        if (!navigator.mediaDevices?.getUserMedia) {
+            showToast('Voice recording is not supported on this device.', 'error');
+            return;
+        }
+
+        // Show recording UI INSTANTLY — before mic is ready
+        setMicConnecting(true);
+        setIsRecording(true);
+        setRecordingDuration(0);
+
+        // Kill any leftover recorder
+        try {
+            if (mediaRecorderRef.current) {
+                if (mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
+                mediaRecorderRef.current.stream?.getTracks().forEach(t => t.stop());
+                mediaRecorderRef.current = null;
+            }
+        } catch (e) {}
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mimeType = getSupportedMimeType();
+            const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+            mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); };
+
+            mediaRecorder.start(250);
+            mediaRecorderRef.current = mediaRecorder;
+            setMicConnecting(false);
+
+            recordingTimerRef.current = setInterval(() => {
+                setRecordingDuration(prev => {
+                    if (prev >= MAX_VOICE_DURATION - 1) { stopRecordingAndSend(); return prev; }
+                    return prev + 1;
+                });
+            }, 1000);
+        } catch (err) {
+            console.error('Mic error:', err.name, err.message);
+            setIsRecording(false);
+            setMicConnecting(false);
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                showToast('Microphone permission denied. Please allow in your device settings.', 'error');
+            } else {
+                showToast('Could not access microphone. Please try again.', 'error');
+            }
+        }
+    };
+
+    const cancelRecording = () => {
+        if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.onstop = () => { mediaRecorderRef.current.stream?.getTracks().forEach(t => t.stop()); };
+            mediaRecorderRef.current.stop();
+        }
+        audioChunksRef.current = [];
+        setIsRecording(false);
+        setRecordingDuration(0);
+    };
+
+    const stopRecordingAndSend = async () => {
+        if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+        const duration = recordingDuration;
+        setIsRecording(false);
+        setRecordingDuration(0);
+
+        if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
+
+        return new Promise((resolve) => {
+            mediaRecorderRef.current.onstop = async () => {
+                mediaRecorderRef.current.stream?.getTracks().forEach(t => t.stop());
+                const actualMime = mediaRecorderRef.current.mimeType || 'audio/webm';
+                const blob = new Blob(audioChunksRef.current, { type: actualMime });
+                audioChunksRef.current = [];
+                if (blob.size < 1000) { resolve(); return; } // Too short
+
+                const ext = actualMime.includes('mp4') ? 'mp4' : actualMime.includes('ogg') ? 'ogg' : 'webm';
+                setUploadingFile(true);
+                try {
+                    const path = `chats/${chatId}/voice_${Date.now()}.${ext}`;
+                    const url = await uploadFile(blob, path, actualMime);
+                    await sendMessage(otherUserId, '', { url, type: 'voice', name: 'Voice note', duration });
+                } catch (e) { showToast('Failed to send voice note', 'error'); }
+                setUploadingFile(false);
+                resolve();
+            };
+            mediaRecorderRef.current.stop();
+        });
+    };
+
+    // File upload handler — supports multiple files
+    const handleFileSelect = async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+        e.target.value = ''; // reset input
+
+        setUploadingFile(true);
+        setShowAttachMenu(false);
+
+        for (const file of files) {
+            // Check type
+            const fileType = ALLOWED_FILE_TYPES[file.type];
+            if (!fileType) {
+                showToast(`"${file.name}" is not supported. Use images, PDFs, or Word docs.`, 'error');
+                continue;
+            }
+            // Check size
+            if (file.size > 25 * 1024 * 1024) {
+                showToast(`"${file.name}" is too large. Max 25MB.`, 'error');
+                continue;
+            }
+
+            // Create local preview and add to uploading list
+            const uploadId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            const localUrl = fileType === 'image' ? URL.createObjectURL(file) : null;
+            const previewItem = { id: uploadId, name: file.name, fileType, localUrl };
+            setUploadingFiles(prev => [...prev, previewItem]);
+
+            try {
+                const ext = file.name.split('.').pop() || 'jpg';
+                const path = `chats/${chatId}/${fileType}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
+                const url = await uploadFile(file, path, file.type);
+                await sendMessage(otherUserId, '', { url, type: fileType, name: file.name });
+            } catch (err) {
+                showToast(`Failed to upload "${file.name}"`, 'error');
+            }
+
+            // Remove from uploading list and revoke blob URL
+            setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+            if (localUrl) URL.revokeObjectURL(localUrl);
+        }
+        setUploadingFile(false);
+    };
+
+    const formatDuration = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
     // Auto-open meeting modal when coming from Meet button
     useEffect(() => {
@@ -428,33 +611,20 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
     // Generate chat ID — broadcast chats use their own ID format
     const chatId = isBroadcast ? chat.id : (user && otherUserId ? getChatId(user.id, otherUserId) : null);
-    console.log(`🔍 ChatView: user=${user?.id} (${user?.role}), otherUserId=${otherUserId}, chatId=${chatId}`);
 
     // Fetch meetings between these two users (with polling for real-time updates)
     useEffect(() => {
         const fetchMeetings = async () => {
             if (!user || !otherUserId) return;
             const allMeetings = await getMeetings();
-            console.log('📋 All meetings for user:', allMeetings);
-            console.log('🎯 Looking for otherUserId:', otherUserId);
-            // Filter to only meetings with this match
             const relevantMeetings = allMeetings.filter(m => {
-                const matchesCompany = m.companyId === otherUserId;
-                const matchesSeeker = m.seekerId === otherUserId;
-                console.log(`Meeting ${m.id}: companyId=${m.companyId}, seekerId=${m.seekerId}, matches=${matchesCompany || matchesSeeker}`);
-                return (matchesCompany || matchesSeeker) && !m.rescheduledTo;
+                return (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo;
             });
-            console.log('✅ Relevant meetings:', relevantMeetings);
             setMeetings(relevantMeetings);
             setMeetingsLoaded(true);
         };
-
-        // Fetch immediately
         fetchMeetings();
-
-        // Poll every 5 seconds to catch new meeting requests
         const interval = setInterval(fetchMeetings, 5000);
-
         return () => clearInterval(interval);
     }, [user, otherUserId, getMeetings]);
 
@@ -469,112 +639,91 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         }
     }, [meetingsLoaded]);
 
-    // Fetch projects between these two users (with polling for real-time updates)
+    // Fetch projects between these two users
     useEffect(() => {
         const fetchProjects = async () => {
             if (!user || !otherUserId) return;
             const allProjects = await getProjects();
-            console.log('📁 Fetched all projects:', allProjects.map(p => ({ id: p.id, status: p.status, companyId: p.companyId, seekerId: p.seekerId })));
-            console.log('🎯 Filtering for otherUserId:', otherUserId);
-            // Filter to only projects with this match
             const relevantProjects = allProjects.filter(p =>
                 (p.companyId === otherUserId || p.seekerId === otherUserId)
             );
-            console.log('✅ Relevant projects:', relevantProjects.map(p => ({ id: p.id, status: p.status })));
             setProjects(relevantProjects);
         };
-
         fetchProjects();
-        // Poll every 3 seconds for faster updates
         const interval = setInterval(fetchProjects, 3000);
         return () => clearInterval(interval);
     }, [user, otherUserId, getProjects]);
 
-    // Fetch wallet balance for companies (to check if they can accept meetings)
+    // Fetch wallet balance for companies
     useEffect(() => {
         const fetchWallet = async () => {
             if (!user || !isCompanyUser) return;
             const wallet = await getWallet();
             setWalletBalance(wallet?.balance || 0);
         };
-
         fetchWallet();
-        // Poll wallet every 10 seconds
         const interval = setInterval(fetchWallet, 10000);
         return () => clearInterval(interval);
     }, [user, isCompanyUser, getWallet]);
 
-
-    // Get the most relevant meeting (pending or upcoming)
     const activeMeeting = meetings.find(m =>
-        ['PENDING_ACCEPTANCE', 'SCHEDULED', 'DISPUTE'].includes(m.status)
+        ['REQUESTED', 'PENDING_ACCEPTANCE', 'SCHEDULED', 'DISPUTE'].includes(m.status)
     );
-
-    // Check if there's a confirmed meeting with this user (payment transferred)
     const hasConfirmedMeeting = meetings.some(m => m.status === 'CONFIRMED');
-
-    // Get the most recent cancelled/declined meeting (for reschedule prompt)
     const cancelledMeeting = meetings.find(m =>
         ['CANCELLED', 'DECLINED'].includes(m.status)
     );
-
-    // Get the most relevant project (pending acceptance)
+    const hasMeetingRequest = meetings.length > 0; // Any meeting = phone visible
+    const otherUserPhone = chat?.matchedUserPhone || profile?.phone || null;
     const activeProject = projects.find(p => p.status === 'PENDING_ACCEPTANCE');
-
-    // Check if there's an accepted project with this user
     const hasAcceptedProject = projects.some(p => p.status === 'ACCEPTED');
-
-    // Debug: log button visibility states and project info
-    console.log('🔘 Button visibility:', {
-        hasConfirmedMeeting,
-        activeMeeting: activeMeeting?.id,
-        activeMeetingStatus: activeMeeting?.status,
-        showMeetButton: !hasConfirmedMeeting,
-        showStartProjectButton: hasConfirmedMeeting,
-        meetingsCount: meetings.length,
-        allMeetingStatuses: meetings.map(m => ({ id: m.id, status: m.status }))
-    });
-
-    // Debug: log project visibility states
-    console.log('🏠 Project visibility:', {
-        projectsCount: projects.length,
-        activeProject: activeProject?.id,
-        activeProjectStatus: activeProject?.status,
-        activeProjectRequestedBy: activeProject?.requestedBy,
-        hasAcceptedProject,
-        showProjectBanner: !!activeProject && !hasAcceptedProject,
-        allProjects: projects.map(p => ({
-            id: p.id,
-            status: p.status,
-            companyId: p.companyId,
-            seekerId: p.seekerId,
-            requestedBy: p.requestedBy
-        }))
-    });
 
     // Subscribe to real-time messages
     useEffect(() => {
         if (!chatId) return;
-
-        console.log('📡 Subscribing to messages for chat:', chatId);
         const unsubscribe = subscribeToMessages(chatId, (newMessages) => {
-            console.log('📨 Received', newMessages.length, 'messages');
             setMessages(newMessages);
         });
-
-        return () => {
-            console.log('🔌 Unsubscribing from chat:', chatId);
-            unsubscribe();
-        };
+        return () => unsubscribe();
     }, [chatId]);
 
-    // Auto-scroll to bottom when new messages arrive
+    // Auto-scroll to bottom when new messages arrive or files start uploading
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    }, [messages, uploadingFiles]);
+
+    // Detect phone numbers and email addresses in text
+    const containsContactInfo = (text) => {
+        // Phone: 7+ consecutive digits (with optional spaces, dashes, dots, parens)
+        const phonePattern = /(?:\+?\d[\d\s\-().]{6,}\d)/;
+        // Email: standard email pattern
+        const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+        return phonePattern.test(text) || emailPattern.test(text);
+    };
+
+    // Detect Google Maps / location URLs in text
+    const containsLocationUrl = (text) => {
+        const mapsPattern = /(?:maps\.google|google\.com\/maps|goo\.gl\/maps|maps\.app\.goo\.gl)/i;
+        const coordPattern = /\d+\.\d+,\s*\d+\.\d+/; // lat,lng patterns
+        return mapsPattern.test(text) || coordPattern.test(text);
+    };
 
     const handleSend = async () => {
         if (!message.trim() || sending) return;
+
+        const hasMeetingScheduled = activeMeeting?.status === 'SCHEDULED';
+
+        // Block messages containing phone numbers or emails before meeting is scheduled
+        if (!hasMeetingScheduled && containsContactInfo(message)) {
+            showToast('\u26a0\ufe0f Sharing personal contact info (phone/email) is not allowed before a meeting is scheduled. Schedule a meeting first \ud83d\udcc5', 'error');
+            return;
+        }
+
+        // Block raw location URLs before meeting is scheduled
+        if (!hasMeetingScheduled && containsLocationUrl(message)) {
+            showToast('\u26a0\ufe0f Location sharing is only available after a meeting is scheduled. Use the meeting location feature instead \ud83d\udcc5', 'info');
+            return;
+        }
 
         setSending(true);
         const result = await sendMessage(otherUserId, message);
@@ -582,6 +731,66 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
             setMessage('');
         }
         setSending(false);
+    };
+
+    // Share current location as a Google Maps link
+    const handleShareLocation = () => {
+        setShowAttachMenu(false);
+        // Block location sharing before a meeting is scheduled
+        if (!activeMeeting || activeMeeting.status !== 'SCHEDULED') {
+            showToast('⚠️ Location sharing is only available after a meeting is scheduled. Schedule a meeting first 📅', 'info');
+            return;
+        }
+        if (!navigator.geolocation) {
+            showToast('Location is not supported on this device.', 'error');
+            return;
+        }
+        showToast('Getting your location...', 'info');
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+                const { latitude, longitude } = pos.coords;
+                const mapUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+                await sendMessage(otherUserId, `📍 My Location: ${mapUrl}`);
+            },
+            () => showToast('Could not get your location. Please allow location access.', 'error'),
+            { enableHighAccuracy: true, timeout: 10000 }
+        );
+    };
+
+    // Share a contact from device address book
+    const handleShareContact = async () => {
+        setShowAttachMenu(false);
+        // Block contact sharing before a meeting is scheduled
+        if (!activeMeeting || activeMeeting.status !== 'SCHEDULED') {
+            showToast('⚠️ Contact sharing is only available after a meeting is scheduled. Schedule a meeting first 📅', 'info');
+            return;
+        }
+
+        // Contact Picker API (supported on Android Chrome, some mobile browsers)
+        if ('contacts' in navigator && 'ContactsManager' in window) {
+            try {
+                const contacts = await navigator.contacts.select(
+                    ['name', 'tel'],
+                    { multiple: false }
+                );
+                if (contacts && contacts.length > 0) {
+                    const contact = contacts[0];
+                    const name = contact.name?.[0] || 'Unknown';
+                    const phone = contact.tel?.[0] || '';
+                    const contactMsg = phone
+                        ? `👤 ${name}\n📞 ${phone}`
+                        : `👤 ${name}`;
+                    await sendMessage(otherUserId, contactMsg);
+                    showToast('Contact shared!', 'success');
+                }
+            } catch (err) {
+                if (err.name !== 'TypeError') {
+                    showToast('Could not access contacts.', 'error');
+                }
+            }
+        } else {
+            showToast('Contact sharing is not supported on this browser. Try from your phone.', 'info');
+        }
     };
 
     // Format message time
@@ -628,21 +837,24 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     <ArrowLeft size={20} color="var(--text-secondary)" />
                 </motion.button>
 
-                <div style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: isCompany ? 12 : '50%',
-                    background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
-                    border: '2px solid var(--pastel-mint)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                }}>
+                <div
+                    onClick={() => !isBroadcast && setShowProfileDetail(true)}
+                    style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: isCompany ? 12 : '50%',
+                        background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
+                        border: '2px solid var(--pastel-mint)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        cursor: isBroadcast ? 'default' : 'pointer',
+                    }}>
                     {!image && (isCompany ? <Briefcase size={18} color="var(--primary)" /> : <User size={18} color="var(--primary)" />)}
                 </div>
 
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: 1, cursor: isBroadcast ? 'default' : 'pointer' }} onClick={() => !isBroadcast && setShowProfileDetail(true)}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
                             {name || 'Unknown'}
@@ -666,6 +878,64 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     </div>
                     <span style={{ fontSize: 12, color: isBroadcast ? 'var(--text-muted)' : 'var(--success)' }}>{isBroadcast ? 'Official Broadcast' : 'Online'}</span>
                 </div>
+
+                {/* Phone button - always visible, but only functional after a meeting request */}
+                {!isBroadcast && (
+                    <motion.button
+                        onClick={() => {
+                            if (hasMeetingRequest && otherUserPhone) {
+                                window.open(`tel:${otherUserPhone}`, '_self');
+                            } else {
+                                showToast('Schedule a meeting first to get their contact number 📅', 'info');
+                            }
+                        }}
+                        whileTap={{ scale: 0.9 }}
+                        style={{
+                            width: 36, height: 36, borderRadius: '50%',
+                            background: hasMeetingRequest && otherUserPhone ? '#F0FDF4' : 'var(--bg-secondary)',
+                            border: hasMeetingRequest && otherUserPhone ? '1.5px solid #BBF7D0' : '1.5px solid var(--border-light)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer', flexShrink: 0,
+                        }}
+                        title={hasMeetingRequest && otherUserPhone ? otherUserPhone : 'Schedule a meeting to call'}
+                    >
+                        <Phone size={15} color={hasMeetingRequest && otherUserPhone ? '#22C55E' : 'var(--text-muted)'} />
+                    </motion.button>
+                )}
+
+                {/* 📍 Meeting Location Button — OTP-bar-style, visible only when meeting is SCHEDULED */}
+                {!isBroadcast && activeMeeting?.status === 'SCHEDULED' && activeMeeting?.location && (() => {
+                    const parts = activeMeeting.location.split('||');
+                    const displayAddress = parts[0] || activeMeeting.location;
+                    const coords = parts[1]; // "lat,lng" or undefined
+                    const mapsUrl = coords
+                        ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
+
+                    return (
+                        <motion.button
+                            onClick={() => window.open(mapsUrl, '_blank')}
+                            whileTap={{ scale: 0.9 }}
+                            style={{
+                                padding: '8px 12px',
+                                borderRadius: 10,
+                                background: '#F0FDF4',
+                                border: '1.5px solid #BBF7D0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                cursor: 'pointer',
+                                flexShrink: 0,
+                            }}
+                            title={displayAddress}
+                        >
+                            <MapPin size={14} color="#22C55E" />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#16A34A', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                Location
+                            </span>
+                        </motion.button>
+                    );
+                })()}
 
                 {/* Schedule Meeting Button - hide once meeting is confirmed and Start Project is visible */}
                 {!isBroadcast && !hasConfirmedMeeting && (
@@ -716,9 +986,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
             {/* Meeting Banner - show if there's an active meeting but NOT if already confirmed */}
             {activeMeeting && !hasConfirmedMeeting && (() => {
-                const meetingTime = new Date(activeMeeting.scheduledAt);
+                const meetingTime = activeMeeting.scheduledAt ? new Date(activeMeeting.scheduledAt) : null;
                 const now = new Date();
-                const isExpired = meetingTime < now;
+                const isExpired = meetingTime ? meetingTime < now : false;
                 const isCompanyUser = user?.role === 'COMPANY';
                 const hasUserConfirmed = isCompanyUser ? activeMeeting.companyConfirmed : activeMeeting.seekerConfirmed;
                 const hasUserDenied = isCompanyUser ? activeMeeting.companyDenied : activeMeeting.seekerDenied;
@@ -750,6 +1020,85 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         Someone from our team will contact you shortly.
                                     </p>
                                 </div>
+                            </div>
+                        </motion.div>
+                    );
+                }
+
+                // REQUESTED status — Company sent request, seeker needs to accept & set details
+                if (activeMeeting.status === 'REQUESTED') {
+                    const isReceiver = activeMeeting.requestedBy !== user?.id;
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            style={{ padding: 12, background: '#F5F3FF', borderBottom: '1.5px solid #8B5CF6' }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <Calendar size={18} color="#7C3AED" style={{ flexShrink: 0 }} />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#5B21B6' }}>
+                                        {isReceiver ? 'Meeting request received' : 'Meeting request sent'}
+                                    </p>
+                                    <p style={{ fontSize: 11, color: '#7C3AED' }}>
+                                        {isReceiver ? 'Set the date, time & location to accept' : 'Waiting for seeker to respond'}
+                                    </p>
+                                </div>
+                                {isReceiver ? (
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <motion.button
+                                            onClick={() => setShowAcceptScheduleModal(true)}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#7C3AED',
+                                                border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
+                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <Calendar size={14} />
+                                            Accept
+                                        </motion.button>
+                                        <motion.button
+                                            onClick={async () => {
+                                                setActionLoading('decline');
+                                                await declineMeeting(activeMeeting.id);
+                                                const updated = await getMeetings();
+                                                setMeetings(updated.filter(m =>
+                                                    (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
+                                                ));
+                                                setActionLoading(null);
+                                            }}
+                                            disabled={actionLoading}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
+                                                border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <X size={14} />
+                                        </motion.button>
+                                    </div>
+                                ) : (
+                                    <motion.button
+                                        onClick={async () => {
+                                            setActionLoading('cancel');
+                                            await cancelMeeting(activeMeeting.id);
+                                            const updated = await getMeetings();
+                                            setMeetings(updated.filter(m =>
+                                                (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
+                                            ));
+                                            setActionLoading(null);
+                                        }}
+                                        disabled={actionLoading}
+                                        whileTap={{ scale: 0.95 }}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
+                                            border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        }}
+                                    >
+                                        Cancel
+                                    </motion.button>
+                                )}
                             </div>
                         </motion.div>
                     );
@@ -1102,6 +1451,31 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                                         })}
                                     </p>
+                                    {/* 📍 Meeting Location Button */}
+                                    {activeMeeting.location && (() => {
+                                        const parts = activeMeeting.location.split('||');
+                                        const displayAddr = parts[0] || activeMeeting.location;
+                                        const coords = parts[1];
+                                        const mapUrl = coords
+                                            ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+                                            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddr)}`;
+                                        return (
+                                            <motion.button
+                                                onClick={() => window.open(mapUrl, '_blank')}
+                                                whileTap={{ scale: 0.95 }}
+                                                style={{
+                                                    marginTop: 8,
+                                                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                    padding: '6px 14px', borderRadius: 8,
+                                                    background: 'white', border: '1.5px solid #BBF7D0',
+                                                    cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#16A34A',
+                                                }}
+                                            >
+                                                <MapPin size={14} color="#22C55E" />
+                                                📍 Open Meeting Location
+                                            </motion.button>
+                                        );
+                                    })()}
                                 </div>
                             </motion.div>
                         );
@@ -1215,6 +1589,31 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                                     })}
                                 </p>
+                                {/* 📍 Meeting Location Button */}
+                                {activeMeeting.location && (() => {
+                                    const parts = activeMeeting.location.split('||');
+                                    const displayAddr = parts[0] || activeMeeting.location;
+                                    const coords = parts[1];
+                                    const mapUrl = coords
+                                        ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+                                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddr)}`;
+                                    return (
+                                        <motion.button
+                                            onClick={() => window.open(mapUrl, '_blank')}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                marginTop: 8,
+                                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                padding: '6px 14px', borderRadius: 8,
+                                                background: 'white', border: '1.5px solid #FDE68A',
+                                                cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#92400E',
+                                            }}
+                                        >
+                                            <MapPin size={14} color="#F59E0B" />
+                                            📍 Open Meeting Location
+                                        </motion.button>
+                                    );
+                                })()}
                             </div>
                         </motion.div>
                     );
@@ -1386,17 +1785,77 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                 animate={{ opacity: 1, y: 0 }}
                                 style={{
                                     alignSelf: isMe ? 'flex-end' : 'flex-start',
-                                    maxWidth: '75%',
+                                    maxWidth: '80%',
                                 }}
                             >
                                 <div style={{
-                                    padding: '12px 16px',
+                                    padding: msg.fileType === 'image' ? '4px' : '12px 16px',
                                     borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                                     background: isMe ? 'var(--gradient-primary)' : 'white',
                                     color: isMe ? 'white' : 'var(--text-primary)',
                                     boxShadow: 'var(--shadow-sm)',
+                                    overflow: 'hidden',
                                 }}>
-                                    <p style={{ fontSize: 14, lineHeight: 1.4 }}>{msg.text}</p>
+                                    {/* Voice note */}
+                                    {msg.fileType === 'voice' && msg.fileUrl && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 200 }}>
+                                            <Mic size={16} style={{ flexShrink: 0 }} />
+                                            <audio controls preload="none" style={{
+                                                height: 32, flex: 1, maxWidth: '100%',
+                                                filter: isMe ? 'brightness(10)' : 'none',
+                                            }}>
+                                                <source src={msg.fileUrl} />
+                                            </audio>
+                                            {msg.fileDuration && (
+                                                <span style={{ fontSize: 11, opacity: 0.7, flexShrink: 0 }}>
+                                                    {formatDuration(msg.fileDuration)}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {/* Image */}
+                                    {msg.fileType === 'image' && msg.fileUrl && (
+                                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">
+                                            <img src={msg.fileUrl} alt="Shared image"
+                                                style={{
+                                                    maxWidth: '100%', maxHeight: 280,
+                                                    borderRadius: 14, display: 'block',
+                                                    objectFit: 'cover',
+                                                }}
+                                            />
+                                        </a>
+                                    )}
+                                    {/* PDF / Document */}
+                                    {(msg.fileType === 'pdf' || msg.fileType === 'document') && msg.fileUrl && (
+                                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer"
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: 10,
+                                                textDecoration: 'none', color: 'inherit',
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: 40, height: 40, borderRadius: 10,
+                                                background: isMe ? 'rgba(255,255,255,0.2)' : '#F0FDF4',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                flexShrink: 0,
+                                            }}>
+                                                <FileText size={20} color={isMe ? 'white' : '#22C55E'} />
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <p style={{
+                                                    fontSize: 13, fontWeight: 600,
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                }}>
+                                                    {msg.fileName || (msg.fileType === 'pdf' ? 'PDF Document' : 'Document')}
+                                                </p>
+                                                <p style={{ fontSize: 11, opacity: 0.7 }}>
+                                                    {msg.fileType === 'pdf' ? 'PDF' : 'DOC'} • Tap to open
+                                                </p>
+                                            </div>
+                                        </a>
+                                    )}
+                                    {/* Text message */}
+                                    {msg.text && <p style={{ fontSize: 14, lineHeight: 1.4, marginTop: msg.fileUrl ? 8 : 0 }}>{msg.text}</p>}
                                 </div>
                                 <span style={{
                                     fontSize: 10,
@@ -1411,6 +1870,85 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                         );
                     })
                 )}
+
+                {/* Uploading files — inline previews with spinner (WhatsApp style) */}
+                {uploadingFiles.map(uf => (
+                    <motion.div
+                        key={uf.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        style={{
+                            alignSelf: 'flex-end',
+                            maxWidth: '80%',
+                        }}
+                    >
+                        <div style={{
+                            padding: uf.fileType === 'image' ? '4px' : '12px 16px',
+                            borderRadius: '18px 18px 4px 18px',
+                            background: 'var(--gradient-primary)',
+                            color: 'white',
+                            boxShadow: 'var(--shadow-sm)',
+                            overflow: 'hidden',
+                            position: 'relative',
+                        }}>
+                            {/* Circular spinner overlay */}
+                            <div style={{
+                                position: 'absolute', inset: 0,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: uf.fileType === 'image' ? 'rgba(0,0,0,0.35)' : 'transparent',
+                                zIndex: 2, borderRadius: 'inherit',
+                            }}>
+                                <div style={{
+                                    width: 44, height: 44, borderRadius: '50%',
+                                    background: 'rgba(0,0,0,0.45)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    backdropFilter: 'blur(4px)',
+                                }}>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" style={{ animation: 'spin 1s linear infinite' }}>
+                                        <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="2.5" fill="none" />
+                                        <path d="M12 2a10 10 0 0 1 10 10" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                                    </svg>
+                                </div>
+                            </div>
+
+                            {/* Image preview */}
+                            {uf.fileType === 'image' && uf.localUrl && (
+                                <img src={uf.localUrl} alt="Uploading"
+                                    style={{
+                                        maxWidth: '100%', maxHeight: 280,
+                                        borderRadius: 14, display: 'block',
+                                        objectFit: 'cover', opacity: 0.7,
+                                    }}
+                                />
+                            )}
+
+                            {/* Document preview */}
+                            {(uf.fileType === 'pdf' || uf.fileType === 'document') && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative', zIndex: 1 }}>
+                                    <div style={{
+                                        width: 40, height: 40, borderRadius: 10,
+                                        background: 'rgba(255,255,255,0.2)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        flexShrink: 0,
+                                    }}>
+                                        <FileText size={20} color="white" />
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <p style={{
+                                            fontSize: 13, fontWeight: 600,
+                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                        }}>
+                                            {uf.name}
+                                        </p>
+                                        <p style={{ fontSize: 11, opacity: 0.7 }}>Uploading...</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, display: 'block', textAlign: 'right' }}>Sending...</span>
+                    </motion.div>
+                ))}
+
                 <div ref={messagesEndRef} />
             </div>
 
@@ -1464,51 +2002,305 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                 </div>
             ) : (
                 <div style={{
-                    padding: '12px 16px 24px',
+                    padding: '10px 12px 24px',
                     background: 'white',
                     borderTop: '1px solid var(--border-light)',
-                    display: 'flex',
-                    gap: 10,
                 }}>
-                    <input
-                        type="text"
-                        value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                        placeholder="Type a message..."
-                        disabled={sending}
-                        style={{
-                            flex: 1,
-                            padding: '14px 18px',
-                            borderRadius: 24,
-                            border: '1px solid var(--border)',
-                            background: 'var(--bg-secondary)',
-                            fontSize: 15,
-                            outline: 'none',
-                            opacity: sending ? 0.7 : 1,
-                        }}
-                    />
-                    <motion.button
-                        onClick={handleSend}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        disabled={sending || !message.trim()}
-                        style={{
-                            width: 48,
-                            height: 48,
-                            borderRadius: '50%',
-                            background: 'var(--gradient-primary)',
-                            border: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: sending || !message.trim() ? 'not-allowed' : 'pointer',
-                            boxShadow: 'var(--shadow-glow-soft)',
-                            opacity: sending || !message.trim() ? 0.7 : 1,
-                        }}
-                    >
-                        <Send size={20} color="white" />
-                    </motion.button>
+                    {/* Upload progress bar */}
+
+
+                    {/* Recording UI */}
+                    {isRecording ? (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '8px 4px',
+                        }}>
+                            {/* Cancel button */}
+                            <motion.button
+                                onClick={cancelRecording}
+                                whileTap={{ scale: 0.9 }}
+                                style={{
+                                    width: 40, height: 40, borderRadius: '50%',
+                                    background: '#FEE2E2', border: 'none',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <X size={18} color="#EF4444" />
+                            </motion.button>
+
+                            {/* Recording indicator */}
+                            <div style={{
+                                flex: 1, display: 'flex', alignItems: 'center', gap: 10,
+                                padding: '10px 16px', borderRadius: 24,
+                                background: micConnecting ? '#FFF7ED' : '#FEF2F2',
+                                border: micConnecting ? '1px solid #FED7AA' : '1px solid #FECACA',
+                            }}>
+                                {micConnecting ? (
+                                    <>
+                                        <Loader2 size={14} color="#F97316" style={{ animation: 'spin 1s linear infinite' }} />
+                                        <span style={{ fontSize: 13, fontWeight: 500, color: '#EA580C' }}>Connecting mic...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div style={{
+                                            width: 10, height: 10, borderRadius: '50%',
+                                            background: '#EF4444',
+                                            animation: 'pulse 1s ease-in-out infinite',
+                                        }} />
+                                        <span style={{ fontSize: 14, fontWeight: 600, color: '#DC2626', fontFamily: 'monospace' }}>
+                                            {formatDuration(recordingDuration)}
+                                        </span>
+                                        <span style={{ fontSize: 12, color: '#F87171' }}>
+                                            / {formatDuration(MAX_VOICE_DURATION)}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Send button */}
+                            <motion.button
+                                onClick={stopRecordingAndSend}
+                                whileTap={{ scale: 0.9 }}
+                                disabled={micConnecting}
+                                style={{
+                                    width: 48, height: 48, borderRadius: '50%',
+                                    background: 'var(--gradient-primary)',
+                                    border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    cursor: micConnecting ? 'not-allowed' : 'pointer',
+                                    boxShadow: 'var(--shadow-glow-soft)',
+                                    opacity: micConnecting ? 0.5 : 1,
+                                }}
+                            >
+                                <Send size={20} color="white" />
+                            </motion.button>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {/* + Attachment button */}
+                            <div style={{ position: 'relative' }}>
+                                <motion.button
+                                    onClick={() => setShowAttachMenu(!showAttachMenu)}
+                                    whileTap={{ scale: 0.9 }}
+                                    style={{
+                                        width: 38, height: 38, borderRadius: '50%',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        cursor: 'pointer', flexShrink: 0,
+                                        transform: showAttachMenu ? 'rotate(45deg)' : 'rotate(0deg)',
+                                        transition: 'transform 0.2s ease',
+                                    }}
+                                >
+                                    <Plus size={24} color="var(--text-secondary)" strokeWidth={1.8} />
+                                </motion.button>
+
+                                {/* Attachment grid popup */}
+                                {showAttachMenu && (
+                                    <>
+                                        <div onClick={() => setShowAttachMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
+                                        <motion.div
+                                            initial={{ opacity: 0, y: 12, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            transition={{ duration: 0.15, ease: 'easeOut' }}
+                                            style={{
+                                                position: 'absolute', bottom: '120%', left: -8,
+                                                background: '#F5F5F5', borderRadius: 18,
+                                                boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+                                                border: '1px solid rgba(0,0,0,0.06)',
+                                                padding: '16px 12px 12px', zIndex: 50,
+                                                width: 280,
+                                            }}
+                                        >
+                                            <div style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                                gap: 8,
+                                            }}>
+                                                {/* Photos */}
+                                                <button
+                                                    onClick={() => { galleryInputRef.current?.click(); setShowAttachMenu(false); }}
+                                                    style={{
+                                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                                        padding: '12px 4px', borderRadius: 14, border: 'none',
+                                                        background: 'transparent', cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                                                        <ImageIcon size={24} color="#3B82F6" strokeWidth={1.8} />
+                                                    </div>
+                                                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Photos</span>
+                                                </button>
+
+                                                {/* Camera */}
+                                                <button
+                                                    onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }}
+                                                    style={{
+                                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                                        padding: '12px 4px', borderRadius: 14, border: 'none',
+                                                        background: 'transparent', cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                                                        <Camera size={24} color="#6B7280" strokeWidth={1.8} />
+                                                    </div>
+                                                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Camera</span>
+                                                </button>
+
+                                                {/* Location */}
+                                                <button
+                                                    onClick={handleShareLocation}
+                                                    style={{
+                                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                                        padding: '12px 4px', borderRadius: 14, border: 'none',
+                                                        background: 'transparent', cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                                                        <MapPin size={24} color="#22C55E" strokeWidth={1.8} />
+                                                    </div>
+                                                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Location</span>
+                                                </button>
+
+                                                {/* Contact */}
+                                                <button
+                                                    onClick={handleShareContact}
+                                                    style={{
+                                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                                        padding: '12px 4px', borderRadius: 14, border: 'none',
+                                                        background: 'transparent', cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                                                        <UserCircle size={24} color="#6B7280" strokeWidth={1.8} />
+                                                    </div>
+                                                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Contact</span>
+                                                </button>
+
+                                                {/* Document */}
+                                                <button
+                                                    onClick={() => { docInputRef.current?.click(); setShowAttachMenu(false); }}
+                                                    style={{
+                                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                                        padding: '12px 4px', borderRadius: 14, border: 'none',
+                                                        background: 'transparent', cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                                                        <FileText size={24} color="#3B82F6" strokeWidth={1.8} />
+                                                    </div>
+                                                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Document</span>
+                                                </button>
+
+                                                {/* Meeting */}
+                                                <button
+                                                    onClick={() => { setShowAttachMenu(false); setShowMeetingModal(true); }}
+                                                    style={{
+                                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                                        padding: '12px 4px', borderRadius: 14, border: 'none',
+                                                        background: 'transparent', cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                                                        <Calendar size={24} color="#EF4444" strokeWidth={1.8} />
+                                                    </div>
+                                                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Meeting</span>
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Text input — pill shape */}
+                            <div style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: 24,
+                                border: '1px solid var(--border)',
+                                background: 'var(--bg-secondary)',
+                                paddingRight: 4,
+                                minWidth: 0,
+                            }}>
+                                <input
+                                    type="text"
+                                    value={message}
+                                    onChange={(e) => setMessage(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                                    placeholder="Type a message..."
+                                    disabled={sending || uploadingFile}
+                                    style={{
+                                        flex: 1,
+                                        padding: '11px 16px',
+                                        border: 'none',
+                                        background: 'transparent',
+                                        fontSize: 15,
+                                        outline: 'none',
+                                        opacity: (sending || uploadingFile) ? 0.7 : 1,
+                                        minWidth: 0,
+                                    }}
+                                />
+                            </div>
+
+                            {/* Right-side action buttons */}
+                            {message.trim() ? (
+                                /* Send button when typing */
+                                <motion.button
+                                    onClick={handleSend}
+                                    whileTap={{ scale: 0.9 }}
+                                    disabled={sending}
+                                    style={{
+                                        width: 42, height: 42, borderRadius: '50%',
+                                        background: 'var(--gradient-primary)',
+                                        border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        cursor: sending ? 'not-allowed' : 'pointer',
+                                        boxShadow: 'var(--shadow-glow-soft)',
+                                        opacity: sending ? 0.7 : 1, flexShrink: 0,
+                                    }}
+                                >
+                                    <Send size={18} color="white" />
+                                </motion.button>
+                            ) : (
+                                /* Camera + Mic buttons when not typing */
+                                <>
+                                    <motion.button
+                                        onClick={() => cameraInputRef.current?.click()}
+                                        whileTap={{ scale: 0.9 }}
+                                        style={{
+                                            width: 38, height: 38, borderRadius: '50%',
+                                            background: 'transparent',
+                                            border: 'none',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: 'pointer', flexShrink: 0,
+                                        }}
+                                    >
+                                        <Camera size={22} color="var(--text-secondary)" strokeWidth={1.6} />
+                                    </motion.button>
+                                    <motion.button
+                                        onClick={startRecording}
+                                        whileTap={{ scale: 0.9 }}
+                                        disabled={uploadingFile}
+                                        style={{
+                                            width: 38, height: 38, borderRadius: '50%',
+                                            background: 'transparent',
+                                            border: 'none',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: uploadingFile ? 'not-allowed' : 'pointer',
+                                            flexShrink: 0,
+                                        }}
+                                    >
+                                        <Mic size={22} color="var(--text-secondary)" strokeWidth={1.6} />
+                                    </motion.button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Hidden file inputs — separate for camera, gallery, documents */}
+                    <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileSelect} style={{ display: 'none' }} />
+                    <input ref={galleryInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+                    <input ref={docInputRef} type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleFileSelect} style={{ display: 'none' }} />
                 </div>
             )}
 
@@ -1577,6 +2369,39 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                         onSuccess={() => {
                             setShowReviewModal(false);
                             setReviewData(null);
+                        }}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Profile Detail Modal — opens when tapping avatar/name in header */}
+            <AnimatePresence>
+                {showProfileDetail && !isBroadcast && (
+                    <ProfileDetail
+                        profile={{
+                            id: otherUserId,
+                            role: chat?.matchedUserRole || (isCompany ? 'COMPANY' : 'SEEKER'),
+                            profile: profile,
+                        }}
+                        onClose={() => setShowProfileDetail(false)}
+                        onMeet={() => { setShowProfileDetail(false); setShowMeetingModal(true); }}
+                        viewerRole={user?.role}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Accept & Schedule Modal — for seeker to accept + set date/time/location */}
+            <AnimatePresence>
+                {showAcceptScheduleModal && activeMeeting && activeMeeting.status === 'REQUESTED' && (
+                    <AcceptAndScheduleModal
+                        meeting={activeMeeting}
+                        onClose={() => setShowAcceptScheduleModal(false)}
+                        onScheduled={async () => {
+                            setShowAcceptScheduleModal(false);
+                            const updated = await getMeetings();
+                            setMeetings(updated.filter(m =>
+                                (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
+                            ));
                         }}
                     />
                 )}

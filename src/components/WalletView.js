@@ -29,8 +29,77 @@ export function TopUpModal({ onClose, onSuccess }) {
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    // Track pending order for iOS recovery
+    const pendingOrderRef = React.useRef(null);
 
     const presetAmounts = [500, 1000, 2000, 5000];
+
+    // ── iOS Recovery: check if a pending payment completed ──
+    // On iOS WKWebView, when the user switches to a UPI app and back,
+    // the Razorpay handler callback may not fire. This function polls
+    // the server to check if the Razorpay order was actually paid.
+    const recoverPendingPayment = React.useCallback(async () => {
+        const pending = pendingOrderRef.current;
+        if (!pending || pending.recovered) return;
+
+        try {
+            const res = await fetch('/api/razorpay/verify-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: pending.orderId,
+                    userId: user.id,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (data.success && data.paymentId) {
+                // Payment was captured — credit the wallet
+                pending.recovered = true; // prevent duplicate credits
+                const result = await topUpWallet(
+                    data.amount,
+                    data.paymentId,
+                    data.orderId
+                );
+
+                if (result.success) {
+                    onSuccess?.(data.amount);
+                    onClose();
+                } else {
+                    setError('Payment received but wallet update failed. Contact support with payment ID: ' + data.paymentId);
+                }
+                setLoading(false);
+            }
+            // If not paid yet, do nothing — user may have genuinely cancelled
+        } catch (err) {
+            console.error('Payment recovery check failed:', err);
+        }
+    }, [user, topUpWallet, onSuccess, onClose]);
+
+    // Listen for app resume / visibility change — triggers recovery on iOS
+    React.useEffect(() => {
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible' && pendingOrderRef.current) {
+                // Small delay to let Razorpay's own handler fire first if it's going to
+                setTimeout(() => recoverPendingPayment(), 1500);
+            }
+        };
+
+        const handleFocus = () => {
+            if (pendingOrderRef.current) {
+                setTimeout(() => recoverPendingPayment(), 1500);
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [recoverPendingPayment]);
 
     const handlePayment = async () => {
         const numAmount = parseInt(amount);
@@ -56,6 +125,13 @@ export function TopUpModal({ onClose, onSuccess }) {
                 throw new Error(orderData.error || 'Failed to create order');
             }
 
+            // Track the pending order for iOS recovery
+            pendingOrderRef.current = {
+                orderId: orderData.orderId,
+                amount: numAmount,
+                recovered: false,
+            };
+
             // 2. Open Razorpay checkout (UPI-first, in-app)
             const options = buildRazorpayOptions({
                 key: orderData.keyId,
@@ -68,6 +144,11 @@ export function TopUpModal({ onClose, onSuccess }) {
                     email: user?.email || '',
                 },
                 handler: async function (response) {
+                    // Mark as recovered so the background check doesn't double-credit
+                    if (pendingOrderRef.current) {
+                        pendingOrderRef.current.recovered = true;
+                    }
+
                     // 3. Verify payment on server
                     const verifyRes = await fetch('/api/razorpay/verify-payment', {
                         method: 'POST',
@@ -103,7 +184,13 @@ export function TopUpModal({ onClose, onSuccess }) {
                     setLoading(false);
                 },
                 onDismiss: function () {
-                    setLoading(false);
+                    // On iOS, the handler may not have fired. Check the order.
+                    // Delay to let any pending handler execute first.
+                    if (pendingOrderRef.current && !pendingOrderRef.current.recovered) {
+                        setTimeout(() => recoverPendingPayment(), 2000);
+                    } else {
+                        setLoading(false);
+                    }
                 },
             });
 
@@ -114,6 +201,7 @@ export function TopUpModal({ onClose, onSuccess }) {
             setLoading(false);
         }
     };
+
 
     return (
         <motion.div

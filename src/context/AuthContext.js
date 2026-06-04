@@ -26,6 +26,35 @@ import {
     deleteDoc
 } from 'firebase/firestore';
 
+// ── Username utilities ──
+function slugifyName(name) {
+    return (name || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .slice(0, 20) || 'user';
+}
+
+async function generateUniqueUsername(baseName, userId) {
+    const base = slugifyName(baseName);
+    // Try base username first
+    let candidate = base;
+    for (let attempt = 0; attempt < 10; attempt++) {
+        if (attempt > 0) candidate = `${base}${Math.floor(Math.random() * 9000) + 1000}`;
+        const snap = await getDoc(doc(db, 'usernames', candidate));
+        if (!snap.exists()) {
+            // Reserve it
+            await setDoc(doc(db, 'usernames', candidate), { userId, createdAt: new Date().toISOString() });
+            return candidate;
+        }
+        // If this username already belongs to this user, reuse it
+        if (snap.data().userId === userId) return candidate;
+    }
+    // Fallback: userId-based
+    const fallback = `user${userId.slice(0, 8).toLowerCase()}`;
+    await setDoc(doc(db, 'usernames', fallback), { userId, createdAt: new Date().toISOString() });
+    return fallback;
+}
+
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
@@ -318,6 +347,13 @@ export const AuthProvider = ({ children }) => {
             cleanedProfile.phone = userPhone;
         }
 
+        // Generate username if not already set
+        let username = user.username;
+        if (!username) {
+            const displayName = profileData.name || profileData.companyName || user.name || 'user';
+            username = await generateUniqueUsername(displayName, user.id);
+        }
+
         const updatedUser = {
             email: user.email,
             phone: userPhone,
@@ -325,6 +361,7 @@ export const AuthProvider = ({ children }) => {
             role: user.role,
             profileComplete: true,
             profile: cleanedProfile,
+            username,
             createdAt: new Date().toISOString()
         };
 
@@ -340,6 +377,37 @@ export const AuthProvider = ({ children }) => {
             // Clear onboarding flag - profile is complete
             isOnboarding.current = false;
 
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    };
+
+    // Update username
+    const updateUsername = async (newUsername) => {
+        if (!user || !user.id) return { success: false, error: 'Not logged in' };
+
+        const clean = (newUsername || '').toLowerCase().replace(/[^a-z0-9._]/g, '').slice(0, 25);
+        if (clean.length < 3) return { success: false, error: 'Username must be at least 3 characters' };
+        if (clean === user.username) return { success: true }; // No change
+
+        // Check availability
+        const existing = await getDoc(doc(db, 'usernames', clean));
+        if (existing.exists() && existing.data().userId !== user.id) {
+            return { success: false, error: 'Username is already taken' };
+        }
+
+        try {
+            // Release old username
+            if (user.username) {
+                await deleteDoc(doc(db, 'usernames', user.username));
+            }
+            // Reserve new
+            await setDoc(doc(db, 'usernames', clean), { userId: user.id, createdAt: new Date().toISOString() });
+            // Update user doc
+            const collectionName = user.role === 'SEEKER' ? 'seekers' : 'companies';
+            await updateDoc(doc(db, collectionName, user.id), { username: clean });
+            setUser(prev => ({ ...prev, username: clean }));
             return { success: true };
         } catch (error) {
             return { success: false, error: error.message };
@@ -393,7 +461,7 @@ export const AuthProvider = ({ children }) => {
             const cooldownCutoff = sevenDaysAgo.toISOString();
 
             // Fetch liked, passed, meeting, and matched users in parallel
-            const [likedUsersSnapshot, passedUsersSnapshot, meetingsSnapshot, matchesSnapshot] = await Promise.all([
+            const fetchPromises = [
                 getDocs(collection(db, 'likes', user.id, 'outgoing')),
                 getDocs(collection(db, 'passes', user.id, 'passed')),
                 getDocs(query(
@@ -401,7 +469,23 @@ export const AuthProvider = ({ children }) => {
                     where(user.role === 'COMPANY' ? 'companyId' : 'seekerId', '==', user.id)
                 )),
                 getDocs(collection(db, 'matches', user.id, 'matched')),
-            ]);
+            ];
+
+            // For COMPANY users: also fetch ALL active seeker meetings globally
+            // so we can deprioritize seekers who already have appointment requests
+            const isCompanyUser = user.role === 'COMPANY';
+            if (isCompanyUser) {
+                fetchPromises.push(
+                    getDocs(query(
+                        collection(db, 'meetings'),
+                        where('status', 'in', ['PENDING_ACCEPTANCE', 'SCHEDULED'])
+                    ))
+                );
+            }
+
+            const results = await Promise.all(fetchPromises);
+            const [likedUsersSnapshot, passedUsersSnapshot, meetingsSnapshot, matchesSnapshot] = results;
+            const globalActiveMeetingsSnapshot = isCompanyUser ? results[4] : null;
 
             // Liked users — only exclude if liked within last 7 days
             const likedUserIds = new Set();
@@ -438,6 +522,19 @@ export const AuthProvider = ({ children }) => {
                 }
             });
 
+            // Build demand map: count active meetings per seeker (for company users)
+            // Seekers with more active meetings get deprioritized
+            const seekerDemandMap = new Map(); // seekerId → active meeting count
+            if (isCompanyUser && globalActiveMeetingsSnapshot) {
+                globalActiveMeetingsSnapshot.forEach((d) => {
+                    const m = d.data();
+                    const sid = m.seekerId;
+                    if (sid) {
+                        seekerDemandMap.set(sid, (seekerDemandMap.get(sid) || 0) + 1);
+                    }
+                });
+            }
+
             // Seekers see Companies, Companies see Seekers
             const collectionName = user.role === 'SEEKER' ? 'companies' : 'seekers';
 
@@ -459,25 +556,51 @@ export const AuthProvider = ({ children }) => {
             // City-based matching: same-city profiles appear first
             const userCity = (user.profile?.city || '').trim().toLowerCase();
 
+            // Simple hash function to create per-user deterministic variation
+            // so different companies see slightly different orderings
+            const hashCode = (str) => {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32-bit integer
+                }
+                return Math.abs(hash);
+            };
+            const userSeed = hashCode(user.id || '');
+
             profiles.sort((a, b) => {
                 const aCity = (a.profile?.city || a.city || '').trim().toLowerCase();
                 const bCity = (b.profile?.city || b.city || '').trim().toLowerCase();
                 const aSameCity = userCity && aCity === userCity ? 1 : 0;
                 const bSameCity = userCity && bCity === userCity ? 1 : 0;
 
-                // Same-city profiles come first
+                // 1. Same-city profiles come first
                 if (aSameCity !== bSameCity) return bSameCity - aSameCity;
 
-                // Within same group, sort by lastActiveAt descending
+                // 2. For COMPANY users: deprioritize seekers with more active meetings
+                if (isCompanyUser) {
+                    const aDemand = seekerDemandMap.get(a.id) || 0;
+                    const bDemand = seekerDemandMap.get(b.id) || 0;
+                    if (aDemand !== bDemand) return aDemand - bDemand; // fewer meetings = higher rank
+                }
+
+                // 3. Within same demand tier, sort by lastActiveAt descending
                 const aTime = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
                 const bTime = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+
+                // 4. If activity times are within 1 hour of each other, use
+                //    per-user hash to break the tie so different companies see
+                //    different orderings among equally-active seekers
+                if (Math.abs(aTime - bTime) < 3600000) { // 1 hour
+                    const aHash = hashCode(a.id) ^ userSeed;
+                    const bHash = hashCode(b.id) ^ userSeed;
+                    return aHash - bHash;
+                }
+
                 return bTime - aTime;
             });
 
-            const sameCityCount = profiles.filter(p => {
-                const pCity = (p.profile?.city || p.city || '').trim().toLowerCase();
-                return userCity && pCity === userCity;
-            }).length;
             return profiles;
         } catch (error) {
             return [];
@@ -762,25 +885,39 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     // Send a message in a chat
-    const sendMessage = useCallback(async (otherUserId, messageText) => {
-        if (!user || !user.id || !messageText.trim()) {
+    const sendMessage = useCallback(async (otherUserId, messageText, attachment = null) => {
+        if (!user || !user.id || (!messageText.trim() && !attachment)) {
             return { success: false };
         }
 
         const chatId = getChatId(user.id, otherUserId);
         try {
-            // Add message to the messages subcollection
-            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+            // Build message document
+            const msgDoc = {
                 senderId: user.id,
                 senderName: user.name || user.profile?.companyName || user.profile?.name,
                 text: messageText.trim(),
                 createdAt: serverTimestamp(),
-            });
+            };
+
+            // Add attachment fields if present
+            if (attachment) {
+                msgDoc.fileUrl = attachment.url;
+                msgDoc.fileType = attachment.type; // 'voice', 'image', 'pdf', 'document'
+                msgDoc.fileName = attachment.name || '';
+                if (attachment.duration) msgDoc.fileDuration = attachment.duration;
+            }
+
+            await addDoc(collection(db, 'chats', chatId, 'messages'), msgDoc);
 
             // Update chat metadata
+            const lastMsgPreview = attachment
+                ? (attachment.type === 'voice' ? '🎙️ Voice note' : `📎 ${attachment.name || 'File'}`)
+                : messageText.trim();
+
             await setDoc(doc(db, 'chats', chatId), {
                 participants: [user.id, otherUserId],
-                lastMessage: messageText.trim(),
+                lastMessage: lastMsgPreview,
                 lastMessageAt: serverTimestamp(),
                 lastMessageSenderId: user.id,
             }, { merge: true });
@@ -790,7 +927,7 @@ export const AuthProvider = ({ children }) => {
             createNotification(otherUserId, {
                 type: 'message',
                 title: '💬 New Message',
-                message: `${senderName}: ${messageText.trim().substring(0, 50)}${messageText.trim().length > 50 ? '...' : ''}`,
+                message: `${senderName}: ${lastMsgPreview.substring(0, 50)}${lastMsgPreview.length > 50 ? '...' : ''}`,
                 data: { chatId, senderId: user.id },
             });
 
@@ -891,6 +1028,7 @@ export const AuthProvider = ({ children }) => {
                         matchedUserName: partnerName,
                         matchedUserRole: partnerRole,
                         matchedUserProfile: partnerProfile,
+                        matchedUserPhone: partner.phone || partnerProfile.phone || null,
                         lastMessage: chat.lastMessage || null,
                         lastMessageAt: chat.lastMessageAt || null,
                         meetingStatus: chat.meetingStatus || latestMeeting?.status || null,
@@ -1075,6 +1213,23 @@ export const AuthProvider = ({ children }) => {
         }
 
         try {
+            // ── Idempotency guard: prevent double-crediting ──
+            // If both the Razorpay handler AND the iOS recovery fire for the
+            // same payment, this check ensures only the first one credits.
+            if (paymentId) {
+                const existingTxnSnap = await getDocs(query(
+                    collection(db, 'transactions'),
+                    where('paymentId', '==', paymentId),
+                    where('userId', '==', user.id)
+                ));
+                if (!existingTxnSnap.empty) {
+                    // Already credited — return success without double-crediting
+                    const walletSnap = await getDoc(doc(db, 'wallets', user.id));
+                    const currentBalance = walletSnap.exists() ? (walletSnap.data().balance || 0) : 0;
+                    return { success: true, newBalance: currentBalance, alreadyCredited: true };
+                }
+            }
+
             const walletRef = doc(db, 'wallets', user.id);
             const walletSnap = await getDoc(walletRef);
 
@@ -1126,19 +1281,16 @@ export const AuthProvider = ({ children }) => {
     // ============ MEETING FUNCTIONS ============
 
     // Schedule a meeting with a match (creates a request that needs acceptance)
-    const scheduleMeeting = useCallback(async (targetUserId, scheduledAt, notes = '') => {
+    const scheduleMeeting = useCallback(async (targetUserId, scheduledAt, notes = '', location = '') => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
 
         try {
-            // Determine who is company and who is seeker
             const isCompany = user.role === 'COMPANY';
             const companyId = isCompany ? user.id : targetUserId;
             const seekerId = isCompany ? targetUserId : user.id;
 
-            // ===== WALLET-BASED MEETING SLOT CHECK =====
-            // Each active meeting requires ₹500 reserved in the company's wallet
             const MEETING_COST = 500;
 
             // 1. Get company's wallet balance
@@ -1147,116 +1299,182 @@ export const AuthProvider = ({ children }) => {
             const maxMeetingSlots = Math.floor(companyBalance / MEETING_COST);
 
             if (maxMeetingSlots < 1) {
+                if (!isCompany) {
+                    try {
+                        const seekerName = user.profile?.name || user.name || 'A seeker';
+                        const meetingMessage = `Hey! I'd love to schedule an interior consultation meeting with you 📅`;
+                        const chatId = getChatId(user.id, targetUserId);
+                        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                            senderId: user.id, senderName: seekerName,
+                            text: meetingMessage, createdAt: serverTimestamp(),
+                        });
+                        await setDoc(doc(db, 'chats', chatId), {
+                            participants: [user.id, targetUserId],
+                            lastMessage: meetingMessage, lastMessageAt: serverTimestamp(),
+                            lastMessageSenderId: user.id,
+                        }, { merge: true });
+                        createNotification(targetUserId, {
+                            type: 'message', title: '💬 New Message',
+                            message: `${seekerName}: ${meetingMessage}`,
+                            data: { chatId, senderId: user.id },
+                        });
+                    } catch (msgErr) { console.error('Failed to send meeting interest message:', msgErr); }
+
+                    return {
+                        success: false,
+                        error: 'We\'ve sent a message to this company on your behalf expressing your interest in a meeting. They\'ll get back to you soon!',
+                        insufficientBalance: true, messageSent: true,
+                        requiredAmount: MEETING_COST, currentBalance: companyBalance,
+                    };
+                }
                 return {
                     success: false,
-                    error: isCompany
-                        ? `You need at least ₹${MEETING_COST} in your wallet to request a meeting. Please top up your service deposit.`
-                        : 'This company does not have sufficient service deposit for a meeting right now.',
-                    insufficientBalance: true,
-                    requiredAmount: MEETING_COST,
-                    currentBalance: companyBalance,
+                    error: `You need at least ₹${MEETING_COST} in your wallet to request a meeting. Please top up your service deposit.`,
+                    insufficientBalance: true, requiredAmount: MEETING_COST, currentBalance: companyBalance,
                 };
             }
 
-            // 2. Count company's active meetings (PENDING_ACCEPTANCE or SCHEDULED)
-            const activeMeetingsSnap = await getDocs(query(
-                collection(db, 'meetings'),
-                where('companyId', '==', companyId),
-            ));
+            // 2. Count active meetings
+            const activeMeetingsSnap = await getDocs(query(collection(db, 'meetings'), where('companyId', '==', companyId)));
             const activeMeetingCount = activeMeetingsSnap.docs.filter(d => {
-                const status = d.data().status;
-                return status === 'PENDING_ACCEPTANCE' || status === 'SCHEDULED';
+                const s = d.data().status;
+                return s === 'REQUESTED' || s === 'PENDING_ACCEPTANCE' || s === 'SCHEDULED';
             }).length;
 
             if (activeMeetingCount >= maxMeetingSlots) {
-                const additionalNeeded = MEETING_COST - (companyBalance - (activeMeetingCount * MEETING_COST));
                 return {
                     success: false,
                     error: isCompany
-                        ? `You have ${activeMeetingCount} active meeting${activeMeetingCount > 1 ? 's' : ''} and ₹${companyBalance} in your wallet. Each meeting requires ₹${MEETING_COST}. Please add ₹${Math.max(MEETING_COST, additionalNeeded)} or cancel an existing meeting.`
+                        ? `You have ${activeMeetingCount} active meeting${activeMeetingCount > 1 ? 's' : ''} and ₹${companyBalance} in your wallet. Each meeting requires ₹${MEETING_COST}. Please add more or cancel an existing meeting.`
                         : 'This company has reached their maximum meeting slots. Please try again later.',
-                    meetingLimitReached: true,
-                    activeMeetings: activeMeetingCount,
-                    maxSlots: maxMeetingSlots,
-                    currentBalance: companyBalance,
+                    meetingLimitReached: true, activeMeetings: activeMeetingCount,
+                    maxSlots: maxMeetingSlots, currentBalance: companyBalance,
                 };
             }
-            // ===== END WALLET CHECK =====
 
-            // Fetch target user's name for display
+            // Fetch target name
             let targetName = '';
             try {
                 const targetRole = isCompany ? 'seekers' : 'companies';
-                const { getDoc: gd, doc: d } = await import('firebase/firestore');
-                const targetSnap = await gd(d(db, targetRole, targetUserId));
+                const targetSnap = await getDoc(doc(db, targetRole, targetUserId));
                 if (targetSnap.exists()) {
                     const td = targetSnap.data();
                     targetName = td.profile?.name || td.profile?.companyName || td.name || '';
                 }
-            } catch (e) { /* ignore lookup errors */ }
+            } catch (e) { /* ignore */ }
 
             const myName = user.profile?.companyName || user.profile?.name || user.name || '';
 
-            // Create meeting document with PENDING_ACCEPTANCE status
+            // COMPANY: status=REQUESTED, no date/time. SEEKER: legacy PENDING_ACCEPTANCE with date/time.
             const meetingData = {
-                companyId,
-                seekerId,
+                companyId, seekerId,
                 companyName: isCompany ? myName : targetName,
                 seekerName: isCompany ? targetName : myName,
-                requestedBy: user.id,
-                acceptedBy: null,
-                scheduledAt,
-                notes,
-                status: 'PENDING_ACCEPTANCE',  // Needs other party to accept
-                companyConfirmed: false,
-                seekerConfirmed: false,
-                companyDenied: false,
-                seekerDenied: false,
+                requestedBy: user.id, acceptedBy: null,
+                scheduledAt: isCompany ? null : scheduledAt,
+                location: isCompany ? '' : (location || ''),
+                notes: isCompany ? '' : notes,
+                status: isCompany ? 'REQUESTED' : 'PENDING_ACCEPTANCE',
+                companyConfirmed: false, seekerConfirmed: false,
+                companyDenied: false, seekerDenied: false,
                 paymentStatus: 'PENDING',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
             };
 
             const meetingRef = await addDoc(collection(db, 'meetings'), meetingData);
-            // Auto-create chat with meeting request system message
             const chatId = getChatId(user.id, targetUserId);
-            const meetingDateStr = new Date(scheduledAt).toLocaleDateString('en-IN', {
-                weekday: 'short', day: 'numeric', month: 'short',
-                hour: '2-digit', minute: '2-digit',
-            });
-            const systemMsg = `📅 Meeting requested for ${meetingDateStr}${notes ? ` — "${notes}"` : ''}. Awaiting approval.`;
+            const locationDisplay = location ? location.split('||')[0] : '';
+            const systemMsg = isCompany
+                ? `📅 ${myName} wants to schedule a meeting with you. Please accept and set the date, time & location.`
+                : `📅 Meeting requested for ${new Date(scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${locationDisplay ? ` at ${locationDisplay}` : ''}${notes ? ` — "${notes}"` : ''}. Awaiting approval.`;
 
-            // Create/update chat doc
             await setDoc(doc(db, 'chats', chatId), {
                 participants: [user.id, targetUserId],
-                lastMessage: systemMsg,
-                lastMessageAt: serverTimestamp(),
+                lastMessage: systemMsg, lastMessageAt: serverTimestamp(),
                 lastMessageSenderId: 'system',
-                meetingStatus: 'PENDING_ACCEPTANCE',
+                meetingStatus: isCompany ? 'REQUESTED' : 'PENDING_ACCEPTANCE',
                 meetingId: meetingRef.id,
             }, { merge: true });
 
-            // Add system message to chat
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
-                senderId: 'system',
-                senderName: 'PlyShip',
-                text: systemMsg,
-                type: 'meeting_request',
-                meetingId: meetingRef.id,
-                createdAt: serverTimestamp(),
+                senderId: 'system', senderName: 'PlyShip',
+                text: systemMsg, type: 'meeting_request',
+                meetingId: meetingRef.id, createdAt: serverTimestamp(),
             });
 
-            // Notify the other party about the meeting request
             const otherUserId = user.id === companyId ? seekerId : companyId;
-            const myName3 = user.name || user.profile?.companyName || user.profile?.name || 'Someone';
             createNotification(otherUserId, {
-                type: 'meeting_scheduled',
-                title: '📅 New Meeting Request',
-                message: `${myName3} wants to schedule a meeting with you`,
+                type: 'meeting_scheduled', title: '📅 New Meeting Request',
+                message: `${myName} wants to schedule a meeting with you`,
                 data: { meetingId: meetingRef.id },
             });
 
             return { success: true, meetingId: meetingRef.id };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }, [user, getChatId]);
+
+    // Accept a REQUESTED meeting and set date/time/location (Seeker only)
+    const acceptAndScheduleMeeting = useCallback(async (meetingId, scheduledAt, location, notes = '') => {
+        if (!user || !user.id) return { success: false, error: 'Not logged in' };
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+            if (!meetingSnap.exists()) return { success: false, error: 'Meeting not found' };
+
+            const meeting = meetingSnap.data();
+            if (meeting.seekerId !== user.id) return { success: false, error: 'Only the seeker can accept and schedule' };
+            if (meeting.status !== 'REQUESTED') return { success: false, error: 'This meeting has already been responded to' };
+
+            // Check company wallet
+            const MEETING_FEE = 500;
+            const companyWalletSnap = await getDoc(doc(db, 'wallets', meeting.companyId));
+            if (!companyWalletSnap.exists() || (companyWalletSnap.data().balance || 0) < MEETING_FEE) {
+                return { success: false, error: 'Cannot accept — the company has insufficient funds.' };
+            }
+
+            const meetingOTP = String(Math.floor(100000 + Math.random() * 900000));
+
+            await updateDoc(meetingRef, {
+                status: 'SCHEDULED', acceptedBy: user.id,
+                acceptedAt: new Date().toISOString(),
+                scheduledAt, location: location || '', notes: notes || '',
+                meetingOTP, updatedAt: new Date().toISOString(),
+            });
+
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'SCHEDULED', meetingId }, { merge: true });
+
+            const dateStr = new Date(scheduledAt).toLocaleDateString('en-IN', {
+                weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+            });
+            const locationStr = location ? ` at ${location}` : '';
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: `✅ Meeting accepted! Scheduled for ${dateStr}${locationStr}. OTP verification required upon meeting.`,
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
+            const seekerName = user.name || user.profile?.name || 'Seeker';
+            createNotification(meeting.companyId, {
+                type: 'meeting_accepted', title: '✅ Meeting Accepted!',
+                message: `${seekerName} accepted — ${dateStr}${locationStr}`,
+                data: { meetingId },
+            });
+            createNotification(meeting.seekerId, {
+                type: 'meeting_otp', title: '🔐 Share OTP with Company',
+                message: `Your meeting OTP is ${meetingOTP}. Share it after the meeting.`,
+                data: { meetingId, otp: meetingOTP },
+            });
+            createNotification(meeting.companyId, {
+                type: 'meeting_otp', title: '🔐 Collect OTP at Meeting',
+                message: 'Ask the seeker for the 6-digit OTP when you meet.',
+                data: { meetingId },
+            });
+
+            return { success: true };
         } catch (error) {
             return { success: false, error: error.message };
         }
@@ -1341,7 +1559,7 @@ export const AuthProvider = ({ children }) => {
             }
 
             // Check if meeting is pending acceptance
-            if (meeting.status !== 'PENDING_ACCEPTANCE') {
+            if (meeting.status !== 'PENDING_ACCEPTANCE' && meeting.status !== 'REQUESTED') {
                 return { success: false, error: 'Meeting already accepted or cancelled' };
             }
 
@@ -1350,10 +1568,13 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Cannot accept your own request' };
             }
 
-            // Check if meeting time has already passed - can't accept expired meetings
-            const meetingTime = new Date(meeting.scheduledAt);
-            if (meetingTime < new Date()) {
-                return { success: false, error: 'Meeting time has passed', expired: true };
+            // Check if meeting time has already passed — can't accept expired meetings
+            // Skip this check for REQUESTED meetings (no scheduledAt yet)
+            if (meeting.scheduledAt) {
+                const meetingTime = new Date(meeting.scheduledAt);
+                if (meetingTime < new Date()) {
+                    return { success: false, error: 'Meeting time has passed', expired: true };
+                }
             }
 
             // Check if company has sufficient funds (₹500 required for meeting)
@@ -1522,8 +1743,8 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Not authorized' };
             }
 
-            // Can cancel PENDING_ACCEPTANCE or SCHEDULED meetings
-            if (!['PENDING_ACCEPTANCE', 'SCHEDULED'].includes(meeting.status)) {
+            // Can cancel REQUESTED, PENDING_ACCEPTANCE or SCHEDULED meetings
+            if (!['REQUESTED', 'PENDING_ACCEPTANCE', 'SCHEDULED'].includes(meeting.status)) {
                 return { success: false, error: 'Cannot cancel this meeting' };
             }
 
@@ -1660,13 +1881,14 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Can only reschedule cancelled or disputed meetings' };
             }
 
-            // Create a new meeting request linked to the original
+            // Create a new meeting request linked to the original — preserve location
             const meetingData = {
                 companyId: meeting.companyId,
                 seekerId: meeting.seekerId,
                 requestedBy: user.id,
                 acceptedBy: null,
                 scheduledAt: newScheduledAt,
+                location: meeting.location || '',  // Preserve original location
                 notes: notes || meeting.notes,
                 status: 'PENDING_ACCEPTANCE',
                 companyConfirmed: false,
@@ -1900,7 +2122,8 @@ export const AuthProvider = ({ children }) => {
 
             const meeting = meetingSnap.data();
 
-            const isCompany = user.role === 'COMPANY';
+            // Use ID comparison instead of role to avoid mismatches
+            const isCompany = user.id === meeting.companyId;
             const confirmField = isCompany ? 'companyConfirmed' : 'seekerConfirmed';
             const otherDenied = isCompany ? meeting.seekerDenied : meeting.companyDenied;
 
@@ -1912,8 +2135,7 @@ export const AuthProvider = ({ children }) => {
 
             // Check if other party DENIED → DISPUTE (contradiction)
             if (otherDenied) {
-                const meetingRef2 = doc(db, 'meetings', meetingId);
-                await updateDoc(meetingRef2, {
+                await updateDoc(meetingRef, {
                     status: 'DISPUTE',
                     disputeReason: 'One party confirmed meeting, other party denied',
                     disputeConfirmedBy: user.id,
@@ -2319,12 +2541,14 @@ export const AuthProvider = ({ children }) => {
                 }
             });
 
-            // Log the unlock transaction
+            // Log the unlock transaction with the actual unlocked amount
             const project2 = (await getDoc(projectRef)).data();
+            const seekerWalletAfter = await getDoc(doc(db, 'wallets', project2.seekerId));
+            const unlockedAmount = seekerWalletAfter.exists() ? (seekerWalletAfter.data().balance || 0) : 0;
             await addDoc(collection(db, 'transactions'), {
                 userId: project2.seekerId,
                 type: 'UNLOCK',
-                amount: 0, // Will be updated with actual amount
+                amount: unlockedAmount,
                 reason: 'PROJECT_CONFIRMED',
                 relatedProjectId: projectId,
                 relatedUserId: user.id,
@@ -2473,31 +2697,26 @@ export const AuthProvider = ({ children }) => {
             const userId = user.id;
 
             // 1. Delete all chats and their messages
-            const chatsQuery1 = query(collection(db, 'chats'), where('user1Id', '==', userId));
-            const chatsQuery2 = query(collection(db, 'chats'), where('user2Id', '==', userId));
+            // Chats use 'participants' array, not user1Id/user2Id
+            const chatsQuery = query(collection(db, 'chats'), where('participants', 'array-contains', userId));
+            const chatsSnap = await getDocs(chatsQuery);
 
-            const chats1 = await getDocs(chatsQuery1);
-            const chats2 = await getDocs(chatsQuery2);
-
-            for (const chatDoc of [...chats1.docs, ...chats2.docs]) {
+            for (const chatDoc of chatsSnap.docs) {
                 // Delete all messages in this chat
-                const messagesQuery = query(collection(db, 'chats', chatDoc.id, 'messages'));
-                const messages = await getDocs(messagesQuery);
-                for (const msgDoc of messages.docs) {
+                const messagesSnap = await getDocs(collection(db, 'chats', chatDoc.id, 'messages'));
+                for (const msgDoc of messagesSnap.docs) {
                     await deleteDoc(doc(db, 'chats', chatDoc.id, 'messages', msgDoc.id));
                 }
                 // Delete the chat
                 await deleteDoc(doc(db, 'chats', chatDoc.id));
             }
-            // 2. Delete all matches
-            const matchesQuery1 = query(collection(db, 'matches'), where('user1Id', '==', userId));
-            const matchesQuery2 = query(collection(db, 'matches'), where('user2Id', '==', userId));
-
-            const matches1 = await getDocs(matchesQuery1);
-            const matches2 = await getDocs(matchesQuery2);
-
-            for (const matchDoc of [...matches1.docs, ...matches2.docs]) {
-                await deleteDoc(doc(db, 'matches', matchDoc.id));
+            // 2. Delete all matches (subcollection pattern: matches/{userId}/matched)
+            const matchedSnap = await getDocs(collection(db, 'matches', userId, 'matched'));
+            for (const matchDoc of matchedSnap.docs) {
+                // Also delete the reciprocal match from the other user's subcollection
+                const otherUserId = matchDoc.id;
+                await deleteDoc(doc(db, 'matches', otherUserId, 'matched', userId)).catch(() => {});
+                await deleteDoc(doc(db, 'matches', userId, 'matched', otherUserId));
             }
             // 3. Delete all meetings
             const meetingsQuery1 = query(collection(db, 'meetings'), where('companyId', '==', userId));
@@ -2531,34 +2750,51 @@ export const AuthProvider = ({ children }) => {
             if (walletSnap.exists()) {
                 await deleteDoc(walletRef);
             }
-            // 7. Delete all likes involving this user
-            const likesQuery1 = query(collection(db, 'likes'), where('likerId', '==', userId));
-            const likesQuery2 = query(collection(db, 'likes'), where('likedId', '==', userId));
-
-            const likes1 = await getDocs(likesQuery1);
-            const likes2 = await getDocs(likesQuery2);
-
-            for (const likeDoc of [...likes1.docs, ...likes2.docs]) {
-                await deleteDoc(doc(db, 'likes', likeDoc.id));
+            // 7. Delete all likes (subcollection pattern: likes/{userId}/incoming & outgoing)
+            const incomingLikes = await getDocs(collection(db, 'likes', userId, 'incoming'));
+            for (const likeDoc of incomingLikes.docs) {
+                // Also clean up the other user's outgoing like
+                await deleteDoc(doc(db, 'likes', likeDoc.id, 'outgoing', userId)).catch(() => {});
+                await deleteDoc(doc(db, 'likes', userId, 'incoming', likeDoc.id));
             }
-            // 8. Delete all passes involving this user
-            const passesQuery1 = query(collection(db, 'passes'), where('passerId', '==', userId));
-            const passesQuery2 = query(collection(db, 'passes'), where('passedId', '==', userId));
-
-            const passes1 = await getDocs(passesQuery1);
-            const passes2 = await getDocs(passesQuery2);
-
-            for (const passDoc of [...passes1.docs, ...passes2.docs]) {
-                await deleteDoc(doc(db, 'passes', passDoc.id));
+            const outgoingLikes = await getDocs(collection(db, 'likes', userId, 'outgoing'));
+            for (const likeDoc of outgoingLikes.docs) {
+                // Also clean up the other user's incoming like
+                await deleteDoc(doc(db, 'likes', likeDoc.id, 'incoming', userId)).catch(() => {});
+                await deleteDoc(doc(db, 'likes', userId, 'outgoing', likeDoc.id));
             }
-            // 9. Delete all storage files (profile images, portfolio, etc.)
+            // 8. Delete all passes (subcollection pattern: passes/{userId}/passed)
+            const passedSnap = await getDocs(collection(db, 'likes', userId, 'passed'));
+            for (const passDoc of passedSnap.docs) {
+                await deleteDoc(doc(db, 'passes', userId, 'passed', passDoc.id));
+            }
+            // 9. Delete notifications (subcollection: notifications/{userId}/items)
+            const notifSnap = await getDocs(collection(db, 'notifications', userId, 'items'));
+            for (const notifDoc of notifSnap.docs) {
+                await deleteDoc(doc(db, 'notifications', userId, 'items', notifDoc.id));
+            }
+            // 10. Delete withdrawal requests
+            const withdrawalsQuery = query(collection(db, 'withdrawals'), where('userId', '==', userId));
+            const withdrawals = await getDocs(withdrawalsQuery);
+            for (const wDoc of withdrawals.docs) {
+                await deleteDoc(doc(db, 'withdrawals', wDoc.id));
+            }
+            // 11. Delete reviews by this user
+            const reviewsQuery = query(collection(db, 'reviews'), where('seekerId', '==', userId));
+            const reviews = await getDocs(reviewsQuery);
+            for (const rDoc of reviews.docs) {
+                await deleteDoc(doc(db, 'reviews', rDoc.id));
+            }
+            // 12. Delete all storage files (profile images, portfolio, etc.)
             await deleteUserStorage(userId);
 
-            // 10. Delete user document
-            const userRef = doc(db, 'users', userId);
-            const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-                await deleteDoc(userRef);
+            // 13. Delete user profile document from correct collection (seekers or companies)
+            const userRole = user.role;
+            const profileCollection = userRole === 'COMPANY' ? 'companies' : 'seekers';
+            const profileRef = doc(db, profileCollection, userId);
+            const profileSnap = await getDoc(profileRef);
+            if (profileSnap.exists()) {
+                await deleteDoc(profileRef);
             }
             // 10. Delete Firebase Auth account
             const currentUser = auth.currentUser;
@@ -2670,6 +2906,7 @@ export const AuthProvider = ({ children }) => {
             requestWithdrawal,
             getWithdrawals,
             scheduleMeeting,
+            acceptAndScheduleMeeting,
             getMeetings,
             acceptMeeting,
             declineMeeting,
@@ -2694,6 +2931,7 @@ export const AuthProvider = ({ children }) => {
             impersonateUser,
             exitImpersonation,
             isImpersonating,
+            updateUsername,
             logout
         }}>
             {children}

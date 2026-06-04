@@ -445,4 +445,36 @@ extension PlyshipViewController: WKUIDelegate {
         // Return nil = don't create a new WebView; we handled it ourselves
         return nil
     }
+
+    /// Auto-grant microphone and camera access for our domain (voice notes, profile photos).
+    /// Required for iOS 15+ — without this, getUserMedia() always fails silently.
+    @available(iOS 15.0, *)
+    func webView(_ webView: WKWebView,
+                 requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo,
+                 type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let host = origin.host.lowercased()
+        if host == "plyship.com" || host.hasSuffix(".plyship.com") || host == "localhost" {
+            decisionHandler(.grant)
+        } else {
+            decisionHandler(.prompt)
+        }
+    }
+
+    /// Auto-grant geolocation access for our domain (city detection during signup, profile location).
+    /// Required for iOS 14+ — without this, navigator.geolocation calls fail silently in WKWebView.
+    /// The system will still show the native iOS location permission prompt on first use.
+    @available(iOS 14.0, *)
+    func webView(_ webView: WKWebView,
+                 requestGeolocationPermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let host = origin.host.lowercased()
+        if host == "plyship.com" || host.hasSuffix(".plyship.com") || host == "localhost" {
+            decisionHandler(.grant)
+        } else {
+            decisionHandler(.deny)
+        }
+    }
 }

@@ -192,8 +192,8 @@ export default function Home() {
       return;
     }
 
-    // Handle Meet button — open chat with this profile and trigger meeting modal
-    if (direction === 'meet') {
+    // Handle Chat button — open chat with this profile (no meeting popup)
+    if (direction === 'chat') {
       const chatProfile = {
         id: profile.id,
         matchedUserId: profile.id,
@@ -202,7 +202,6 @@ export default function Home() {
         matchedUserProfile: profile.profile || {},
       };
       setSelectedChat(chatProfile);
-      setShowMeetingOnOpen(true);
       setActiveTab('messages');
       return;
     }

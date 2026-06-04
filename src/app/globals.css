@@ -164,6 +164,26 @@ body.landing-page-active #__next {
   margin: 0 !important;
 }
 
+/* Public profile page - allow scrolling */
+body.profile-page-active {
+  display: block !important;
+  overflow: auto !important;
+  background: #F0FDF4 !important;
+}
+
+body.profile-page-active>div:first-child,
+body.profile-page-active #__next {
+  max-width: 100% !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 100vh !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  background: transparent !important;
+  margin: 0 !important;
+}
+
 @media (min-width: 481px) {
   body {
     background: var(--bg-secondary);
@@ -203,6 +223,27 @@ body.landing-page-active #__next {
 
   body.landing-page-active>div:first-child,
   body.landing-page-active #__next {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+  }
+
+  /* Profile page in desktop - full screen */
+  body.profile-page-active {
+    display: block !important;
+    background: #F0FDF4 !important;
+    background-image: none !important;
+    overflow: auto !important;
+  }
+
+  body.profile-page-active>div:first-child,
+  body.profile-page-active #__next {
     max-width: 100% !important;
     width: 100% !important;
     height: auto !important;
@@ -492,6 +533,44 @@ textarea:focus {
 }
 
 /* Generic spinner */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Range slider thumb (service radius) */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #22C55E;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.2);
+  box-shadow: 0 2px 12px rgba(34, 197, 94, 0.6);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #22C55E;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
+  cursor: pointer;
+}
+
+/* Recording pulse animation */
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

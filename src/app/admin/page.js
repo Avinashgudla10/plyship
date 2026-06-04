@@ -15,7 +15,7 @@ import {
     updateDoc, deleteDoc, addDoc, setDoc, runTransaction, serverTimestamp
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { db, auth } from '../../lib/firebase';
+import { db, auth, deleteUserStorage } from '../../lib/firebase';
 
 // Admin emails that have access
 const ADMIN_PHONES = ['+918465834152'];
@@ -536,11 +536,143 @@ export default function AdminDashboard() {
         setSaving(false);
     };
 
+    // Helper: delete ALL data related to a user (used by both user delete and delete request approval)
+    const deleteAllUserData = async (userId, userRole) => {
+        const collectionName = userRole === 'company' ? 'companies' : 'seekers';
+
+        // 1. Delete wallet
+        try { await deleteDoc(doc(db, 'wallets', userId)); } catch (e) { /* may not exist */ }
+
+        // 2. Delete all meetings
+        const [mtg1, mtg2] = await Promise.all([
+            getDocs(query(collection(db, 'meetings'), where('companyId', '==', userId))),
+            getDocs(query(collection(db, 'meetings'), where('seekerId', '==', userId))),
+        ]);
+        for (const d of [...mtg1.docs, ...mtg2.docs]) {
+            await deleteDoc(doc(db, 'meetings', d.id));
+        }
+
+        // 3. Delete all transactions
+        const [tx1, tx2] = await Promise.all([
+            getDocs(query(collection(db, 'transactions'), where('userId', '==', userId))),
+            getDocs(query(collection(db, 'transactions'), where('relatedUserId', '==', userId))),
+        ]);
+        const deletedTxIds = new Set();
+        for (const d of [...tx1.docs, ...tx2.docs]) {
+            if (!deletedTxIds.has(d.id)) {
+                deletedTxIds.add(d.id);
+                await deleteDoc(doc(db, 'transactions', d.id));
+            }
+        }
+
+        // 4. Delete all chats and their messages
+        const chatSnap = await getDocs(query(collection(db, 'chats'), where('participants', 'array-contains', userId)));
+        for (const chatDoc of chatSnap.docs) {
+            // Delete all messages in this chat
+            const msgs = await getDocs(collection(db, 'chats', chatDoc.id, 'messages'));
+            for (const msgDoc of msgs.docs) {
+                await deleteDoc(doc(db, 'chats', chatDoc.id, 'messages', msgDoc.id));
+            }
+            await deleteDoc(doc(db, 'chats', chatDoc.id));
+        }
+
+        // 5. Delete matches (stored with 'users' array)
+        // Also try user1Id/user2Id field patterns
+        const [m1, m2, m3, m4] = await Promise.all([
+            getDocs(query(collection(db, 'matches'), where('users', 'array-contains', userId))),
+            getDocs(query(collection(db, 'matches'), where('user1Id', '==', userId))),
+            getDocs(query(collection(db, 'matches'), where('user2Id', '==', userId))),
+            getDocs(collection(db, 'matches', userId, 'matched')),
+        ]);
+        const deletedMatchIds = new Set();
+        for (const d of [...m1.docs, ...m2.docs, ...m3.docs]) {
+            if (!deletedMatchIds.has(d.id)) {
+                deletedMatchIds.add(d.id);
+                await deleteDoc(doc(db, 'matches', d.id));
+            }
+        }
+        // Sub-collection matches
+        for (const d of m4.docs) {
+            await deleteDoc(doc(db, 'matches', userId, 'matched', d.id));
+        }
+
+        // 6. Delete likes
+        const [l1, l2] = await Promise.all([
+            getDocs(query(collection(db, 'likes'), where('likerId', '==', userId))),
+            getDocs(query(collection(db, 'likes'), where('likedId', '==', userId))),
+        ]);
+        for (const d of [...l1.docs, ...l2.docs]) {
+            await deleteDoc(doc(db, 'likes', d.id));
+        }
+        // Sub-collection likes
+        try {
+            const outgoing = await getDocs(collection(db, 'likes', userId, 'outgoing'));
+            for (const d of outgoing.docs) { await deleteDoc(doc(db, 'likes', userId, 'outgoing', d.id)); }
+            const incoming = await getDocs(collection(db, 'likes', userId, 'incoming'));
+            for (const d of incoming.docs) { await deleteDoc(doc(db, 'likes', userId, 'incoming', d.id)); }
+        } catch (e) { /* sub-collections may not exist */ }
+
+        // 7. Delete passes
+        const [p1, p2] = await Promise.all([
+            getDocs(query(collection(db, 'passes'), where('passerId', '==', userId))),
+            getDocs(query(collection(db, 'passes'), where('passedId', '==', userId))),
+        ]);
+        for (const d of [...p1.docs, ...p2.docs]) {
+            await deleteDoc(doc(db, 'passes', d.id));
+        }
+        try {
+            const passed = await getDocs(collection(db, 'passes', userId, 'passed'));
+            for (const d of passed.docs) { await deleteDoc(doc(db, 'passes', userId, 'passed', d.id)); }
+        } catch (e) { /* may not exist */ }
+
+        // 8. Delete projects
+        const [pj1, pj2] = await Promise.all([
+            getDocs(query(collection(db, 'projects'), where('companyId', '==', userId))),
+            getDocs(query(collection(db, 'projects'), where('seekerId', '==', userId))),
+        ]);
+        for (const d of [...pj1.docs, ...pj2.docs]) {
+            await deleteDoc(doc(db, 'projects', d.id));
+        }
+
+        // 9. Delete withdrawals
+        const wdSnap = await getDocs(query(collection(db, 'withdrawals'), where('seekerId', '==', userId)));
+        for (const d of wdSnap.docs) { await deleteDoc(doc(db, 'withdrawals', d.id)); }
+
+        // 10. Delete reviews (by and about this user)
+        const [rv1, rv2] = await Promise.all([
+            getDocs(query(collection(db, 'reviews'), where('reviewerId', '==', userId))),
+            getDocs(query(collection(db, 'reviews'), where('companyId', '==', userId))),
+        ]);
+        for (const d of [...rv1.docs, ...rv2.docs]) {
+            await deleteDoc(doc(db, 'reviews', d.id));
+        }
+
+        // 11. Delete notifications
+        try {
+            const notifs = await getDocs(collection(db, 'notifications', userId, 'items'));
+            for (const d of notifs.docs) { await deleteDoc(doc(db, 'notifications', userId, 'items', d.id)); }
+            await deleteDoc(doc(db, 'notifications', userId));
+        } catch (e) { /* may not exist */ }
+
+        // 12. Delete username reservation
+        const userDoc = await getDoc(doc(db, collectionName, userId));
+        if (userDoc.exists() && userDoc.data().username) {
+            try { await deleteDoc(doc(db, 'usernames', userDoc.data().username)); } catch (e) { /* ok */ }
+        }
+
+        // 13. Delete storage files (avatars, portfolio images)
+        await deleteUserStorage(userId);
+
+        // 14. Delete the user document itself
+        try { await deleteDoc(doc(db, 'seekers', userId)); } catch (e) { /* may not exist */ }
+        try { await deleteDoc(doc(db, 'companies', userId)); } catch (e) { /* may not exist */ }
+    };
+
     const handleDeleteUser = async (userId) => {
         setSaving(true);
         try {
             const user = users.find(u => u.id === userId);
-            const collectionName = user.role === 'company' ? 'companies' : 'seekers';
+            const role = user?.role || 'seeker';
 
             // Delete from Firebase Auth via server API
             const adminPhone = localStorage.getItem('userPhone');
@@ -558,9 +690,10 @@ export default function AdminDashboard() {
                 console.error('Auth deletion API error:', apiErr);
             }
 
-            // Delete Firestore document
-            await deleteDoc(doc(db, collectionName, userId));
-            showToast('User deleted successfully (Auth + Firestore)');
+            // Delete ALL related Firestore data
+            await deleteAllUserData(userId, role);
+
+            showToast('User and all related data deleted successfully');
             setConfirmDelete(null);
         } catch (error) {
             console.error('Error deleting user:', error);
@@ -764,7 +897,7 @@ export default function AdminDashboard() {
     const handleUpdateDeleteRequest = async (requestId, newStatus) => {
         setSaving(true);
         try {
-            // If approving, delete the user from Firebase Auth
+            // If approving, delete the user from Firebase Auth + ALL related data
             if (newStatus === 'APPROVED') {
                 const request = deleteRequests.find(r => r.id === requestId);
                 if (request?.phone) {
@@ -777,9 +910,11 @@ export default function AdminDashboard() {
                         });
                         const result = await res.json();
                         if (res.ok && result.deletedUid) {
-                            // Also delete Firestore user documents
-                            try { await deleteDoc(doc(db, 'seekers', result.deletedUid)); } catch (e) { /* may not exist */ }
-                            try { await deleteDoc(doc(db, 'companies', result.deletedUid)); } catch (e) { /* may not exist */ }
+                            // Determine role
+                            const companyDoc = await getDoc(doc(db, 'companies', result.deletedUid));
+                            const role = companyDoc.exists() ? 'company' : 'seeker';
+                            // Delete ALL related data
+                            await deleteAllUserData(result.deletedUid, role);
                         }
                         if (!res.ok) {
                             console.error('Auth deletion warning:', result.error);
@@ -796,7 +931,7 @@ export default function AdminDashboard() {
                 processedAt: new Date().toISOString(),
             });
             showToast(newStatus === 'APPROVED'
-                ? 'User deleted from Auth + Firestore'
+                ? 'User and all related data deleted successfully'
                 : `Delete request ${newStatus.toLowerCase()}`);
         } catch (error) {
             console.error('Error updating delete request:', error);
@@ -1280,7 +1415,8 @@ function EditUserModal({ user, loading, onClose, onSave }) {
 
                 <div style={{ padding: 12, borderRadius: 10, background: '#F9FAFB', border: '1px solid #E5E7EB', fontSize: 12, color: '#888' }}>
                     <strong>User ID:</strong> {user.id}<br />
-                    <strong>Role:</strong> {isCompany ? 'Company' : 'Seeker'}
+                    <strong>Role:</strong> {isCompany ? 'Company' : 'Seeker'}<br />
+                    <strong>Username:</strong> {user.username ? <span style={{ color: '#8B5CF6', fontWeight: 600 }}>@{user.username}</span> : <span style={{ color: '#CCC' }}>not set</span>}
                 </div>
             </div>
         </EditModal>
@@ -1579,7 +1715,8 @@ function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onD
     const filtered = users.filter(u =>
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.profile?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.profile?.companyName?.toLowerCase().includes(searchTerm.toLowerCase())
+        u.profile?.companyName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.username?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     // Count confirmed meetings per user
@@ -1659,7 +1796,8 @@ function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onD
                         {filtered.map(user => (
                             <tr key={user.id} style={{ borderTop: '1px solid #E5E7EB' }}>
                                 <td style={tdStyle}>
-                                    {user.profile?.name || user.profile?.companyName || 'N/A'}
+                                    <div>{user.profile?.name || user.profile?.companyName || 'N/A'}</div>
+                                    {user.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{user.username}</div>}
                                 </td>
                                 <td style={tdStyle}>{user.email}</td>
                                 <td style={tdStyle}>
@@ -1677,11 +1815,6 @@ function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onD
                                         color: user.role === 'company' ? '#4F46E5' : '#16A34A',
                                     }}>
                                         {user.role === 'company' ? 'Company' : 'Seeker'}
-                                    </span>
-                                </td>
-                                <td style={tdStyle}>
-                                    <span style={{ fontSize: 13, color: '#555' }}>
-                                        {user.profile?.city || '—'}
                                     </span>
                                 </td>
                                 <td style={tdStyle}>
@@ -1704,6 +1837,11 @@ function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onD
                                             </span>
                                         )}
                                     </div>
+                                </td>
+                                <td style={tdStyle}>
+                                    <span style={{ fontSize: 13, color: '#555' }}>
+                                        {user.profile?.city || '—'}
+                                    </span>
                                 </td>
                                 <td style={tdStyle}>
                                     {user.profileComplete ? (
@@ -1823,6 +1961,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                 >
                     <option value="all">All Statuses</option>
                     <option value="zero_confirmed">⚠ 0 Confirmed</option>
+                    <option value="REQUESTED">Requested</option>
                     <option value="PENDING_ACCEPTANCE">Pending</option>
                     <option value="SCHEDULED">Scheduled</option>
                     <option value="CONFIRMED">Confirmed</option>
@@ -1844,6 +1983,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                             <th style={thStyle}>Seeker</th>
                             <th style={thStyle}>Status</th>
                             <th style={thStyle}>Scheduled</th>
+                            <th style={thStyle}>Location</th>
                             <th style={thStyle}>Created</th>
                             <th style={thStyle}>Actions</th>
                         </tr>
@@ -1868,7 +2008,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                                                 </span>
                                             )}
                                         </div>
-                                        {company?.email && <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{company.email}</div>}
+                                        {company?.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{company.username}</div>}
                                         {company?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{company.profile.phone}</div>}
                                     </td>
                                     <td style={tdStyle}>
@@ -1883,7 +2023,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                                                 </span>
                                             )}
                                         </div>
-                                        {designer?.email && <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{designer.email}</div>}
+                                        {designer?.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{designer.username}</div>}
                                         {designer?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{designer.profile.phone}</div>}
                                     </td>
                                     <td style={tdStyle}>
@@ -1899,7 +2039,27 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                                         </span>
                                     </td>
                                     <td style={tdStyle}>
-                                        {meeting.scheduledAt ? new Date(meeting.scheduledAt).toLocaleString() : 'N/A'}
+                                        {meeting.scheduledAt ? new Date(meeting.scheduledAt).toLocaleString() : 'Awaiting'}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        {meeting.location ? (() => {
+                                            const parts = meeting.location.split('||');
+                                            const addr = parts[0] || meeting.location;
+                                            const coords = parts[1];
+                                            const url = coords
+                                                ? `https://www.google.com/maps?q=${coords}`
+                                                : `https://www.google.com/maps/search/${encodeURIComponent(addr)}`;
+                                            return (
+                                                <a href={url} target="_blank" rel="noopener noreferrer"
+                                                    style={{ fontSize: 12, color: '#3B82F6', textDecoration: 'none' }}
+                                                    title={addr}
+                                                >
+                                                    📍 {addr.length > 30 ? addr.substring(0, 30) + '…' : addr}
+                                                </a>
+                                            );
+                                        })() : (
+                                            <span style={{ fontSize: 12, color: '#999', fontStyle: 'italic' }}>—</span>
+                                        )}
                                     </td>
                                     <td style={tdStyle}>
                                         {meeting.createdAt ? new Date(meeting.createdAt).toLocaleDateString() : 'N/A'}
@@ -1927,13 +2087,14 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
 function TransactionsTab({ transactions, users, onEdit, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
     const getUserInfo = (id) => {
-        if (id === 'admin_wallet') return { name: 'Plyship (Admin)', email: 'admin', phone: null };
+        if (id === 'admin_wallet') return { name: 'Plyship (Admin)', email: 'admin', phone: null, username: null };
         const u = users.find(u => u.id === id);
-        if (!u) return { name: 'Unknown', email: null, phone: null };
+        if (!u) return { name: 'Unknown', email: null, phone: null, username: null };
         return {
             name: u.profile?.name || u.profile?.companyName || u.email || 'Unknown',
             email: u.email || null,
             phone: u.profile?.phone || null,
+            username: u.username || null,
         };
     };
 
@@ -1989,9 +2150,7 @@ function TransactionsTab({ transactions, users, onEdit, onDelete }) {
                                 <tr key={tx.id} style={{ borderTop: '1px solid #E5E7EB' }}>
                                     <td style={tdStyle}>
                                         <div style={{ fontWeight: 500 }}>{userInfo.name}</div>
-                                        {userInfo.email && userInfo.email !== 'admin' && (
-                                            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{userInfo.email}</div>
-                                        )}
+                                        {userInfo.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{userInfo.username}</div>}
                                         {userInfo.phone && (
                                             <div style={{ fontSize: 11, color: '#888' }}>{userInfo.phone}</div>
                                         )}
@@ -2000,9 +2159,7 @@ function TransactionsTab({ transactions, users, onEdit, onDelete }) {
                                         {relatedInfo ? (
                                             <>
                                                 <div style={{ fontWeight: 500 }}>{relatedInfo.name}</div>
-                                                {relatedInfo.email && relatedInfo.email !== 'admin' && (
-                                                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{relatedInfo.email}</div>
-                                                )}
+                                                {relatedInfo.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{relatedInfo.username}</div>}
                                                 {relatedInfo.phone && (
                                                     <div style={{ fontSize: 11, color: '#888' }}>{relatedInfo.phone}</div>
                                                 )}
@@ -2095,10 +2252,12 @@ function MatchesTab({ matches, users, onDelete }) {
             user1?.profile?.name?.toLowerCase().includes(s) ||
             user1?.email?.toLowerCase().includes(s) ||
             user1?.profile?.phone?.toLowerCase().includes(s) ||
+            user1?.username?.toLowerCase().includes(s) ||
             user2?.profile?.companyName?.toLowerCase().includes(s) ||
             user2?.profile?.name?.toLowerCase().includes(s) ||
             user2?.email?.toLowerCase().includes(s) ||
-            user2?.profile?.phone?.toLowerCase().includes(s);
+            user2?.profile?.phone?.toLowerCase().includes(s) ||
+            user2?.username?.toLowerCase().includes(s);
     });
 
     return (
@@ -2153,7 +2312,7 @@ function MatchesTab({ matches, users, onDelete }) {
                                                 </span>
                                             )}
                                         </div>
-                                        {user1?.email && <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{user1.email}</div>}
+                                        {user1?.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{user1.username}</div>}
                                         {user1?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{user1.profile.phone}</div>}
                                     </td>
                                     <td style={tdStyle}>
@@ -2172,7 +2331,7 @@ function MatchesTab({ matches, users, onDelete }) {
                                                 </span>
                                             )}
                                         </div>
-                                        {user2?.email && <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{user2.email}</div>}
+                                        {user2?.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{user2.username}</div>}
                                         {user2?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{user2.profile.phone}</div>}
                                     </td>
                                     <td style={tdStyle}>
@@ -2400,6 +2559,7 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                                         email: u?.email || null,
                                         phone: u?.profile?.phone || null,
                                         role: u?.role || null,
+                                        username: u?.username || null,
                                     };
                                 });
 
@@ -2424,7 +2584,7 @@ function ChatsTab({ chats, users, onView, onDelete }) {
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        {p.email && <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{p.email}</div>}
+                                                        {p.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{p.username}</div>}
                                                         {p.phone && <div style={{ fontSize: 11, color: '#888' }}>{p.phone}</div>}
                                                     </div>
                                                 ))}
@@ -2483,12 +2643,13 @@ function WalletsTab({ wallets, users, transactions, onEdit }) {
     const getUserInfo = (walletId) => {
         if (walletId === 'admin_wallet') return { name: 'Plyship (Admin)', email: 'admin', phone: null, role: 'admin' };
         const u = users.find(u => u.id === walletId);
-        if (!u) return { name: 'Unknown', email: walletId, phone: null, role: '—' };
+        if (!u) return { name: 'Unknown', email: walletId, phone: null, role: '—', username: null };
         return {
             name: u.profile?.name || u.profile?.companyName || u.email || 'Unknown',
             email: u.email || null,
             phone: u.profile?.phone || null,
             role: u.role || '—',
+            username: u.username || null,
         };
     };
 
@@ -2551,9 +2712,7 @@ function WalletsTab({ wallets, users, transactions, onEdit }) {
                                     <tr key={wallet.id} style={{ borderTop: '1px solid #E5E7EB' }}>
                                         <td style={tdStyle}>
                                             <div style={{ fontWeight: 500 }}>{info.name}</div>
-                                            {info.email && info.email !== 'admin' && (
-                                                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{info.email}</div>
-                                            )}
+                                            {info.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{info.username}</div>}
                                             {info.phone && (
                                                 <div style={{ fontSize: 11, color: '#888' }}>{info.phone}</div>
                                             )}
@@ -3154,11 +3313,12 @@ function WithdrawalsTab({ withdrawals, users, transactions, onUpdateStatus, onVi
 
     const getUserInfo = (seekerId) => {
         const u = users.find(u => u.id === seekerId);
-        if (!u) return { name: 'Unknown', email: seekerId, phone: null };
+        if (!u) return { name: 'Unknown', email: seekerId, phone: null, username: null };
         return {
             name: u.profile?.name || u.email || 'Unknown',
             email: u.email || null,
             phone: u.profile?.phone || null,
+            username: u.username || null,
         };
     };
 
@@ -3276,11 +3436,7 @@ function WithdrawalsTab({ withdrawals, users, transactions, onUpdateStatus, onVi
                                     <tr key={withdrawal.id} style={{ borderTop: '1px solid #E5E7EB' }}>
                                         <td style={tdStyle}>
                                             <div style={{ fontWeight: 500 }}>{withdrawal.seekerName || info.name}</div>
-                                            {(withdrawal.seekerEmail || info.email) && (
-                                                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                                                    {withdrawal.seekerEmail || info.email}
-                                                </div>
-                                            )}
+                                            {info.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{info.username}</div>}
                                             {(withdrawal.seekerPhone || info.phone) && (
                                                 <div style={{ fontSize: 11, color: '#888' }}>
                                                     {withdrawal.seekerPhone || info.phone}

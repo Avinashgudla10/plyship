@@ -30,9 +30,10 @@ export default function ProfileCard({ profile, viewerRole }) {
         ? profileData.minBudget
         : profileData.budget;
 
+    const TIMELINE_LABELS = { immediate: 'Immediately', '1-3months': '1-3 Months', '3-6months': '3-6 Months', exploring: 'Just Exploring' };
     const projectsOrTimeline = isCompanyProfile
         ? `${profileData.projectsCompleted || 0} projects`
-        : profileData.timeline?.replace('-', ' ') || '';
+        : TIMELINE_LABELS[profileData.timeline] || profileData.timeline || '';
 
     // Get image - use avatar or portfolio first image
     const image = profileData.avatar || profileData.portfolioImages?.[0] ||

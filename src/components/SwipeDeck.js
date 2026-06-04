@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import ProfileCard from './ProfileCard';
-import { X, Calendar, RotateCcw } from 'lucide-react';
+import { X, MessageCircle, RotateCcw } from 'lucide-react';
 
 const Card = ({ profile, onSwipe, isTop }) => {
     const x = useMotionValue(0);
@@ -94,9 +94,9 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
             return;
         }
 
-        if (direction === 'meet') {
-            // Pass profile with 'meet' direction — page.js will handle opening chat + meeting modal
-            onMatch && onMatch(currentProfile, 'meet');
+        if (direction === 'chat') {
+            // Pass profile with 'chat' direction — page.js will handle opening chat
+            onMatch && onMatch(currentProfile, 'chat');
             // Advance to next card
             setExitDirection('left');
             setTimeout(() => {
@@ -234,7 +234,7 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
                 </AnimatePresence>
             </div>
 
-            {/* Control Buttons — Reject & Meet only */}
+            {/* Control Buttons — Reject & Chat */}
             <div style={{
                 display: 'flex',
                 justifyContent: 'center',
@@ -264,9 +264,9 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
                     <X size={30} color="#F87171" strokeWidth={3} />
                 </motion.button>
 
-                {/* Meet Button */}
+                {/* Chat Button */}
                 <motion.button
-                    onClick={() => handleSwipe('meet')}
+                    onClick={() => handleSwipe('chat')}
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.92 }}
                     style={{
@@ -282,7 +282,7 @@ export default function SwipeDeck({ profiles, onMatch, userRole }) {
                         cursor: 'pointer',
                     }}
                 >
-                    <Calendar size={28} color="white" />
+                    <MessageCircle size={28} color="white" />
                 </motion.button>
             </div>
         </div>
