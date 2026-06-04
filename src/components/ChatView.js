@@ -32,7 +32,6 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
     const FILTERS = [
         { key: 'all', label: 'All' },
         { key: 'no_meeting', label: 'No Meeting' },
-        { key: 'REQUESTED', label: 'Requested' },
         { key: 'PENDING_ACCEPTANCE', label: 'Pending' },
         { key: 'SCHEDULED', label: 'Scheduled' },
         { key: 'CONFIRMED', label: 'Completed' },
