@@ -83,7 +83,7 @@ const COMPANY_BUDGET_RANGES = [
 
 export default function ProfileSetup() {
     const router = useRouter();
-    const { user, loading, completeProfile } = useAuth();
+    const { user, loading, completeProfile, selectRole } = useAuth();
     const { showToast } = useToast();
     const [currentStep, setCurrentStep] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -137,9 +137,26 @@ export default function ProfileSetup() {
                 router.replace('/admin');
                 return;
             }
+            // If user exists but role is missing, try restoring from localStorage
+            // This handles the iOS race condition where role is lost during navigation
+            if (!user.role) {
+                const savedRole = localStorage.getItem('onboardingRole');
+                if (savedRole) {
+                    console.log('🔄 Profile setup: Restoring role from localStorage:', savedRole);
+                    selectRole(savedRole);
+                    return; // Don't redirect — role will update on next render
+                }
+            }
         }
         // Only redirect after loading is complete and we know the user state
         if (!loading && (!user || !user.role)) {
+            // Double-check localStorage before redirecting — the role might have just been saved
+            const savedRole = localStorage.getItem('onboardingRole');
+            if (savedRole && user) {
+                console.log('🔄 Profile setup: Found saved role, restoring:', savedRole);
+                selectRole(savedRole);
+                return;
+            }
             console.log('⚠️ Profile setup: No user or role, redirecting to login');
             router.push('/login');
         }

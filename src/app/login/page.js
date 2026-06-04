@@ -156,9 +156,10 @@ export default function Login() {
     const handleRoleSelect = (role) => {
         selectRole(role);
         setShowRoleSelection(false);
+        // Use longer delay for iOS WebView to ensure React state commits before navigation
         setTimeout(() => {
             router.replace('/profile-setup');
-        }, 100);
+        }, 300);
     };
 
     const handleResendOTP = async () => {

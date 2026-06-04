@@ -74,6 +74,16 @@ export const AuthProvider = ({ children }) => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             // Skip if we're in the middle of onboarding or impersonating
             if (isOnboarding.current) {
+                // Restore role from localStorage if user state was lost during navigation
+                const savedRole = localStorage.getItem('onboardingRole');
+                if (savedRole && firebaseUser) {
+                    setUser(prev => {
+                        if (prev && !prev.role && savedRole) {
+                            return { ...prev, role: savedRole };
+                        }
+                        return prev;
+                    });
+                }
                 setLoading(false);
                 return;
             }
@@ -293,6 +303,8 @@ export const AuthProvider = ({ children }) => {
         if (!user) {
             return;
         }
+        // Persist role to localStorage so it survives page transitions on iOS
+        localStorage.setItem('onboardingRole', role);
         setUser(prev => ({ ...prev, role }));
     };
 
@@ -374,8 +386,9 @@ export const AuthProvider = ({ children }) => {
             // Update local state
             setUser({ id: user.id, ...updatedUser });
 
-            // Clear onboarding flag - profile is complete
+            // Clear onboarding flag and localStorage role - profile is complete
             isOnboarding.current = false;
+            localStorage.removeItem('onboardingRole');
 
             return { success: true };
         } catch (error) {
@@ -2815,6 +2828,7 @@ export const AuthProvider = ({ children }) => {
     const logout = async () => {
         try {
             isOnboarding.current = false;
+            localStorage.removeItem('onboardingRole');
             await signOut(auth);
             setUser(null);
             router.push('/login');

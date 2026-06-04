@@ -176,9 +176,10 @@ export default function Signup() {
     const handleRoleSelect = (role) => {
         selectRole(role);
         setShowRoleSelection(false);
+        // Use longer delay for iOS WebView to ensure React state commits before navigation
         setTimeout(() => {
             router.replace('/profile-setup');
-        }, 100);
+        }, 300);
     };
 
     if (loading) return null;

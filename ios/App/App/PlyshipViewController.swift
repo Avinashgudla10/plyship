@@ -51,12 +51,18 @@ class PlyshipViewController: CAPBridgeViewController {
 
     /// Request native location authorization. This ensures the OS-level
     /// "Allow <App> to use your location?" prompt fires. Once the user
-    /// grants "While Using the App", navigator.geolocation inside the
-    /// WKWebView will start working.
+    /// grants "While Using the App", we escalate to "Always" so the
+    /// option appears in Settings.
     private func requestNativeLocationPermission() {
         let status = locationManager.authorizationStatus
-        if status == .notDetermined {
+        switch status {
+        case .notDetermined:
             locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse:
+            // Escalate to "Always" — iOS will show the upgrade prompt
+            locationManager.requestAlwaysAuthorization()
+        default:
+            break
         }
     }
 
@@ -508,15 +514,25 @@ extension PlyshipViewController: WKUIDelegate {
 extension PlyshipViewController: CLLocationManagerDelegate {
 
     /// Called when the user responds to the native "Allow location?" prompt.
-    /// If they grant access, reload the WebView so navigator.geolocation works.
+    /// If they grant "When In Use", escalate to "Always" and reload the WebView.
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
-        if status == .authorizedWhenInUse || status == .authorizedAlways {
-            // The user just granted permission — reload so the web page's
-            // pending geolocation request picks up the new authorization.
+        switch status {
+        case .authorizedWhenInUse:
+            // User granted "When In Use" — now request "Always" upgrade.
+            // iOS will show a follow-up prompt or add the option to Settings.
+            manager.requestAlwaysAuthorization()
+            // Reload so the web page's pending geolocation request works
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.webView?.reload()
             }
+        case .authorizedAlways:
+            // Full access granted — reload so geolocation picks it up
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.webView?.reload()
+            }
+        default:
+            break
         }
     }
 }

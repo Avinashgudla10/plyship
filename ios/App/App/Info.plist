@@ -79,6 +79,14 @@
 	<!-- Privacy: Location access (needed for auto-detecting city during signup) -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>PLYSHIP needs your location to find interior designers near you and show your city on your profile.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>PLYSHIP uses your location to find interior designers near you, show your city on your profile, and keep your location updated.</string>
+
+	<!-- Background Modes: Required for "Always Allow" location permission -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 
 	<!-- Privacy: Microphone access (needed for voice notes in chat) -->
 	<key>NSMicrophoneUsageDescription</key>
