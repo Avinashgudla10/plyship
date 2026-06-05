@@ -1291,6 +1291,88 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
+    // ============ PAYMENT RECOVERY ============
+    // Recover pending Razorpay payments that completed while the app was closed.
+    // This runs on login, app resume, and wallet page open.
+    const recoverPendingPayments = useCallback(async () => {
+        if (!user || !user.id) return;
+
+        try {
+            const raw = localStorage.getItem(`plyship_pending_order_${user.id}`);
+            if (!raw) return;
+
+            const pending = JSON.parse(raw);
+            if (!pending?.orderId) {
+                localStorage.removeItem(`plyship_pending_order_${user.id}`);
+                return;
+            }
+
+            // Check if already credited (idempotency)
+            const existingTxnSnap = await getDocs(query(
+                collection(db, 'transactions'),
+                where('orderId', '==', pending.orderId),
+                where('userId', '==', user.id)
+            ));
+            if (!existingTxnSnap.empty) {
+                // Already credited — clean up localStorage
+                localStorage.removeItem(`plyship_pending_order_${user.id}`);
+                return;
+            }
+
+            // Verify with backend
+            const res = await fetch('/api/razorpay/verify-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId: pending.orderId, userId: user.id }),
+            });
+            const data = await res.json();
+
+            if (data.success && data.paymentId) {
+                // Payment was captured — credit the wallet
+                await topUpWallet(data.amount, data.paymentId, data.orderId);
+                localStorage.removeItem(`plyship_pending_order_${user.id}`);
+                console.log('[PaymentRecovery] Recovered payment:', data.paymentId, '₹' + data.amount);
+            } else if (data.orderStatus === 'created') {
+                // Still pending — check if order is older than 30 min (expired)
+                const orderAge = Date.now() - (pending.createdAt || 0);
+                if (orderAge > 30 * 60 * 1000) {
+                    localStorage.removeItem(`plyship_pending_order_${user.id}`);
+                }
+                // else: leave it for next check
+            } else {
+                // Order failed/expired — clean up
+                localStorage.removeItem(`plyship_pending_order_${user.id}`);
+            }
+        } catch (err) {
+            console.error('[PaymentRecovery] Error:', err);
+        }
+    }, [user, topUpWallet]);
+
+    // Run payment recovery on app resume / visibility change
+    useEffect(() => {
+        if (!user?.id) return;
+
+        // Run on initial load
+        recoverPendingPayments();
+
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                setTimeout(() => recoverPendingPayments(), 1500);
+            }
+        };
+        const handleFocus = () => {
+            setTimeout(() => recoverPendingPayments(), 1500);
+        };
+
+        document.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [user?.id, recoverPendingPayments]);
+
     // ============ MEETING FUNCTIONS ============
 
     // Schedule a meeting with a match (creates a request that needs acceptance)
@@ -1670,6 +1752,62 @@ export const AuthProvider = ({ children }) => {
                 type: 'meeting_otp',
                 title: '🔐 Collect OTP at Meeting',
                 message: 'Ask the seeker for the 6-digit OTP when you meet, and enter it to confirm.',
+                data: { meetingId },
+            });
+
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }, [user, getChatId]);
+
+    // Request reschedule — company asks the seeker to pick a different date/time
+    const requestRescheduleMeeting = useCallback(async (meetingId, reason = '') => {
+        if (!user || !user.id) return { success: false, error: 'Not logged in' };
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+            if (!meetingSnap.exists()) return { success: false, error: 'Meeting not found' };
+
+            const meeting = meetingSnap.data();
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+            if (meeting.status !== 'PENDING_ACCEPTANCE') {
+                return { success: false, error: 'Can only request reschedule for pending meetings' };
+            }
+
+            // Reset meeting back to REQUESTED so seeker can pick new date/time/location
+            await updateDoc(meetingRef, {
+                status: 'REQUESTED',
+                scheduledAt: null,
+                location: '',
+                rescheduleReason: reason,
+                rescheduleRequestedBy: user.id,
+                rescheduleRequestedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+
+            // Update chat status
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'REQUESTED', meetingId }, { merge: true });
+
+            // Send system message
+            const myName = user.profile?.companyName || user.profile?.name || user.name || 'Company';
+            const reasonText = reason ? ` — "${reason}"` : '';
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: `🔄 ${myName} requested a reschedule${reasonText}. Please pick a new date, time & location.`,
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
+            // Notify the seeker
+            const otherPartyId = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
+            createNotification(otherPartyId, {
+                type: 'meeting_reschedule_request',
+                title: '🔄 Reschedule Requested',
+                message: `${myName} requested a new date & time for the meeting${reasonText}`,
                 data: { meetingId },
             });
 
@@ -2927,6 +3065,8 @@ export const AuthProvider = ({ children }) => {
             cancelMeeting,
             denyMeeting,
             rescheduleMeeting,
+            requestRescheduleMeeting,
+            recoverPendingPayments,
             confirmMeeting,
             verifyMeetingOTP,
             createProject,

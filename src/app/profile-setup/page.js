@@ -211,6 +211,13 @@ export default function ProfileSetup() {
                 if (!companyData.specializations || companyData.specializations.length === 0) {
                     newErrors.specializations = 'Select at least one specialization';
                 }
+            } else if (currentStep === 2) {
+                if (!companyData.portfolioImages || companyData.portfolioImages.length === 0) {
+                    newErrors.portfolioImages = 'Upload at least one portfolio image';
+                }
+                if (!companyData.minBudget) {
+                    newErrors.minBudget = 'Please select a budget range you work with';
+                }
             }
         }
 
@@ -530,7 +537,7 @@ export default function ProfileSetup() {
                             <CompanyServices data={companyData} toggleSelection={(f, v) => toggleSelection(f, v, true)} errors={errors} />
                         )}
                         {isCompany && currentStep === 2 && (
-                            <CompanyPortfolio data={companyData} setData={setCompanyData} />
+                            <CompanyPortfolio data={companyData} setData={setCompanyData} errors={errors} />
                         )}
                     </motion.div>
                 </AnimatePresence>
@@ -1172,7 +1179,7 @@ function CompanyServices({ data, toggleSelection, errors }) {
     );
 }
 
-function CompanyPortfolio({ data, setData }) {
+function CompanyPortfolio({ data, setData, errors }) {
     return (
         <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -1183,7 +1190,7 @@ function CompanyPortfolio({ data, setData }) {
             </p>
 
             {/* Portfolio Image Upload */}
-            <div style={{ marginBottom: 24 }}>
+            <div data-field="portfolioImages" {...(errors?.portfolioImages ? { 'data-field-error': 'true' } : {})} style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>Portfolio Images (up to 6)</label>
                 <PortfolioUpload
                     images={data.portfolioImages || []}
@@ -1193,6 +1200,7 @@ function CompanyPortfolio({ data, setData }) {
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
                     Upload photos of your completed projects
                 </p>
+                {errors?.portfolioImages && <p style={errorTextStyle}>{errors.portfolioImages}</p>}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -1213,13 +1221,14 @@ function CompanyPortfolio({ data, setData }) {
                 <InputField label="Projects Completed" value={data.projectsCompleted} onChange={(v) => setData({ ...data, projectsCompleted: v })} placeholder="e.g., 150" type="number" />
             </div>
 
-            <div style={{ marginTop: 24 }}>
+            <div data-field="minBudget" {...(errors?.minBudget ? { 'data-field-error': 'true' } : {})} style={{ marginTop: 24 }}>
                 <label style={labelStyle}>Budget Range You Work With</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {COMPANY_BUDGET_RANGES.map((budget) => (
                         <RadioCard key={budget.id} item={budget} selected={data.minBudget === budget.id} onClick={() => setData({ ...data, minBudget: budget.id })} />
                     ))}
                 </div>
+                {errors?.minBudget && <p style={errorTextStyle}>{errors.minBudget}</p>}
             </div>
         </div>
     );

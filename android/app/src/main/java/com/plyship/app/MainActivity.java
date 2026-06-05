@@ -166,19 +166,27 @@ public class MainActivity extends BridgeActivity {
             if (fileUploadCallback == null) return;
 
             if (resultCode == Activity.RESULT_OK) {
-                Uri result = null;
+                Uri[] results = null;
 
-                // Check if result came from gallery/file picker (via intent data)
-                if (data != null && data.getData() != null) {
-                    result = data.getData();
+                // Check if result came from multi-select (via ClipData)
+                if (data != null && data.getClipData() != null) {
+                    int count = data.getClipData().getItemCount();
+                    results = new Uri[count];
+                    for (int i = 0; i < count; i++) {
+                        results[i] = data.getClipData().getItemAt(i).getUri();
+                    }
+                }
+                // Single file selected via getData()
+                else if (data != null && data.getData() != null) {
+                    results = new Uri[]{data.getData()};
                 }
                 // If no data in intent, check if camera wrote to our pre-set URI
                 else if (cameraPhotoUri != null) {
-                    result = cameraPhotoUri;
+                    results = new Uri[]{cameraPhotoUri};
                 }
 
-                if (result != null) {
-                    fileUploadCallback.onReceiveValue(new Uri[]{result});
+                if (results != null && results.length > 0) {
+                    fileUploadCallback.onReceiveValue(results);
                 } else {
                     fileUploadCallback.onReceiveValue(null);
                 }
@@ -250,6 +258,29 @@ public class MainActivity extends BridgeActivity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 String scheme = url.getScheme();
+
+                // Handle geo: URIs — open Google Maps for meeting locations
+                if (scheme != null && scheme.equalsIgnoreCase("geo")) {
+                    try {
+                        Intent mapIntent = new Intent(Intent.ACTION_VIEW, url);
+                        mapIntent.setPackage("com.google.android.apps.maps");
+                        if (mapIntent.resolveActivity(getPackageManager()) != null) {
+                            startActivity(mapIntent);
+                        } else {
+                            // No Google Maps — try any maps app
+                            startActivity(new Intent(Intent.ACTION_VIEW, url));
+                        }
+                    } catch (Exception e) {
+                        // Fallback: open in browser with HTTPS Google Maps URL
+                        try {
+                            String query = url.getQueryParameter("q");
+                            if (query == null) query = url.getSchemeSpecificPart();
+                            Uri fallback = Uri.parse("https://www.google.com/maps/search/?api=1&query=" + Uri.encode(query));
+                            startActivity(new Intent(Intent.ACTION_VIEW, fallback));
+                        } catch (Exception ignored) {}
+                    }
+                    return true;
+                }
 
                 // Handle UPI intent URLs — these come from Razorpay checkout
                 // when the user selects a UPI app (GPay, PhonePe, Paytm, etc.)
@@ -374,6 +405,11 @@ public class MainActivity extends BridgeActivity {
                         // Also build a camera intent as a secondary option in the chooser
                         Intent galleryIntent = fileChooserParams.createIntent();
 
+                        // Enable multi-select for portfolio uploads
+                        // (the <input multiple> attribute signals this via the web page)
+                        if (fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                            galleryIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                        }
                         // Try to add camera as an option too
                         Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
                         if (isImageAccept && cameraIntent.resolveActivity(getPackageManager()) != null) {

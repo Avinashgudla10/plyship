@@ -14,7 +14,7 @@ import {
 
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
-    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet, acceptAndScheduleMeeting } = useAuth();
+    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet, acceptAndScheduleMeeting, requestRescheduleMeeting } = useAuth();
     const { showToast, showConfirm } = useToast();
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -63,6 +63,15 @@ export default function MeetingsView({ onBack }) {
             const orderData = await orderRes.json();
             if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
 
+            // Persist for cross-restart recovery
+            try {
+                localStorage.setItem(`plyship_pending_order_${user.id}`, JSON.stringify({
+                    orderId: orderData.orderId,
+                    amount: MEETING_FEE,
+                    createdAt: Date.now(),
+                }));
+            } catch (e) { /* localStorage may be unavailable */ }
+
             const options = buildRazorpayOptions({
                 key: orderData.keyId,
                 amount: orderData.amount,
@@ -94,6 +103,8 @@ export default function MeetingsView({ onBack }) {
                         }
 
                         const topUpResult = await topUpWallet(MEETING_FEE, response.razorpay_payment_id, response.razorpay_order_id);
+                        // Clear pending order from localStorage
+                        try { localStorage.removeItem(`plyship_pending_order_${user.id}`); } catch (e) {}
                         if (!topUpResult.success) {
                             showToast('Payment succeeded but wallet update failed. Contact support.', 'error');
                             setActionId(null);
@@ -213,6 +224,21 @@ export default function MeetingsView({ onBack }) {
             } else {
                 showToast('Recorded. Waiting for other party to respond.', 'success');
             }
+            refreshMeetings();
+        } else {
+            showToast(result.error, 'error');
+        }
+        setActionId(null);
+    };
+
+    // Request reschedule (company asks seeker to pick new date/time)
+    const handleRequestReschedule = async (meetingId) => {
+        const yes = await showConfirm('Ask the seeker to pick a different date, time or location?', 'Request Reschedule');
+        if (!yes) return;
+        setActionId(meetingId);
+        const result = await requestRescheduleMeeting(meetingId);
+        if (result.success) {
+            showToast('Reschedule requested! The seeker will pick new details.', 'success');
             refreshMeetings();
         } else {
             showToast(result.error, 'error');
@@ -395,6 +421,7 @@ export default function MeetingsView({ onBack }) {
                                             onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
                                             onAcceptAndSchedule={(m) => setAcceptScheduleModal(m)}
+                                            onRequestReschedule={handleRequestReschedule}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
                                             formatDate={formatDate}
@@ -426,6 +453,7 @@ export default function MeetingsView({ onBack }) {
                                             onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
                                             onAcceptAndSchedule={(m) => setAcceptScheduleModal(m)}
+                                            onRequestReschedule={handleRequestReschedule}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
                                             formatDate={formatDate}
@@ -457,6 +485,7 @@ export default function MeetingsView({ onBack }) {
                                             onDeny={handleDeny}
                                             onReschedule={(m) => setRescheduleModal(m)}
                                             onAcceptAndSchedule={(m) => setAcceptScheduleModal(m)}
+                                            onRequestReschedule={handleRequestReschedule}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
                                             formatDate={formatDate}
@@ -503,7 +532,7 @@ export default function MeetingsView({ onBack }) {
 
 // Meeting Card Component
 function MeetingCard({
-    meeting, user, isCompany, actionId, onAccept, onDecline, onCancel, onConfirm, onDeny, onReschedule, onAcceptAndSchedule,
+    meeting, user, isCompany, actionId, onAccept, onDecline, onCancel, onConfirm, onDeny, onReschedule, onAcceptAndSchedule, onRequestReschedule,
     getStatusColor, getStatusText, formatDate, isPast
 }) {
     const iAmRequester = meeting.requestedBy === user?.id;
@@ -617,13 +646,25 @@ function MeetingCard({
                 const parts = meeting.location.split('||');
                 const displayAddress = parts[0] || meeting.location;
                 const coords = parts[1]; // "lat,lng" or undefined
-                const mapsUrl = coords
+                // Use geo: URI for native app support on Android/iOS
+                const geoUri = coords
+                    ? `geo:${coords}?q=${coords}`
+                    : `geo:0,0?q=${encodeURIComponent(displayAddress)}`;
+                // HTTPS fallback for PWA/desktop
+                const httpsUrl = coords
                     ? `https://www.google.com/maps/search/?api=1&query=${coords}`
                     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
 
                 return (
                     <a
-                        href={mapsUrl}
+                        href={geoUri}
+                        onClick={(e) => {
+                            // On desktop/PWA where geo: may not work, fallback to HTTPS
+                            if (!('ontouchstart' in window) && !navigator.maxTouchPoints) {
+                                e.preventDefault();
+                                window.open(httpsUrl, '_blank');
+                            }
+                        }}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -784,6 +825,30 @@ function MeetingCard({
                             <Check size={16} />
                             Accept
                         </motion.button>
+                        {/* Request Reschedule (company only) */}
+                        {isCompany && (
+                            <motion.button
+                                onClick={() => onRequestReschedule(meeting.id)}
+                                disabled={isLoading}
+                                whileTap={{ scale: 0.95 }}
+                                style={{
+                                    padding: 12,
+                                    borderRadius: 10,
+                                    background: '#EFF6FF',
+                                    border: '1px solid #3B82F6',
+                                    color: '#3B82F6',
+                                    fontSize: 14,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    cursor: isLoading ? 'wait' : 'pointer',
+                                }}
+                            >
+                                <RefreshCw size={16} />
+                            </motion.button>
+                        )}
                         <motion.button
                             onClick={() => onDecline(meeting.id)}
                             disabled={isLoading}

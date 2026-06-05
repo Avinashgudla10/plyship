@@ -388,7 +388,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const {
         user, sendMessage, getChatId, getWallet, topUpWallet,
         getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP, acceptAndScheduleMeeting,
-        getProjects, acceptProject, declineProject
+        getProjects, acceptProject, declineProject, requestRescheduleMeeting
     } = useAuth();
     const { showToast, showConfirm } = useToast();
     const [message, setMessage] = useState('');
@@ -758,6 +758,10 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     };
 
     // Share a contact from device address book
+    const [showContactModal, setShowContactModal] = useState(false);
+    const [contactName, setContactName] = useState('');
+    const [contactPhone, setContactPhone] = useState('');
+
     const handleShareContact = async () => {
         setShowAttachMenu(false);
         // Block contact sharing before a meeting is scheduled
@@ -767,6 +771,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         }
 
         // Contact Picker API (supported on Android Chrome, some mobile browsers)
+        // Note: NOT available inside Capacitor/WebView — always falls through to manual entry
         if ('contacts' in navigator && 'ContactsManager' in window) {
             try {
                 const contacts = await navigator.contacts.select(
@@ -782,15 +787,70 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                         : `👤 ${name}`;
                     await sendMessage(otherUserId, contactMsg);
                     showToast('Contact shared!', 'success');
+                    return;
                 }
             } catch (err) {
-                if (err.name !== 'TypeError') {
-                    showToast('Could not access contacts.', 'error');
+                // Contact Picker API failed or was dismissed — fall through to manual entry
+                if (err.name !== 'TypeError' && err.name !== 'InvalidStateError') {
+                    console.log('Contact Picker failed, falling back to manual entry:', err.message);
                 }
             }
-        } else {
-            showToast('Contact sharing is not supported on this browser. Try from your phone.', 'info');
         }
+
+        // Fallback: show manual contact entry modal
+        setContactName('');
+        setContactPhone('');
+        setShowContactModal(true);
+    };
+
+    const handleSendManualContact = async () => {
+        const trimName = contactName.trim();
+        const trimPhone = contactPhone.trim();
+        if (!trimName && !trimPhone) {
+            showToast('Please enter a name or phone number', 'warning');
+            return;
+        }
+        const contactMsg = trimPhone
+            ? `👤 ${trimName || 'Contact'}\n📞 ${trimPhone}`
+            : `👤 ${trimName}`;
+        await sendMessage(otherUserId, contactMsg);
+        showToast('Contact shared!', 'success');
+        setShowContactModal(false);
+        setContactName('');
+        setContactPhone('');
+    };
+
+    // Cross-platform Maps URL opener — works on Android, iOS, and PWA
+    const openMapsUrl = (coords, displayAddress) => {
+        // Build the geo: URI (natively handled by Google Maps / Apple Maps on mobile)
+        const geoUri = coords
+            ? `geo:${coords}?q=${coords}`
+            : `geo:0,0?q=${encodeURIComponent(displayAddress)}`;
+        // Build the HTTPS fallback (works in all browsers and PWA)
+        const httpsUrl = coords
+            ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
+
+        // Try geo: first (intercepted by native apps on Android/iOS)
+        // On Capacitor WebView, shouldOverrideUrlLoading will open the system handler
+        const anchor = document.createElement('a');
+        anchor.href = geoUri;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+
+        try {
+            anchor.click();
+        } catch (e) {
+            // geo: scheme not supported — fall back to HTTPS
+            window.open(httpsUrl, '_blank');
+        }
+
+        // Cleanup & fallback timeout: if geo: didn't navigate away, open HTTPS
+        setTimeout(() => {
+            try { document.body.removeChild(anchor); } catch (e) {}
+        }, 300);
     };
 
     // Format message time
@@ -908,13 +968,10 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     const parts = activeMeeting.location.split('||');
                     const displayAddress = parts[0] || activeMeeting.location;
                     const coords = parts[1]; // "lat,lng" or undefined
-                    const mapsUrl = coords
-                        ? `https://www.google.com/maps/search/?api=1&query=${coords}`
-                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
 
                     return (
                         <motion.button
-                            onClick={() => window.open(mapsUrl, '_blank')}
+                            onClick={() => openMapsUrl(coords, displayAddress)}
                             whileTap={{ scale: 0.9 }}
                             style={{
                                 padding: '8px 12px',
@@ -1157,6 +1214,15 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                 const orderData = await orderRes.json();
                                 if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
 
+                                // Persist for cross-restart recovery
+                                try {
+                                    localStorage.setItem(`plyship_pending_order_${user.id}`, JSON.stringify({
+                                        orderId: orderData.orderId,
+                                        amount: MEETING_FEE,
+                                        createdAt: Date.now(),
+                                    }));
+                                } catch (e) { /* localStorage may be unavailable */ }
+
                                 // 2. Open Razorpay checkout (UPI-first, in-app)
                                 const options = buildRazorpayOptions({
                                     key: orderData.keyId,
@@ -1191,6 +1257,8 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
                                             // 4. Credit wallet
                                             const topUpResult = await topUpWallet(MEETING_FEE, response.razorpay_payment_id, response.razorpay_order_id);
+                                            // Clear pending order from localStorage
+                                            try { localStorage.removeItem(`plyship_pending_order_${user.id}`); } catch (e) {}
                                             if (!topUpResult.success) {
                                                 showToast('Payment succeeded but wallet update failed. Contact support.', 'error');
                                                 setActionLoading(null);
@@ -1346,7 +1414,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         })}
                                     </p>
                                 </div>
-                                {isReceiver && (
+                                    {isReceiver && (
                                     <div style={{ display: 'flex', gap: 6 }}>
                                         <motion.button
                                             onClick={async () => {
@@ -1373,6 +1441,35 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             <Check size={14} />
                                             Accept
                                         </motion.button>
+                                        {isCompanyUser && (
+                                            <motion.button
+                                                onClick={async () => {
+                                                    const reason = await showConfirm(
+                                                        'Request the seeker to pick a different date, time or location?',
+                                                        'Request Reschedule'
+                                                    );
+                                                    if (!reason) return;
+                                                    setActionLoading('reschedule');
+                                                    const result = await requestRescheduleMeeting(activeMeeting.id);
+                                                    if (result.success) {
+                                                        showToast('Reschedule requested! The seeker will pick new details.', 'success');
+                                                        await refreshMeetings();
+                                                    } else {
+                                                        showToast(result.error || 'Could not request reschedule', 'error');
+                                                    }
+                                                    setActionLoading(null);
+                                                }}
+                                                disabled={actionLoading}
+                                                whileTap={{ scale: 0.95 }}
+                                                style={{
+                                                    padding: '6px 12px', borderRadius: 8, background: '#EFF6FF',
+                                                    border: '1px solid #3B82F6', color: '#3B82F6', fontSize: 12, fontWeight: 600,
+                                                    display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                                }}
+                                            >
+                                                <RefreshCw size={14} />
+                                            </motion.button>
+                                        )}
                                         <motion.button
                                             onClick={async () => {
                                                 setActionLoading('decline');
@@ -1456,12 +1553,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         const parts = activeMeeting.location.split('||');
                                         const displayAddr = parts[0] || activeMeeting.location;
                                         const coords = parts[1];
-                                        const mapUrl = coords
-                                            ? `https://www.google.com/maps/search/?api=1&query=${coords}`
-                                            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddr)}`;
                                         return (
                                             <motion.button
-                                                onClick={() => window.open(mapUrl, '_blank')}
+                                                onClick={() => openMapsUrl(coords, displayAddr)}
                                                 whileTap={{ scale: 0.95 }}
                                                 style={{
                                                     marginTop: 8,
@@ -1594,12 +1688,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     const parts = activeMeeting.location.split('||');
                                     const displayAddr = parts[0] || activeMeeting.location;
                                     const coords = parts[1];
-                                    const mapUrl = coords
-                                        ? `https://www.google.com/maps/search/?api=1&query=${coords}`
-                                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddr)}`;
                                     return (
                                         <motion.button
-                                            onClick={() => window.open(mapUrl, '_blank')}
+                                            onClick={() => openMapsUrl(coords, displayAddr)}
                                             whileTap={{ scale: 0.95 }}
                                             style={{
                                                 marginTop: 8,
@@ -2404,6 +2495,88 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                             ));
                         }}
                     />
+                )}
+            </AnimatePresence>
+
+            {/* Manual Contact Entry Modal — fallback when Contact Picker API unavailable */}
+            <AnimatePresence>
+                {showContactModal && (
+                    <>
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowContactModal(false)}
+                            style={{
+                                position: 'fixed', inset: 0,
+                                background: 'rgba(0,0,0,0.4)',
+                                zIndex: 99999,
+                            }}
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, y: 100 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 100 }}
+                            transition={{ type: 'spring', damping: 25 }}
+                            style={{
+                                position: 'fixed',
+                                bottom: 0, left: 0, right: 0,
+                                zIndex: 100000,
+                                background: 'white',
+                                borderRadius: '20px 20px 0 0',
+                                padding: '24px',
+                                paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+                            }}
+                        >
+                            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4, color: 'var(--text-primary)' }}>Share a Contact</h3>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Enter the contact details to share</p>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+                                <input
+                                    type="text"
+                                    placeholder="Contact Name"
+                                    value={contactName}
+                                    onChange={(e) => setContactName(e.target.value)}
+                                    style={{
+                                        width: '100%', padding: '14px 16px', borderRadius: 12,
+                                        border: '1px solid var(--border)', fontSize: 15, outline: 'none',
+                                        background: 'var(--bg-secondary)',
+                                    }}
+                                />
+                                <input
+                                    type="tel"
+                                    inputMode="numeric"
+                                    placeholder="Phone Number"
+                                    value={contactPhone}
+                                    onChange={(e) => setContactPhone(e.target.value)}
+                                    style={{
+                                        width: '100%', padding: '14px 16px', borderRadius: 12,
+                                        border: '1px solid var(--border)', fontSize: 15, outline: 'none',
+                                        background: 'var(--bg-secondary)',
+                                    }}
+                                />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 10 }}>
+                                <button
+                                    onClick={() => setShowContactModal(false)}
+                                    style={{
+                                        flex: 1, padding: '14px', borderRadius: 12,
+                                        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                                        fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer',
+                                    }}
+                                >Cancel</button>
+                                <button
+                                    onClick={handleSendManualContact}
+                                    style={{
+                                        flex: 1, padding: '14px', borderRadius: 12,
+                                        background: 'var(--gradient-primary)', border: 'none',
+                                        fontSize: 15, fontWeight: 600, color: 'white', cursor: 'pointer',
+                                    }}
+                                >Share</button>
+                            </div>
+                        </motion.div>
+                    </>
                 )}
             </AnimatePresence>
         </div>

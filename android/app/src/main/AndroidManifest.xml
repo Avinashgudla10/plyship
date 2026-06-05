@@ -65,6 +65,12 @@
     <!-- Package visibility: needed on Android 11+ (API 30) to discover UPI apps
          for Razorpay's UPI intent flow. Without this, resolveActivity() returns null. -->
     <queries>
+        <!-- Maps: needed for meeting location deep links -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <package android:name="com.google.android.apps.maps" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="upi" />

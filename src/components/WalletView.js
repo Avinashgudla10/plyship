@@ -25,7 +25,7 @@ export default function WalletView({ onBack }) {
 
 // ============ TOP UP MODAL ============
 export function TopUpModal({ onClose, onSuccess }) {
-    const { user, topUpWallet } = useAuth();
+    const { user, topUpWallet, recoverPendingPayments } = useAuth();
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -132,6 +132,15 @@ export function TopUpModal({ onClose, onSuccess }) {
                 recovered: false,
             };
 
+            // Persist to localStorage for cross-restart recovery
+            try {
+                localStorage.setItem(`plyship_pending_order_${user.id}`, JSON.stringify({
+                    orderId: orderData.orderId,
+                    amount: numAmount,
+                    createdAt: Date.now(),
+                }));
+            } catch (e) { /* localStorage may be unavailable */ }
+
             // 2. Open Razorpay checkout (UPI-first, in-app)
             const options = buildRazorpayOptions({
                 key: orderData.keyId,
@@ -148,6 +157,8 @@ export function TopUpModal({ onClose, onSuccess }) {
                     if (pendingOrderRef.current) {
                         pendingOrderRef.current.recovered = true;
                     }
+                    // Clear localStorage
+                    try { localStorage.removeItem(`plyship_pending_order_${user.id}`); } catch (e) {}
 
                     // 3. Verify payment on server
                     const verifyRes = await fetch('/api/razorpay/verify-payment', {
@@ -366,7 +377,7 @@ export function TopUpModal({ onClose, onSuccess }) {
 
 // ============ COMPANY WALLET VIEW ============
 function CompanyWalletView({ onBack }) {
-    const { user, getWallet, getTransactions, requestWithdrawal, getWithdrawals } = useAuth();
+    const { user, getWallet, getTransactions, requestWithdrawal, getWithdrawals, recoverPendingPayments } = useAuth();
     const { showToast } = useToast();
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
@@ -388,6 +399,8 @@ function CompanyWalletView({ onBack }) {
 
     useEffect(() => {
         loadWalletData();
+        // Also run payment recovery when wallet page opens
+        recoverPendingPayments?.();
     }, [getWallet, getTransactions]);
 
     if (loading) {
