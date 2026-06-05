@@ -22,8 +22,14 @@ function getAudioContext() {
     return _sharedAudioCtx;
 }
 
-// ── Amplified Voice-Note Player (3× volume via GainNode) ──
-function VoiceNotePlayer({ src, duration, isMe, formatDuration }) {
+// ── WhatsApp-style Voice-Note Player (3× volume via GainNode) ──
+// Waveform bars pattern — generates pseudo-random heights for a natural look
+const WAVEFORM_BARS = (() => {
+    const seed = [4,7,5,8,3,9,6,4,7,5,8,6,3,9,7,5,8,4,6,9,5,7,3,8,6,4,9,5,7,8,3,6,4,9,7,5,8,6,3,7];
+    return seed.map(v => v / 9); // normalize to 0-1
+})();
+
+function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) {
     const audioRef = useRef(null);
     const gainNodeRef = useRef(null);
     const connectedRef = useRef(false);
@@ -90,46 +96,98 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration }) {
         ? formatDuration(elapsed)
         : (duration ? formatDuration(duration) : '0:00');
 
+    // Color scheme
+    const accentColor = isMe ? '#fff' : '#4ADE80';
+    const mutedColor = isMe ? 'rgba(255,255,255,0.4)' : 'rgba(74,222,128,0.35)';
+    const playBtnBg = isMe ? 'rgba(255,255,255,0.2)' : 'rgba(74,222,128,0.12)';
+    const avatarBorder = isMe ? 'rgba(255,255,255,0.3)' : '#4ADE80';
+
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 190 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220, padding: '2px 0' }}>
             <audio ref={audioRef} src={src} preload="none" />
-            {/* Play / Pause */}
+
+            {/* Avatar with mic badge — WhatsApp style */}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div style={{
+                    width: 46, height: 46, borderRadius: '50%',
+                    border: `2px solid ${avatarBorder}`,
+                    background: senderAvatar
+                        ? `url(${senderAvatar}) center/cover no-repeat`
+                        : (isMe ? 'rgba(255,255,255,0.15)' : '#E8F5E9'),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    overflow: 'hidden',
+                }}>
+                    {!senderAvatar && <Mic size={20} color={isMe ? '#fff' : '#4ADE80'} />}
+                </div>
+                {/* Mic badge */}
+                <div style={{
+                    position: 'absolute', bottom: -2, right: -2,
+                    width: 18, height: 18, borderRadius: '50%',
+                    background: isMe ? '#128C7E' : '#4ADE80',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: `2px solid ${isMe ? '#22C55E' : '#fff'}`,
+                }}>
+                    <Mic size={9} color="#fff" />
+                </div>
+            </div>
+
+            {/* Play / Pause button */}
             <motion.button
                 onClick={toggle}
                 whileTap={{ scale: 0.85 }}
                 style={{
-                    width: 32, height: 32, borderRadius: '50%',
-                    background: isMe ? 'rgba(255,255,255,0.25)' : '#F0FDF4',
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: playBtnBg,
                     border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer', flexShrink: 0,
                 }}
             >
                 {playing
-                    ? <Pause size={14} color={isMe ? '#fff' : '#22C55E'} fill={isMe ? '#fff' : '#22C55E'} />
-                    : <Play  size={14} color={isMe ? '#fff' : '#22C55E'} fill={isMe ? '#fff' : '#22C55E'} />}
+                    ? <Pause size={18} color={accentColor} fill={accentColor} />
+                    : <Play  size={18} color={accentColor} fill={accentColor} style={{ marginLeft: 2 }} />}
             </motion.button>
 
-            {/* Progress bar (seekable) */}
-            <div
-                onClick={seek}
-                style={{
-                    flex: 1, height: 6, borderRadius: 3,
-                    background: isMe ? 'rgba(255,255,255,0.25)' : '#E5E7EB',
-                    cursor: 'pointer', position: 'relative', overflow: 'hidden',
-                }}
-            >
-                <div style={{
-                    height: '100%', borderRadius: 3,
-                    width: `${progress * 100}%`,
-                    background: isMe ? '#fff' : '#22C55E',
-                    transition: 'width 0.15s linear',
-                }} />
-            </div>
+            {/* Waveform + Duration column */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                {/* Waveform bars (seekable) */}
+                <div
+                    onClick={seek}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 1.5,
+                        height: 28, cursor: 'pointer', position: 'relative',
+                    }}
+                >
+                    {WAVEFORM_BARS.map((h, i) => {
+                        const barProgress = i / WAVEFORM_BARS.length;
+                        const isActive = barProgress < progress;
+                        const minH = 4;
+                        const maxH = 22;
+                        const barHeight = minH + h * (maxH - minH);
+                        return (
+                            <div
+                                key={i}
+                                style={{
+                                    width: 3,
+                                    height: barHeight,
+                                    borderRadius: 1.5,
+                                    background: isActive ? accentColor : mutedColor,
+                                    transition: 'background 0.1s ease',
+                                    flexShrink: 0,
+                                }}
+                            />
+                        );
+                    })}
+                </div>
 
-            {/* Duration */}
-            <span style={{ fontSize: 11, opacity: 0.7, flexShrink: 0, fontFamily: 'monospace' }}>
-                {displayTime}
-            </span>
+                {/* Duration */}
+                <span style={{
+                    fontSize: 11, opacity: 0.75, fontFamily: 'monospace',
+                    color: isMe ? 'rgba(255,255,255,0.85)' : 'var(--text-secondary)',
+                    letterSpacing: 0.3,
+                }}>
+                    {displayTime}
+                </span>
+            </div>
         </div>
     );
 }
@@ -509,8 +567,9 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
 export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetingModalShown }) {
     const {
         user, sendMessage, getChatId, getWallet, topUpWallet,
-        getMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP, acceptAndScheduleMeeting,
-        getProjects, acceptProject, declineProject, requestRescheduleMeeting
+        getMeetings, subscribeMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP, acceptAndScheduleMeeting,
+        getProjects, subscribeProjects, acceptProject, declineProject, requestRescheduleMeeting,
+        subscribeWallet
     } = useAuth();
     const { showToast, showConfirm } = useToast();
     const [message, setMessage] = useState('');
@@ -734,21 +793,18 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     // Generate chat ID — broadcast chats use their own ID format
     const chatId = isBroadcast ? chat.id : (user && otherUserId ? getChatId(user.id, otherUserId) : null);
 
-    // Fetch meetings between these two users (with polling for real-time updates)
+    // Subscribe to real-time meetings between these two users (replaces 5s polling)
     useEffect(() => {
-        const fetchMeetings = async () => {
-            if (!user || !otherUserId) return;
-            const allMeetings = await getMeetings();
+        if (!user || !otherUserId) return;
+        const unsubscribe = subscribeMeetings((allMeetings) => {
             const relevantMeetings = allMeetings.filter(m => {
                 return (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo;
             });
             setMeetings(relevantMeetings);
             setMeetingsLoaded(true);
-        };
-        fetchMeetings();
-        const interval = setInterval(fetchMeetings, 5000);
-        return () => clearInterval(interval);
-    }, [user, otherUserId, getMeetings]);
+        });
+        return () => unsubscribe();
+    }, [user, otherUserId, subscribeMeetings]);
 
     // Auto-open meeting modal ONCE for brand new matches with no meetings at all
     const autoPopupHandled = useRef(false);
@@ -761,32 +817,26 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         }
     }, [meetingsLoaded]);
 
-    // Fetch projects between these two users
+    // Subscribe to real-time projects between these two users (replaces 3s polling)
     useEffect(() => {
-        const fetchProjects = async () => {
-            if (!user || !otherUserId) return;
-            const allProjects = await getProjects();
+        if (!user || !otherUserId) return;
+        const unsubscribe = subscribeProjects((allProjects) => {
             const relevantProjects = allProjects.filter(p =>
                 (p.companyId === otherUserId || p.seekerId === otherUserId)
             );
             setProjects(relevantProjects);
-        };
-        fetchProjects();
-        const interval = setInterval(fetchProjects, 3000);
-        return () => clearInterval(interval);
-    }, [user, otherUserId, getProjects]);
+        });
+        return () => unsubscribe();
+    }, [user, otherUserId, subscribeProjects]);
 
-    // Fetch wallet balance for companies
+    // Subscribe to real-time wallet balance for companies (replaces 10s polling)
     useEffect(() => {
-        const fetchWallet = async () => {
-            if (!user || !isCompanyUser) return;
-            const wallet = await getWallet();
-            setWalletBalance(wallet?.balance || 0);
-        };
-        fetchWallet();
-        const interval = setInterval(fetchWallet, 10000);
-        return () => clearInterval(interval);
-    }, [user, isCompanyUser, getWallet]);
+        if (!user || !isCompanyUser) return;
+        const unsubscribe = subscribeWallet((walletData) => {
+            setWalletBalance(walletData?.balance || 0);
+        });
+        return () => unsubscribe();
+    }, [user, isCompanyUser, subscribeWallet]);
 
     const activeMeeting = meetings.find(m =>
         ['REQUESTED', 'PENDING_ACCEPTANCE', 'SCHEDULED', 'DISPUTE'].includes(m.status)
@@ -2027,13 +2077,14 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     boxShadow: 'var(--shadow-sm)',
                                     overflow: 'hidden',
                                 }}>
-                                    {/* Voice note – amplified player */}
+                                    {/* Voice note – WhatsApp-style amplified player */}
                                     {msg.fileType === 'voice' && msg.fileUrl && (
                                         <VoiceNotePlayer
                                             src={msg.fileUrl}
                                             duration={msg.fileDuration}
                                             isMe={isMe}
                                             formatDuration={formatDuration}
+                                            senderAvatar={isMe ? (user?.avatar || user?.profileImage) : image}
                                         />
                                     )}
                                     {/* Image */}

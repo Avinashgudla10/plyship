@@ -2,27 +2,47 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import SwipeDeck from '../components/SwipeDeck';
 import MatchOverlay from '../components/MatchOverlay';
 import ProfileDetail from '../components/ProfileDetail';
-import MatchesView from '../components/MatchesView';
-import { ChatListView, ChatView } from '../components/ChatView';
-import ProfileView, {
-  EditProfileView,
-  LikedProfilesView,
-  NotificationsView,
-  PrivacyView,
-  SettingsView,
-  HelpView
-} from '../components/ProfileView';
-import WalletView from '../components/WalletView';
-import MeetingsView from '../components/MeetingsView';
-import ProjectsView from '../components/ProjectsView';
 import LandingPage from '../components/LandingPage';
-import MeetingOTPBar from '../components/MeetingOTPBar';
 import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut } from 'lucide-react';
+
+// ── Lazy-loaded heavy views (code-split into separate chunks) ──
+const MatchesView = lazy(() => import('../components/MatchesView'));
+const WalletView = lazy(() => import('../components/WalletView'));
+const MeetingsView = lazy(() => import('../components/MeetingsView'));
+const ProjectsView = lazy(() => import('../components/ProjectsView'));
+const MeetingOTPBar = lazy(() => import('../components/MeetingOTPBar'));
+
+// Named exports require wrapper: React.lazy only supports default exports
+const ChatListView = lazy(() =>
+  import('../components/ChatView').then(m => ({ default: m.ChatListView }))
+);
+const ChatView = lazy(() =>
+  import('../components/ChatView').then(m => ({ default: m.ChatView }))
+);
+const ProfileView = lazy(() => import('../components/ProfileView'));
+const EditProfileView = lazy(() =>
+  import('../components/ProfileView').then(m => ({ default: m.EditProfileView }))
+);
+const LikedProfilesView = lazy(() =>
+  import('../components/ProfileView').then(m => ({ default: m.LikedProfilesView }))
+);
+const NotificationsView = lazy(() =>
+  import('../components/ProfileView').then(m => ({ default: m.NotificationsView }))
+);
+const PrivacyView = lazy(() =>
+  import('../components/ProfileView').then(m => ({ default: m.PrivacyView }))
+);
+const SettingsView = lazy(() =>
+  import('../components/ProfileView').then(m => ({ default: m.SettingsView }))
+);
+const HelpView = lazy(() =>
+  import('../components/ProfileView').then(m => ({ default: m.HelpView }))
+);
 
 const ADMIN_PHONES = ['+918465834152'];
 
@@ -246,6 +266,29 @@ export default function Home() {
   ];
 
   // Render content based on active tab
+  // Inline Suspense fallback — a lightweight skeleton matching the tab area
+  const TabSkeleton = () => (
+    <div style={{
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+    }}>
+      <motion.div
+        animate={{ opacity: [0.4, 1, 0.4] }}
+        transition={{ duration: 1.2, repeat: Infinity }}
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          background: 'var(--pastel-green, #dcfce7)',
+        }}
+      />
+    </div>
+  );
+
   const renderContent = () => {
     // Handle profile sub-pages
     if (activeTab === 'profile' && profileSubPage) {
@@ -531,22 +574,28 @@ export default function Home() {
         overflow: 'hidden',
         background: 'var(--bg-secondary)',
       }}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab + (selectedChat?.id || '') + (profileSubPage || '')}
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -10 }}
-            transition={{ duration: 0.2 }}
-            style={{ height: '100%' }}
-          >
-            {renderContent()}
-          </motion.div>
-        </AnimatePresence>
+        <Suspense fallback={<TabSkeleton />}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab + (selectedChat?.id || '') + (profileSubPage || '')}
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              style={{ height: '100%' }}
+            >
+              {renderContent()}
+            </motion.div>
+          </AnimatePresence>
+        </Suspense>
       </div>
 
       {/* Meeting OTP Bar — UC-style drop-up above bottom nav (Seekers only) */}
-      {!isFullScreen && <MeetingOTPBar />}
+      {!isFullScreen && (
+        <Suspense fallback={null}>
+          <MeetingOTPBar />
+        </Suspense>
+      )}
 
       {/* Bottom Navigation */}
       {!isFullScreen && (

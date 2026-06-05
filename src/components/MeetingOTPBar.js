@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, ChevronUp, Shield, X, Check, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -37,7 +37,7 @@ function shouldShowOTP(meeting, userRole) {
 }
 
 export default function MeetingOTPBar() {
-    const { user, getMeetings, verifyMeetingOTP } = useAuth();
+    const { user, getMeetings, subscribeMeetings, verifyMeetingOTP } = useAuth();
     const { showToast } = useToast();
     const [meetings, setMeetings] = useState([]);
     const [isExpanded, setIsExpanded] = useState(false);
@@ -47,11 +47,11 @@ export default function MeetingOTPBar() {
     const isSeeker = userRole === 'SEEKER';
     const isCompany = userRole === 'COMPANY';
 
-    const fetchMeetings = useCallback(async () => {
+    // Real-time meeting subscription (replaces 30s polling)
+    useEffect(() => {
         if (!user) return;
 
-        try {
-            const allMeetings = await getMeetings();
+        const unsubscribe = subscribeMeetings((allMeetings) => {
             const otpMeetings = allMeetings.filter(m => shouldShowOTP(m, userRole));
 
             // Sort: past meetings first (need action), then soonest upcoming
@@ -68,17 +68,11 @@ export default function MeetingOTPBar() {
             });
 
             setMeetings(otpMeetings);
-        } catch (err) {
-            console.error('Failed to fetch meetings for OTP bar:', err);
-        }
-        setLoading(false);
-    }, [user, userRole, getMeetings]);
+            setLoading(false);
+        });
 
-    useEffect(() => {
-        fetchMeetings();
-        const interval = setInterval(fetchMeetings, 30000);
-        return () => clearInterval(interval);
-    }, [fetchMeetings]);
+        return () => unsubscribe();
+    }, [user, userRole, subscribeMeetings]);
 
     if (loading || meetings.length === 0) return null;
 
@@ -191,7 +185,7 @@ export default function MeetingOTPBar() {
                                 isSeeker ? (
                                     <SeekerOTPRow key={meeting.id} meeting={meeting} formatTime={formatMeetingTime} isPast={isPastMeeting(meeting.scheduledAt)} partnerName={partnerName(meeting)} />
                                 ) : (
-                                    <CompanyOTPRow key={meeting.id} meeting={meeting} formatTime={formatMeetingTime} isPast={isPastMeeting(meeting.scheduledAt)} partnerName={partnerName(meeting)} verifyMeetingOTP={verifyMeetingOTP} showToast={showToast} onVerified={fetchMeetings} />
+                                    <CompanyOTPRow key={meeting.id} meeting={meeting} formatTime={formatMeetingTime} isPast={isPastMeeting(meeting.scheduledAt)} partnerName={partnerName(meeting)} verifyMeetingOTP={verifyMeetingOTP} showToast={showToast} onVerified={() => {}} />
                                 )
                             ))}
                         </motion.div>
@@ -220,7 +214,7 @@ export default function MeetingOTPBar() {
                         onToggle={() => hasMultiple && setIsExpanded(!isExpanded)}
                         verifyMeetingOTP={verifyMeetingOTP}
                         showToast={showToast}
-                        onVerified={fetchMeetings}
+                        onVerified={() => {}}
                     />
                 )}
             </div>

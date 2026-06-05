@@ -1632,6 +1632,68 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
+    // Subscribe to real-time meetings for current user (replaces polling)
+    const subscribeMeetings = useCallback((callback) => {
+        if (!user || !user.id) return () => {};
+
+        const isCompany = user.role === 'COMPANY';
+        const fieldToQuery = isCompany ? 'companyId' : 'seekerId';
+        const q = query(
+            collection(db, 'meetings'),
+            where(fieldToQuery, '==', user.id)
+        );
+
+        // Cache partner names to avoid re-fetching on every snapshot
+        const nameCache = {};
+
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
+            try {
+                const meetings = [];
+                snapshot.forEach((d) => {
+                    meetings.push({ id: d.id, ...d.data() });
+                });
+
+                // Enrich meetings missing partner names (using cache)
+                const namesToFetch = new Map();
+                meetings.forEach(m => {
+                    if (isCompany && !m.seekerName && m.seekerId && !nameCache[m.seekerId]) {
+                        namesToFetch.set(m.seekerId, 'seekers');
+                    }
+                    if (!isCompany && !m.companyName && m.companyId && !nameCache[m.companyId]) {
+                        namesToFetch.set(m.companyId, 'companies');
+                    }
+                });
+
+                if (namesToFetch.size > 0) {
+                    await Promise.all(
+                        Array.from(namesToFetch.entries()).map(async ([id, coll]) => {
+                            try {
+                                const snap = await getDoc(doc(db, coll, id));
+                                if (snap.exists()) {
+                                    const d = snap.data();
+                                    nameCache[id] = d.profile?.companyName || d.profile?.name || d.name || '';
+                                }
+                            } catch (_) {}
+                        })
+                    );
+                }
+
+                meetings.forEach(m => {
+                    if (isCompany && !m.seekerName && nameCache[m.seekerId]) m.seekerName = nameCache[m.seekerId];
+                    if (!isCompany && !m.companyName && nameCache[m.companyId]) m.companyName = nameCache[m.companyId];
+                });
+
+                meetings.sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt));
+                callback(meetings);
+            } catch (error) {
+                console.error('subscribeMeetings error:', error);
+                callback([]);
+            }
+        });
+
+        return unsubscribe;
+    }, [user]);
+
     // Accept a meeting request (other party accepts)
     const acceptMeeting = useCallback(async (meetingId) => {
         if (!user || !user.id) {
@@ -2490,6 +2552,52 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user]);
 
+    // Subscribe to real-time projects for current user (replaces polling)
+    const subscribeProjects = useCallback((callback) => {
+        if (!user || !user.id) return () => {};
+
+        const isCompany = user.role === 'COMPANY';
+        const fieldToQuery = isCompany ? 'companyId' : 'seekerId';
+        const q = query(
+            collection(db, 'projects'),
+            where(fieldToQuery, '==', user.id)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            try {
+                const projects = [];
+                snapshot.forEach((docSnap) => {
+                    projects.push({ id: docSnap.id, ...docSnap.data() });
+                });
+                projects.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                callback(projects);
+            } catch (error) {
+                console.error('subscribeProjects error:', error);
+                callback([]);
+            }
+        });
+
+        return unsubscribe;
+    }, [user]);
+
+    // Subscribe to real-time wallet updates for current user (replaces polling)
+    const subscribeWallet = useCallback((callback) => {
+        if (!user || !user.id) return () => {};
+
+        const walletRef = doc(db, 'wallets', user.id);
+        const unsubscribe = onSnapshot(walletRef, (snapshot) => {
+            if (snapshot.exists()) {
+                callback(snapshot.data());
+            } else {
+                // Wallet doesn't exist yet — create it then let the next snapshot fire
+                initializeWallet(user.id, user.role);
+                callback(null);
+            }
+        });
+
+        return unsubscribe;
+    }, [user, initializeWallet]);
+
     // Accept a project request (non-requester accepts)
     const acceptProject = useCallback(async (projectId) => {
         if (!user || !user.id) {
@@ -3060,6 +3168,7 @@ export const AuthProvider = ({ children }) => {
             scheduleMeeting,
             acceptAndScheduleMeeting,
             getMeetings,
+            subscribeMeetings,
             acceptMeeting,
             declineMeeting,
             cancelMeeting,
@@ -3071,6 +3180,7 @@ export const AuthProvider = ({ children }) => {
             verifyMeetingOTP,
             createProject,
             getProjects,
+            subscribeProjects,
             acceptProject,
             declineProject,
             recordAdvancePayment,
@@ -3086,6 +3196,7 @@ export const AuthProvider = ({ children }) => {
             exitImpersonation,
             isImpersonating,
             updateUsername,
+            subscribeWallet,
             logout
         }}>
             {children}
