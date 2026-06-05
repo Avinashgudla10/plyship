@@ -39,12 +39,17 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import com.getcapacitor.BridgeActivity;
+import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -71,7 +76,6 @@ import java.util.Locale;
 public class MainActivity extends BridgeActivity {
 
     private static final int ALL_PERMISSIONS_REQUEST = 1001;
-    private static final int FILE_CHOOSER_REQUEST = 1002;
 
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
@@ -88,6 +92,13 @@ public class MainActivity extends BridgeActivity {
     // Offline UI references
     private View offlineBanner;
     private View offlineFullScreen;
+
+    // ActivityResultLauncher replaces deprecated startActivityForResult
+    private final ActivityResultLauncher<Intent> fileChooserLauncher =
+        registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            this::handleFileChooserResult
+        );
 
     // ==================== Lifecycle ====================
 
@@ -176,44 +187,44 @@ public class MainActivity extends BridgeActivity {
 
     // ==================== File Upload Result ====================
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
+    /**
+     * Handles the result from the file chooser / camera ActivityResultLauncher.
+     * Replaces the deprecated onActivityResult pattern.
+     */
+    private void handleFileChooserResult(ActivityResult result) {
+        if (fileUploadCallback == null) return;
 
-        if (requestCode == FILE_CHOOSER_REQUEST) {
-            if (fileUploadCallback == null) return;
+        if (result.getResultCode() == Activity.RESULT_OK) {
+            Uri[] results = null;
+            Intent data = result.getData();
 
-            if (resultCode == Activity.RESULT_OK) {
-                Uri[] results = null;
+            // Check if result came from multi-select (via ClipData)
+            if (data != null && data.getClipData() != null) {
+                int count = data.getClipData().getItemCount();
+                results = new Uri[count];
+                for (int i = 0; i < count; i++) {
+                    results[i] = data.getClipData().getItemAt(i).getUri();
+                }
+            }
+            // Single file selected via getData()
+            else if (data != null && data.getData() != null) {
+                results = new Uri[]{data.getData()};
+            }
+            // If no data in intent, check if camera wrote to our pre-set URI
+            else if (cameraPhotoUri != null) {
+                results = new Uri[]{cameraPhotoUri};
+            }
 
-                // Check if result came from multi-select (via ClipData)
-                if (data != null && data.getClipData() != null) {
-                    int count = data.getClipData().getItemCount();
-                    results = new Uri[count];
-                    for (int i = 0; i < count; i++) {
-                        results[i] = data.getClipData().getItemAt(i).getUri();
-                    }
-                }
-                // Single file selected via getData()
-                else if (data != null && data.getData() != null) {
-                    results = new Uri[]{data.getData()};
-                }
-                // If no data in intent, check if camera wrote to our pre-set URI
-                else if (cameraPhotoUri != null) {
-                    results = new Uri[]{cameraPhotoUri};
-                }
-
-                if (results != null && results.length > 0) {
-                    fileUploadCallback.onReceiveValue(results);
-                } else {
-                    fileUploadCallback.onReceiveValue(null);
-                }
+            if (results != null && results.length > 0) {
+                fileUploadCallback.onReceiveValue(results);
             } else {
                 fileUploadCallback.onReceiveValue(null);
             }
-            fileUploadCallback = null;
-            cameraPhotoUri = null;
+        } else {
+            fileUploadCallback.onReceiveValue(null);
         }
+        fileUploadCallback = null;
+        cameraPhotoUri = null;
     }
 
     private void setupAfterBridgeReady() {
@@ -248,6 +259,8 @@ public class MainActivity extends BridgeActivity {
         View decorView = getWindow().getDecorView();
         decorView.setFitsSystemWindows(true);
 
+        // minSdk is 24 (>= M), so we always have light status bar support.
+        // Use the modern WindowInsetsController API (available since API 30 / R).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             android.view.WindowInsetsController c = getWindow().getInsetsController();
             if (c != null) {
@@ -257,7 +270,8 @@ public class MainActivity extends BridgeActivity {
                     android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                         | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
             }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        } else {
+            // API 24-29 fallback using deprecated but functional flags
             int flags = decorView.getSystemUiVisibility();
             flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -413,7 +427,7 @@ public class MainActivity extends BridgeActivity {
                                 getApplicationContext().getPackageName() + ".fileprovider",
                                 photoFile);
                             cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, cameraPhotoUri);
-                            startActivityForResult(cameraIntent, FILE_CHOOSER_REQUEST);
+                            fileChooserLauncher.launch(cameraIntent);
                         } else {
                             fileUploadCallback.onReceiveValue(null);
                             fileUploadCallback = null;
@@ -443,13 +457,13 @@ public class MainActivity extends BridgeActivity {
 
                                 Intent chooser = Intent.createChooser(galleryIntent, "Select Image");
                                 chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
-                                startActivityForResult(chooser, FILE_CHOOSER_REQUEST);
+                                fileChooserLauncher.launch(chooser);
                             } catch (IOException e) {
                                 // Fallback to gallery only
-                                startActivityForResult(galleryIntent, FILE_CHOOSER_REQUEST);
+                                fileChooserLauncher.launch(galleryIntent);
                             }
                         } else {
-                            startActivityForResult(galleryIntent, FILE_CHOOSER_REQUEST);
+                            fileChooserLauncher.launch(galleryIntent);
                         }
                     }
                 } catch (Exception e) {
@@ -588,8 +602,8 @@ public class MainActivity extends BridgeActivity {
         public String getToken() {
             try {
                 // Get FCM token synchronously (blocks until available, OK on JS bridge thread)
-                String token = com.google.android.gms.tasks.Tasks.await(
-                    com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken()
+                String token = Tasks.await(
+                    FirebaseMessaging.getInstance().getToken()
                 );
                 return token != null ? token : "ERROR";
             } catch (Exception e) {

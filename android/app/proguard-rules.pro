@@ -5,12 +5,17 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep JavaScript bridge classes used by WebView
+-keepclassmembers class com.plyship.app.MainActivity$ContactsBridge {
+   public *;
+}
+-keepclassmembers class com.plyship.app.MainActivity$PushBridge {
+   public *;
+}
+# Keep all @JavascriptInterface annotated methods
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
