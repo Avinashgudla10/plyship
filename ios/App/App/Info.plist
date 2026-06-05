@@ -101,6 +101,8 @@
 		<string>paytm</string>
 		<string>tez</string>
 		<string>bhim</string>
+		<string>comgooglemaps</string>
+		<string>maps</string>
 	</array>
 </dict>
 </plist>

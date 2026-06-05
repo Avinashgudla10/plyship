@@ -646,25 +646,29 @@ function MeetingCard({
                 const parts = meeting.location.split('||');
                 const displayAddress = parts[0] || meeting.location;
                 const coords = parts[1]; // "lat,lng" or undefined
-                // Use geo: URI for native app support on Android/iOS
-                const geoUri = coords
-                    ? `geo:${coords}?q=${coords}`
-                    : `geo:0,0?q=${encodeURIComponent(displayAddress)}`;
-                // HTTPS fallback for PWA/desktop
-                const httpsUrl = coords
-                    ? `https://www.google.com/maps/search/?api=1&query=${coords}`
-                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
+
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                const isAndroid = /Android/i.test(navigator.userAgent);
+
+                // Platform-specific URL
+                let mapUrl;
+                if (isIOS) {
+                    mapUrl = coords
+                        ? `https://maps.apple.com/?q=${coords}`
+                        : `https://maps.apple.com/?q=${encodeURIComponent(displayAddress)}`;
+                } else if (isAndroid) {
+                    mapUrl = coords
+                        ? `geo:${coords}?q=${coords}`
+                        : `geo:0,0?q=${encodeURIComponent(displayAddress)}`;
+                } else {
+                    mapUrl = coords
+                        ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
+                }
 
                 return (
                     <a
-                        href={geoUri}
-                        onClick={(e) => {
-                            // On desktop/PWA where geo: may not work, fallback to HTTPS
-                            if (!('ontouchstart' in window) && !navigator.maxTouchPoints) {
-                                e.preventDefault();
-                                window.open(httpsUrl, '_blank');
-                            }
-                        }}
+                        href={mapUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{

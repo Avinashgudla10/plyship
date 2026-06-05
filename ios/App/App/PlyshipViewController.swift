@@ -379,7 +379,7 @@ extension PlyshipViewController: WKNavigationDelegate {
 
         let scheme = url.scheme?.lowercased() ?? ""
 
-        // Handle UPI intent URLs ΓÇö launch the native UPI app (GPay, PhonePe, etc.)
+        // Handle UPI intent URLs — launch the native UPI app (GPay, PhonePe, etc.)
         // The user completes payment in the UPI app and is returned to PLYSHIP.
         if ["upi", "intent", "phonepe", "gpay", "paytm", "tez"].contains(scheme) {
             if UIApplication.shared.canOpenURL(url) {
@@ -387,6 +387,47 @@ extension PlyshipViewController: WKNavigationDelegate {
             }
             decisionHandler(.cancel)
             return
+        }
+
+        // Handle Maps URL schemes — open in Apple Maps or Google Maps app.
+        // geo: is the standard cross-platform scheme; maps: and comgooglemaps: are
+        // Apple Maps and Google Maps deep-link schemes respectively.
+        if ["geo", "maps", "comgooglemaps"].contains(scheme) {
+            // For geo: URIs, convert to Apple Maps URL which iOS handles natively
+            if scheme == "geo" {
+                // geo:lat,lng?q=lat,lng → maps://maps.apple.com/?q=lat,lng
+                let geoString = url.absoluteString
+                // Extract coordinates: geo:lat,lng?q=... or geo:0,0?q=address
+                if let qRange = geoString.range(of: "?q=") {
+                    let query = String(geoString[qRange.upperBound...])
+                    if let mapsUrl = URL(string: "https://maps.apple.com/?q=\(query)") {
+                        UIApplication.shared.open(mapsUrl, options: [:], completionHandler: nil)
+                    }
+                } else {
+                    // Just coordinates: geo:lat,lng
+                    let coords = geoString.replacingOccurrences(of: "geo:", with: "")
+                    if let mapsUrl = URL(string: "https://maps.apple.com/?q=\(coords)") {
+                        UIApplication.shared.open(mapsUrl, options: [:], completionHandler: nil)
+                    }
+                }
+            } else {
+                // maps: or comgooglemaps: — open directly
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+            decisionHandler(.cancel)
+            return
+        }
+
+        // Handle Google Maps HTTPS links — open in Google Maps app if installed,
+        // otherwise fall through to Apple Maps
+        if scheme == "https" || scheme == "http" {
+            let host = url.host?.lowercased() ?? ""
+            if host.contains("maps.google.com") || host.contains("maps.apple.com")
+                || host == "goo.gl" || host == "maps.app.goo.gl" {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                decisionHandler(.cancel)
+                return
+            }
         }
 
         // Handle target="_blank" links (no target frame).

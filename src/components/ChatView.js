@@ -12,6 +12,128 @@ import ReviewModal from './ReviewModal';
 import ProfileDetail from './ProfileDetail';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 
+// ── Shared AudioContext for voice-note volume boost ──
+let _sharedAudioCtx = null;
+function getAudioContext() {
+    if (!_sharedAudioCtx || _sharedAudioCtx.state === 'closed') {
+        _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_sharedAudioCtx.state === 'suspended') _sharedAudioCtx.resume();
+    return _sharedAudioCtx;
+}
+
+// ── Amplified Voice-Note Player (3× volume via GainNode) ──
+function VoiceNotePlayer({ src, duration, isMe, formatDuration }) {
+    const audioRef = useRef(null);
+    const gainNodeRef = useRef(null);
+    const connectedRef = useRef(false);
+    const [playing, setPlaying] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [elapsed, setElapsed] = useState(0);
+
+    // Wire up the Web Audio API gain on first play
+    const ensureGain = () => {
+        const audio = audioRef.current;
+        if (!audio || connectedRef.current) return;
+        try {
+            const ctx = getAudioContext();
+            const source = ctx.createMediaElementSource(audio);
+            const gain = ctx.createGain();
+            gain.gain.value = 3.0; // 3× volume boost
+            source.connect(gain).connect(ctx.destination);
+            gainNodeRef.current = gain;
+            connectedRef.current = true;
+        } catch (_) { /* already connected or unsupported – falls back to native volume */ }
+    };
+
+    const toggle = () => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        ensureGain();
+        if (playing) { audio.pause(); }
+        else { audio.play().catch(() => {}); }
+    };
+
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        const onPlay = () => setPlaying(true);
+        const onPause = () => setPlaying(false);
+        const onEnded = () => { setPlaying(false); setProgress(0); setElapsed(0); };
+        const onTime = () => {
+            if (audio.duration && isFinite(audio.duration)) {
+                setProgress(audio.currentTime / audio.duration);
+                setElapsed(Math.floor(audio.currentTime));
+            }
+        };
+        audio.addEventListener('play', onPlay);
+        audio.addEventListener('pause', onPause);
+        audio.addEventListener('ended', onEnded);
+        audio.addEventListener('timeupdate', onTime);
+        return () => {
+            audio.removeEventListener('play', onPlay);
+            audio.removeEventListener('pause', onPause);
+            audio.removeEventListener('ended', onEnded);
+            audio.removeEventListener('timeupdate', onTime);
+        };
+    }, []);
+
+    const seek = (e) => {
+        const audio = audioRef.current;
+        if (!audio || !audio.duration) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        audio.currentTime = ratio * audio.duration;
+    };
+
+    const displayTime = playing || elapsed > 0
+        ? formatDuration(elapsed)
+        : (duration ? formatDuration(duration) : '0:00');
+
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 190 }}>
+            <audio ref={audioRef} src={src} preload="none" />
+            {/* Play / Pause */}
+            <motion.button
+                onClick={toggle}
+                whileTap={{ scale: 0.85 }}
+                style={{
+                    width: 32, height: 32, borderRadius: '50%',
+                    background: isMe ? 'rgba(255,255,255,0.25)' : '#F0FDF4',
+                    border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', flexShrink: 0,
+                }}
+            >
+                {playing
+                    ? <Pause size={14} color={isMe ? '#fff' : '#22C55E'} fill={isMe ? '#fff' : '#22C55E'} />
+                    : <Play  size={14} color={isMe ? '#fff' : '#22C55E'} fill={isMe ? '#fff' : '#22C55E'} />}
+            </motion.button>
+
+            {/* Progress bar (seekable) */}
+            <div
+                onClick={seek}
+                style={{
+                    flex: 1, height: 6, borderRadius: 3,
+                    background: isMe ? 'rgba(255,255,255,0.25)' : '#E5E7EB',
+                    cursor: 'pointer', position: 'relative', overflow: 'hidden',
+                }}
+            >
+                <div style={{
+                    height: '100%', borderRadius: 3,
+                    width: `${progress * 100}%`,
+                    background: isMe ? '#fff' : '#22C55E',
+                    transition: 'width 0.15s linear',
+                }} />
+            </div>
+
+            {/* Duration */}
+            <span style={{ fontSize: 11, opacity: 0.7, flexShrink: 0, fontFamily: 'monospace' }}>
+                {displayTime}
+            </span>
+        </div>
+    );
+}
+
 // Chat list view
 export function ChatListView({ chats = [], onChatSelect, user }) {
     const [filter, setFilter] = useState('all');
@@ -822,19 +944,34 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
     // Cross-platform Maps URL opener — works on Android, iOS, and PWA
     const openMapsUrl = (coords, displayAddress) => {
-        // Build the geo: URI (natively handled by Google Maps / Apple Maps on mobile)
-        const geoUri = coords
-            ? `geo:${coords}?q=${coords}`
-            : `geo:0,0?q=${encodeURIComponent(displayAddress)}`;
-        // Build the HTTPS fallback (works in all browsers and PWA)
-        const httpsUrl = coords
-            ? `https://www.google.com/maps/search/?api=1&query=${coords}`
-            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const isAndroid = /Android/i.test(navigator.userAgent);
 
-        // Try geo: first (intercepted by native apps on Android/iOS)
-        // On Capacitor WebView, shouldOverrideUrlLoading will open the system handler
+        // Build platform-specific URL
+        let mapUrl;
+        if (isIOS) {
+            // Apple Maps URL — iOS intercepts these natively and opens Apple Maps
+            // (or Google Maps if user has set it as default maps app)
+            mapUrl = coords
+                ? `https://maps.apple.com/?q=${coords}`
+                : `https://maps.apple.com/?q=${encodeURIComponent(displayAddress)}`;
+        } else if (isAndroid) {
+            // geo: URI — Android natively routes to Google Maps / installed maps app
+            mapUrl = coords
+                ? `geo:${coords}?q=${coords}`
+                : `geo:0,0?q=${encodeURIComponent(displayAddress)}`;
+        } else {
+            // Desktop / PWA fallback — HTTPS Google Maps (opens in browser)
+            mapUrl = coords
+                ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
+        }
+
+        // Use an anchor click to trigger the navigation.
+        // On Capacitor iOS, decidePolicyFor intercepts maps.apple.com and opens externally.
+        // On Capacitor Android, shouldOverrideUrlLoading intercepts geo: and opens externally.
         const anchor = document.createElement('a');
-        anchor.href = geoUri;
+        anchor.href = mapUrl;
         anchor.target = '_blank';
         anchor.rel = 'noopener noreferrer';
         anchor.style.display = 'none';
@@ -843,11 +980,14 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         try {
             anchor.click();
         } catch (e) {
-            // geo: scheme not supported — fall back to HTTPS
+            // Scheme not supported — fall back to HTTPS Google Maps
+            const httpsUrl = coords
+                ? `https://www.google.com/maps/search/?api=1&query=${coords}`
+                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress)}`;
             window.open(httpsUrl, '_blank');
         }
 
-        // Cleanup & fallback timeout: if geo: didn't navigate away, open HTTPS
+        // Cleanup
         setTimeout(() => {
             try { document.body.removeChild(anchor); } catch (e) {}
         }, 300);
@@ -1887,22 +2027,14 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     boxShadow: 'var(--shadow-sm)',
                                     overflow: 'hidden',
                                 }}>
-                                    {/* Voice note */}
+                                    {/* Voice note – amplified player */}
                                     {msg.fileType === 'voice' && msg.fileUrl && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 200 }}>
-                                            <Mic size={16} style={{ flexShrink: 0 }} />
-                                            <audio controls preload="none" style={{
-                                                height: 32, flex: 1, maxWidth: '100%',
-                                                filter: isMe ? 'brightness(10)' : 'none',
-                                            }}>
-                                                <source src={msg.fileUrl} />
-                                            </audio>
-                                            {msg.fileDuration && (
-                                                <span style={{ fontSize: 11, opacity: 0.7, flexShrink: 0 }}>
-                                                    {formatDuration(msg.fileDuration)}
-                                                </span>
-                                            )}
-                                        </div>
+                                        <VoiceNotePlayer
+                                            src={msg.fileUrl}
+                                            duration={msg.fileDuration}
+                                            isMe={isMe}
+                                            formatDuration={formatDuration}
+                                        />
                                     )}
                                     {/* Image */}
                                     {msg.fileType === 'image' && msg.fileUrl && (
