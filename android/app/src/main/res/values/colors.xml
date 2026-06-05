@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PLYSHIP brand green — used as FCM notification accent color -->
+    <color name="plyship_green">#22C55E</color>
+</resources>

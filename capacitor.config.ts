@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-    appId: 'com.plyship.app',
+    appId: 'com.agxfactor.plyship',
     appName: 'PLYSHIP',
     webDir: 'out',
     server: {

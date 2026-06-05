@@ -141,6 +141,11 @@ public class MainActivity extends BridgeActivity {
                     != PackageManager.PERMISSION_GRANTED) {
                 needed.add(android.Manifest.permission.READ_MEDIA_IMAGES);
             }
+            // Android 13+ requires explicit notification permission
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.POST_NOTIFICATIONS);
+            }
         } else {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -219,6 +224,7 @@ public class MainActivity extends BridgeActivity {
             setupWebViewClient();
             setupWebChromeClient();
             registerContactsBridge();
+            registerPushBridge();
             injectPullToRefreshScript();
             startNetworkMonitoring();
         } catch (Exception e) {
@@ -550,6 +556,45 @@ public class MainActivity extends BridgeActivity {
                 if (cursor != null) cursor.close();
             }
             return contactsArray.toString();
+        }
+    }
+
+    // ==================== Push Notifications Bridge ====================
+
+    /**
+     * Registers a JavaScript interface that exposes the native FCM push token
+     * to the WebView. The web page calls window.PlyshipPush.getToken() to get
+     * the FCM registration token for this device.
+     *
+     * This is necessary because the Web FCM SDK (firebase/messaging) relies on
+     * service workers which don't work inside native WebViews. The native
+     * Firebase Messaging SDK handles push registration instead.
+     */
+    private void registerPushBridge() {
+        WebView webView = getBridge().getWebView();
+        if (webView == null) return;
+        webView.addJavascriptInterface(new PushBridge(), "PlyshipPush");
+    }
+
+    /**
+     * JavaScript interface for push notification token.
+     * Called from web page via window.PlyshipPush.getToken().
+     * Returns the FCM registration token as a string, or "ERROR" on failure.
+     */
+    private class PushBridge {
+
+        @JavascriptInterface
+        public String getToken() {
+            try {
+                // Get FCM token synchronously (blocks until available, OK on JS bridge thread)
+                String token = com.google.android.gms.tasks.Tasks.await(
+                    com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken()
+                );
+                return token != null ? token : "ERROR";
+            } catch (Exception e) {
+                Log.e("PlyshipFCM", "Error getting FCM token: " + e.getMessage());
+                return "ERROR";
+            }
         }
     }
 

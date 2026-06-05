@@ -806,16 +806,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         return () => unsubscribe();
     }, [user, otherUserId, subscribeMeetings]);
 
-    // Auto-open meeting modal ONCE for brand new matches with no meetings at all
-    const autoPopupHandled = useRef(false);
-    useEffect(() => {
-        if (meetingsLoaded && !autoPopupHandled.current) {
-            autoPopupHandled.current = true;
-            if (meetings.length === 0 && !chat?.lastMessage) {
-                setShowMeetingModal(true);
-            }
-        }
-    }, [meetingsLoaded]);
+    // NOTE: Previously auto-opened meeting modal for brand-new chats with no meetings.
+    // Removed so that clicking Message in Find Connections lets users chat directly.
+    // Use the dedicated "Meet" button to book meetings instead.
 
     // Subscribe to real-time projects between these two users (replaces 3s polling)
     useEffect(() => {

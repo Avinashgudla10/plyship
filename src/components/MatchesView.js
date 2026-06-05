@@ -3,11 +3,13 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, MapPin, Briefcase, User, Users, Search, Calendar, Star, Clock, CheckCircle, SlidersHorizontal, ChevronDown, Check } from 'lucide-react';
+import ProfileDetail from './ProfileDetail';
 
 export default function MatchesView({ allUsers = [], meetings = [], onChatClick, onMeetClick, viewerRole }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [filter, setFilter] = useState('all');
     const [filterOpen, setFilterOpen] = useState(false);
+    const [selectedProfile, setSelectedProfile] = useState(null);
 
     const isSeeker = viewerRole === 'SEEKER';
     const isCompanyViewer = viewerRole === 'COMPANY';
@@ -290,18 +292,25 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
                             }}
                         >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                {/* Avatar */}
-                                <div style={{
-                                    width: 52,
-                                    height: 52,
-                                    borderRadius: isCompany ? 14 : '50%',
-                                    background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
-                                    border: '2px solid var(--pastel-mint)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flexShrink: 0,
-                                }}>
+                                {/* Avatar — clickable to open profile */}
+                                <div
+                                    onClick={() => setSelectedProfile(userItem)}
+                                    style={{
+                                        width: 52,
+                                        height: 52,
+                                        borderRadius: isCompany ? 14 : '50%',
+                                        background: image ? `url(${image}) center/cover` : 'var(--pastel-green)',
+                                        border: '2px solid var(--pastel-mint)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexShrink: 0,
+                                        cursor: 'pointer',
+                                        transition: 'transform 0.15s, box-shadow 0.15s',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(34,197,94,0.25)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                                >
                                     {!image && (isCompany
                                         ? <Briefcase size={22} color="var(--primary)" />
                                         : <User size={22} color="var(--primary)" />
@@ -310,15 +319,19 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
 
                                 {/* Info */}
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <h3 style={{
-                                        fontSize: 15,
-                                        fontWeight: 700,
-                                        color: 'var(--text-primary)',
-                                        marginBottom: 3,
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                    }}>
+                                    <h3
+                                        onClick={() => setSelectedProfile(userItem)}
+                                        style={{
+                                            fontSize: 15,
+                                            fontWeight: 700,
+                                            color: 'var(--text-primary)',
+                                            marginBottom: 3,
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
                                         {name || 'Unknown'}
                                     </h3>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -423,6 +436,22 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
                     );
                 })}
             </div>
+
+            {/* Profile Detail Overlay */}
+            <AnimatePresence>
+                {selectedProfile && (
+                    <ProfileDetail
+                        profile={selectedProfile}
+                        onClose={() => setSelectedProfile(null)}
+                        onMeet={() => {
+                            setSelectedProfile(null);
+                            onMeetClick?.(selectedProfile);
+                        }}
+                        onReject={() => setSelectedProfile(null)}
+                        viewerRole={viewerRole}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }

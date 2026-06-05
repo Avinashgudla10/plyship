@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "109538013062",
+    "project_id": "plyship-277bf",
+    "storage_bucket": "plyship-277bf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:109538013062:android:e5f6ab289c7dcd985a8607",
+        "android_client_info": {
+          "package_name": "com.plyship.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_FAklUx4bMM23IcBLo5ETcCXd20wXDes"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

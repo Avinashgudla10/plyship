@@ -82,10 +82,11 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>PLYSHIP uses your location to find interior designers near you, show your city on your profile, and keep your location updated.</string>
 
-	<!-- Background Modes: Required for "Always Allow" location permission -->
+	<!-- Background Modes: Required for "Always Allow" location permission and push notifications -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>remote-notification</string>
 	</array>
 
 	<!-- Privacy: Contacts access (needed for sharing contacts in chat) -->

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, auth, uploadImage, uploadImages, deleteUserStorage } from '../lib/firebase';
+import { requestAndSaveFCMToken, cleanupFCMToken, setupForegroundMessaging, setupNativeTokenRefresh } from '../lib/fcm';
 import {
     signOut,
     onAuthStateChanged,
@@ -145,6 +146,32 @@ export const AuthProvider = ({ children }) => {
 
         return () => unsubscribe();
     }, []);
+
+    // ── Push Notification Registration ──
+    // Register FCM token when user is authenticated with a complete profile.
+    // Also sets up foreground message listener for in-app notifications.
+    useEffect(() => {
+        if (!user || !user.id || !user.profileComplete) return;
+
+        // Register FCM token (fire-and-forget — non-blocking)
+        requestAndSaveFCMToken(user.id).catch(() => {
+            // FCM registration is best-effort; don't break the app if it fails
+        });
+
+        // Set up native token refresh listener (iOS sends refreshed tokens via JS bridge)
+        setupNativeTokenRefresh(user.id);
+
+        // Set up foreground message handler so we can show in-app toasts
+        // when a push arrives while the user is actively using the app
+        const unsubForeground = setupForegroundMessaging((payload) => {
+            // The notification is already handled by the in-app notification system
+            // This is just a hook for future enhancements (e.g., badge count update)
+        });
+
+        return () => {
+            if (typeof unsubForeground === 'function') unsubForeground();
+        };
+    }, [user?.id, user?.profileComplete]);
 
     // Setup invisible reCAPTCHA
     const setupRecaptcha = (buttonId) => {
@@ -3077,6 +3104,10 @@ export const AuthProvider = ({ children }) => {
         try {
             isOnboarding.current = false;
             localStorage.removeItem('onboardingRole');
+            // Clean up FCM token so this device stops receiving push notifications
+            if (user?.id) {
+                await cleanupFCMToken(user.id).catch(() => {});
+            }
             await signOut(auth);
             setUser(null);
             router.push('/login');

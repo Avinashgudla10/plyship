@@ -4,6 +4,8 @@ import WebKit
 import Network
 import CoreLocation
 import Contacts
+import FirebaseCore
+import FirebaseMessaging
 
 /// Custom Capacitor WebView controller for PLYSHIP.
 /// Features:
@@ -47,11 +49,17 @@ class PlyshipViewController: CAPBridgeViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Configure Firebase SDK (required for FCM push tokens)
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
+        Messaging.messaging().delegate = self
         webView?.navigationDelegate = self
         webView?.uiDelegate = self
         startNetworkMonitoring()
         requestNativeLocationPermission()
         registerContactsBridge()
+        registerPushBridge()
     }
 
     /// Request native location authorization. This ensures the OS-level
@@ -378,6 +386,13 @@ class PlyshipViewController: CAPBridgeViewController {
     private func registerContactsBridge() {
         webView?.configuration.userContentController.add(self, name: "getContacts")
     }
+
+    /// Register a script message handler so the WebView can request the FCM push token
+    /// via window.webkit.messageHandlers.getPushToken.postMessage('fetch').
+    /// The token is returned via window.__plyship_push_callback(token).
+    private func registerPushBridge() {
+        webView?.configuration.userContentController.add(self, name: "getPushToken")
+    }
 }
 
 // MARK: - WKNavigationDelegate
@@ -598,6 +613,21 @@ extension PlyshipViewController: WKScriptMessageHandler {
     /// Called when JavaScript sends a message via window.webkit.messageHandlers.getContacts.postMessage('fetch').
     /// Reads device contacts using CNContactStore and calls back into JS with JSON data.
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        // Handle push token request
+        if message.name == "getPushToken" {
+            Messaging.messaging().token { [weak self] token, error in
+                DispatchQueue.main.async {
+                    let result = token ?? "ERROR"
+                    let escaped = result.replacingOccurrences(of: "'", with: "\\'")
+                    self?.webView?.evaluateJavaScript(
+                        "if(window.__plyship_push_callback) window.__plyship_push_callback('\(escaped)');",
+                        completionHandler: nil
+                    )
+                }
+            }
+            return
+        }
+
         guard message.name == "getContacts" else { return }
 
         let store = contactStore
@@ -664,6 +694,24 @@ extension PlyshipViewController: WKScriptMessageHandler {
                     )
                 }
             }
+        }
+    }
+}
+
+// MARK: - MessagingDelegate (Firebase Cloud Messaging)
+
+extension PlyshipViewController: MessagingDelegate {
+    /// Called when the FCM registration token is updated.
+    /// This can happen on first launch, token rotation, or reinstall.
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let token = fcmToken else { return }
+        print("PLYSHIP: FCM token refreshed: \(token.prefix(20))...")
+        // Inject the token into the WebView so the JS layer can store it in Firestore
+        DispatchQueue.main.async { [weak self] in
+            self?.webView?.evaluateJavaScript(
+                "if(window.__plyship_push_token_refresh) window.__plyship_push_token_refresh('\(token)');",
+                completionHandler: nil
+            )
         }
     }
 }
