@@ -925,7 +925,9 @@ export const AuthProvider = ({ children }) => {
 
             // Update chat metadata
             const lastMsgPreview = attachment
-                ? (attachment.type === 'voice' ? '🎙️ Voice note' : `📎 ${attachment.name || 'File'}`)
+                ? (attachment.type === 'voice' ? '🎙️ Voice note'
+                    : attachment.type === 'contact' ? `👤 ${attachment.name || 'Contact'}`
+                    : `📎 ${attachment.name || 'File'}`)
                 : messageText.trim();
 
             await setDoc(doc(db, 'chats', chatId), {

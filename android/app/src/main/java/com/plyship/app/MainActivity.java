@@ -1,8 +1,10 @@
 package com.plyship.app;
 
 import android.app.Activity;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -16,6 +18,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.ContactsContract;
 import android.provider.MediaStore;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -23,6 +26,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -40,6 +44,9 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import com.getcapacitor.BridgeActivity;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
@@ -121,6 +128,11 @@ public class MainActivity extends BridgeActivity {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             needed.add(android.Manifest.permission.RECORD_AUDIO);
+        }
+        // Contacts (for sharing contacts in chat)
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_CONTACTS)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.READ_CONTACTS);
         }
         // Storage / Media
         if (Build.VERSION.SDK_INT >= 33) {
@@ -206,6 +218,7 @@ public class MainActivity extends BridgeActivity {
             }
             setupWebViewClient();
             setupWebChromeClient();
+            registerContactsBridge();
             injectPullToRefreshScript();
             startNetworkMonitoring();
         } catch (Exception e) {
@@ -458,6 +471,86 @@ public class MainActivity extends BridgeActivity {
                 request.grant(request.getResources());
             }
         });
+    }
+
+    // ==================== Contacts Bridge ====================
+
+    /**
+     * Registers a JavaScript interface that exposes device contacts to the WebView.
+     * The web page can call window.PlyshipContacts.getContacts() to fetch all
+     * contacts as a JSON string.
+     */
+    private void registerContactsBridge() {
+        WebView webView = getBridge().getWebView();
+        if (webView == null) return;
+        webView.addJavascriptInterface(new ContactsBridge(), "PlyshipContacts");
+    }
+
+    /**
+     * JavaScript interface for reading device contacts.
+     * Called from web page via window.PlyshipContacts.getContacts().
+     * Returns a JSON array of {name, phone} objects.
+     */
+    private class ContactsBridge {
+
+        @JavascriptInterface
+        public String getContacts() {
+            if (ContextCompat.checkSelfPermission(MainActivity.this,
+                    android.Manifest.permission.READ_CONTACTS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                // Request permission on main thread
+                mainHandler.post(() -> {
+                    ActivityCompat.requestPermissions(MainActivity.this,
+                        new String[]{android.Manifest.permission.READ_CONTACTS},
+                        ALL_PERMISSIONS_REQUEST);
+                });
+                return "PERMISSION_DENIED";
+            }
+
+            JSONArray contactsArray = new JSONArray();
+            ContentResolver cr = getContentResolver();
+            Cursor cursor = null;
+            try {
+                cursor = cr.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    new String[]{
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER
+                    },
+                    null, null,
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+                );
+
+                if (cursor != null) {
+                    int nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+                    int phoneIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                    java.util.HashSet<String> seen = new java.util.HashSet<>();
+
+                    while (cursor.moveToNext()) {
+                        String name = nameIdx >= 0 ? cursor.getString(nameIdx) : "";
+                        String phone = phoneIdx >= 0 ? cursor.getString(phoneIdx) : "";
+                        if (name == null) name = "";
+                        if (phone == null) phone = "";
+                        // Deduplicate by name+phone
+                        String key = name.trim().toLowerCase() + "_" + phone.replaceAll("[^0-9+]", "");
+                        if (seen.contains(key) || (name.isEmpty() && phone.isEmpty())) continue;
+                        seen.add(key);
+
+                        try {
+                            JSONObject contact = new JSONObject();
+                            contact.put("name", name.trim());
+                            contact.put("phone", phone.trim());
+                            contactsArray.put(contact);
+                        } catch (Exception ignored) {}
+                    }
+                }
+            } catch (Exception e) {
+                // Return empty array on error
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+            return contactsArray.toString();
+        }
     }
 
     private boolean isInternalURL(Uri url) {

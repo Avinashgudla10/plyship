@@ -3,6 +3,7 @@ import Capacitor
 import WebKit
 import Network
 import CoreLocation
+import Contacts
 
 /// Custom Capacitor WebView controller for PLYSHIP.
 /// Features:
@@ -39,6 +40,9 @@ class PlyshipViewController: CAPBridgeViewController {
         return mgr
     }()
 
+    // Contacts: CNContactStore for reading device address book
+    private let contactStore = CNContactStore()
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -47,6 +51,7 @@ class PlyshipViewController: CAPBridgeViewController {
         webView?.uiDelegate = self
         startNetworkMonitoring()
         requestNativeLocationPermission()
+        registerContactsBridge()
     }
 
     /// Request native location authorization. This ensures the OS-level
@@ -365,6 +370,14 @@ class PlyshipViewController: CAPBridgeViewController {
 
         return false
     }
+
+    // MARK: - Contacts Bridge
+
+    /// Register a script message handler so the WebView can request contacts
+    /// via window.webkit.messageHandlers.getContacts.postMessage('fetch').
+    private func registerContactsBridge() {
+        webView?.configuration.userContentController.add(self, name: "getContacts")
+    }
 }
 
 // MARK: - WKNavigationDelegate
@@ -574,6 +587,83 @@ extension PlyshipViewController: CLLocationManagerDelegate {
             }
         default:
             break
+        }
+    }
+}
+
+// MARK: - WKScriptMessageHandler (Contacts Bridge)
+
+extension PlyshipViewController: WKScriptMessageHandler {
+
+    /// Called when JavaScript sends a message via window.webkit.messageHandlers.getContacts.postMessage('fetch').
+    /// Reads device contacts using CNContactStore and calls back into JS with JSON data.
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "getContacts" else { return }
+
+        let store = contactStore
+
+        // Request access and fetch contacts
+        store.requestAccess(for: .contacts) { [weak self] granted, error in
+            guard let self = self else { return }
+
+            if !granted {
+                // Permission denied — call back with error
+                DispatchQueue.main.async {
+                    self.webView?.evaluateJavaScript(
+                        "if(window.__plyship_contacts_callback) window.__plyship_contacts_callback('PERMISSION_DENIED');",
+                        completionHandler: nil
+                    )
+                }
+                return
+            }
+
+            // Fetch contacts with name and phone
+            let keysToFetch: [CNKeyDescriptor] = [
+                CNContactGivenNameKey as CNKeyDescriptor,
+                CNContactFamilyNameKey as CNKeyDescriptor,
+                CNContactPhoneNumbersKey as CNKeyDescriptor
+            ]
+
+            var contacts: [[String: String]] = []
+            var seen = Set<String>()
+
+            do {
+                let request = CNContactFetchRequest(keysToFetch: keysToFetch)
+                request.sortOrder = .givenName
+                try store.enumerateContacts(with: request) { contact, _ in
+                    let fullName = [contact.givenName, contact.familyName]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+
+                    for phoneNumber in contact.phoneNumbers {
+                        let phone = phoneNumber.value.stringValue
+                        let key = fullName.lowercased() + "_" + phone.replacingOccurrences(of: "[^0-9+]", with: "", options: .regularExpression)
+                        if seen.contains(key) || (fullName.isEmpty && phone.isEmpty) { continue }
+                        seen.insert(key)
+                        contacts.append(["name": fullName, "phone": phone])
+                    }
+                }
+            } catch {
+                // Return empty array on error
+            }
+
+            // Serialize to JSON and call back
+            DispatchQueue.main.async {
+                do {
+                    let jsonData = try JSONSerialization.data(withJSONObject: contacts)
+                    let jsonString = String(data: jsonData, encoding: .utf8) ?? "[]"
+                    let escaped = jsonString.replacingOccurrences(of: "'", with: "\\'")
+                    self.webView?.evaluateJavaScript(
+                        "if(window.__plyship_contacts_callback) window.__plyship_contacts_callback('\(escaped)');",
+                        completionHandler: nil
+                    )
+                } catch {
+                    self.webView?.evaluateJavaScript(
+                        "if(window.__plyship_contacts_callback) window.__plyship_contacts_callback('[]');",
+                        completionHandler: nil
+                    )
+                }
+            }
         }
     }
 }

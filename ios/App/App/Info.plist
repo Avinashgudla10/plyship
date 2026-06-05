@@ -88,6 +88,10 @@
 		<string>location</string>
 	</array>
 
+	<!-- Privacy: Contacts access (needed for sharing contacts in chat) -->
+	<key>NSContactsUsageDescription</key>
+	<string>PLYSHIP needs access to your contacts so you can share them directly in chat conversations.</string>
+
 	<!-- Privacy: Microphone access (needed for voice notes in chat) -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PLYSHIP needs microphone access to record voice notes in chat conversations.</string>

@@ -933,6 +933,103 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const [showContactModal, setShowContactModal] = useState(false);
     const [contactName, setContactName] = useState('');
     const [contactPhone, setContactPhone] = useState('');
+    const [deviceContacts, setDeviceContacts] = useState([]);
+    const [contactsLoading, setContactsLoading] = useState(false);
+    const [contactSearch, setContactSearch] = useState('');
+    const [contactsPermissionDenied, setContactsPermissionDenied] = useState(false);
+
+    // Cross-platform contact fetching:
+    // Android: window.PlyshipContacts.getContacts() — synchronous JS interface
+    // iOS: window.webkit.messageHandlers.getContacts.postMessage('fetch') — async via callback
+    // PWA: navigator.contacts.select() — Contact Picker API (limited, single-pick)
+    const fetchDeviceContacts = async () => {
+        setContactsLoading(true);
+        setContactsPermissionDenied(false);
+
+        // Try Android native bridge first
+        if (window.PlyshipContacts && typeof window.PlyshipContacts.getContacts === 'function') {
+            try {
+                const result = window.PlyshipContacts.getContacts();
+                if (result === 'PERMISSION_DENIED') {
+                    setContactsPermissionDenied(true);
+                    setContactsLoading(false);
+                    showToast('Please allow contacts access in your device settings.', 'error');
+                    return [];
+                }
+                const contacts = JSON.parse(result);
+                setDeviceContacts(contacts);
+                setContactsLoading(false);
+                return contacts;
+            } catch (err) {
+                console.log('Android contacts bridge error:', err);
+            }
+        }
+
+        // Try iOS native bridge (async via callback)
+        if (window.webkit?.messageHandlers?.getContacts) {
+            try {
+                const contacts = await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        window.__plyship_contacts_callback = null;
+                        reject(new Error('Timeout'));
+                    }, 10000);
+
+                    window.__plyship_contacts_callback = (result) => {
+                        clearTimeout(timeout);
+                        window.__plyship_contacts_callback = null;
+                        if (result === 'PERMISSION_DENIED') {
+                            reject(new Error('PERMISSION_DENIED'));
+                            return;
+                        }
+                        try {
+                            resolve(JSON.parse(result));
+                        } catch (e) {
+                            resolve([]);
+                        }
+                    };
+                    window.webkit.messageHandlers.getContacts.postMessage('fetch');
+                });
+                setDeviceContacts(contacts);
+                setContactsLoading(false);
+                return contacts;
+            } catch (err) {
+                if (err.message === 'PERMISSION_DENIED') {
+                    setContactsPermissionDenied(true);
+                    setContactsLoading(false);
+                    showToast('Please allow contacts access in your device settings.', 'error');
+                    return [];
+                }
+                console.log('iOS contacts bridge error:', err);
+            }
+        }
+
+        // PWA fallback: Contact Picker API (limited: single or multi pick, but no list view)
+        if ('contacts' in navigator && 'ContactsManager' in window) {
+            try {
+                const rawContacts = await navigator.contacts.select(
+                    ['name', 'tel'],
+                    { multiple: true }
+                );
+                if (rawContacts && rawContacts.length > 0) {
+                    const contacts = rawContacts.map(c => ({
+                        name: c.name?.[0] || 'Unknown',
+                        phone: c.tel?.[0] || '',
+                    })).filter(c => c.name || c.phone);
+                    setDeviceContacts(contacts);
+                    setContactsLoading(false);
+                    return contacts;
+                }
+            } catch (err) {
+                if (err.name !== 'TypeError' && err.name !== 'InvalidStateError') {
+                    console.log('Contact Picker API failed:', err.message);
+                }
+            }
+        }
+
+        // No native bridge available — show manual entry
+        setContactsLoading(false);
+        return null; // null = no native access, show manual entry
+    };
 
     const handleShareContact = async () => {
         setShowAttachMenu(false);
@@ -942,37 +1039,35 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
             return;
         }
 
-        // Contact Picker API (supported on Android Chrome, some mobile browsers)
-        // Note: NOT available inside Capacitor/WebView — always falls through to manual entry
-        if ('contacts' in navigator && 'ContactsManager' in window) {
-            try {
-                const contacts = await navigator.contacts.select(
-                    ['name', 'tel'],
-                    { multiple: false }
-                );
-                if (contacts && contacts.length > 0) {
-                    const contact = contacts[0];
-                    const name = contact.name?.[0] || 'Unknown';
-                    const phone = contact.tel?.[0] || '';
-                    const contactMsg = phone
-                        ? `👤 ${name}\n📞 ${phone}`
-                        : `👤 ${name}`;
-                    await sendMessage(otherUserId, contactMsg);
-                    showToast('Contact shared!', 'success');
-                    return;
-                }
-            } catch (err) {
-                // Contact Picker API failed or was dismissed — fall through to manual entry
-                if (err.name !== 'TypeError' && err.name !== 'InvalidStateError') {
-                    console.log('Contact Picker failed, falling back to manual entry:', err.message);
-                }
-            }
-        }
+        setContactSearch('');
+        setDeviceContacts([]);
+        const contacts = await fetchDeviceContacts();
 
-        // Fallback: show manual contact entry modal
-        setContactName('');
-        setContactPhone('');
-        setShowContactModal(true);
+        if (contacts === null) {
+            // No native access — show manual entry
+            setContactName('');
+            setContactPhone('');
+            setShowContactModal(true);
+        } else if (contacts.length > 0) {
+            // We got contacts from device — show the picker
+            setShowContactModal(true);
+        } else if (!contactsPermissionDenied) {
+            // Got empty result (user dismissed picker or no contacts)
+            showToast('No contacts found on this device.', 'info');
+        }
+    };
+
+    const handleSelectDeviceContact = async (contact) => {
+        const contactMsg = contact.phone
+            ? `👤 ${contact.name}\n📞 ${contact.phone}`
+            : `👤 ${contact.name}`;
+        await sendMessage(otherUserId, contactMsg, {
+            type: 'contact',
+            name: contact.name || 'Contact',
+            url: contact.phone || '',
+        });
+        showToast('Contact shared!', 'success');
+        setShowContactModal(false);
     };
 
     const handleSendManualContact = async () => {
@@ -985,12 +1080,24 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         const contactMsg = trimPhone
             ? `👤 ${trimName || 'Contact'}\n📞 ${trimPhone}`
             : `👤 ${trimName}`;
-        await sendMessage(otherUserId, contactMsg);
+        await sendMessage(otherUserId, contactMsg, {
+            type: 'contact',
+            name: trimName || 'Contact',
+            url: trimPhone || '',
+        });
         showToast('Contact shared!', 'success');
         setShowContactModal(false);
         setContactName('');
         setContactPhone('');
     };
+
+    // Filter contacts based on search
+    const filteredContacts = deviceContacts.filter(c => {
+        if (!contactSearch.trim()) return true;
+        const term = contactSearch.toLowerCase();
+        return (c.name || '').toLowerCase().includes(term)
+            || (c.phone || '').includes(term);
+    });
 
     // Cross-platform Maps URL opener — works on Android, iOS, and PWA
     const openMapsUrl = (coords, displayAddress) => {
@@ -2128,8 +2235,50 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             </div>
                                         </a>
                                     )}
+                                    {/* Contact Card — WhatsApp-style rich contact sharing */}
+                                    {msg.fileType === 'contact' && (
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', gap: 12,
+                                            padding: msg.text ? 0 : undefined,
+                                        }}>
+                                            <div style={{
+                                                width: 44, height: 44, borderRadius: '50%',
+                                                background: isMe ? 'rgba(255,255,255,0.2)' : 'linear-gradient(135deg, #E8F5E9, #C8E6C9)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                flexShrink: 0,
+                                            }}>
+                                                <UserCircle size={24} color={isMe ? 'white' : '#22C55E'} />
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <p style={{
+                                                    fontSize: 14, fontWeight: 700,
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                }}>
+                                                    {msg.fileName || 'Contact'}
+                                                </p>
+                                                {msg.fileUrl && (
+                                                    <p style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
+                                                        📞 {msg.fileUrl}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            {msg.fileUrl && (
+                                                <a href={`tel:${msg.fileUrl}`}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    style={{
+                                                        width: 36, height: 36, borderRadius: '50%',
+                                                        background: isMe ? 'rgba(255,255,255,0.2)' : '#E8F5E9',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        flexShrink: 0, textDecoration: 'none',
+                                                    }}
+                                                >
+                                                    <Phone size={16} color={isMe ? 'white' : '#22C55E'} />
+                                                </a>
+                                            )}
+                                        </div>
+                                    )}
                                     {/* Text message */}
-                                    {msg.text && <p style={{ fontSize: 14, lineHeight: 1.4, marginTop: msg.fileUrl ? 8 : 0 }}>{msg.text}</p>}
+                                    {msg.text && !msg.fileType && <p style={{ fontSize: 14, lineHeight: 1.4, marginTop: msg.fileUrl ? 8 : 0 }}>{msg.text}</p>}
                                 </div>
                                 <span style={{
                                     fontSize: 10,
@@ -2681,7 +2830,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                 )}
             </AnimatePresence>
 
-            {/* Manual Contact Entry Modal — fallback when Contact Picker API unavailable */}
+            {/* Contact Picker Modal — WhatsApp-style device contacts browser */}
             <AnimatePresence>
                 {showContactModal && (
                     <>
@@ -2692,72 +2841,263 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                             onClick={() => setShowContactModal(false)}
                             style={{
                                 position: 'fixed', inset: 0,
-                                background: 'rgba(0,0,0,0.4)',
+                                background: 'rgba(0,0,0,0.5)',
                                 zIndex: 99999,
                             }}
                         />
                         <motion.div
-                            initial={{ opacity: 0, y: 100 }}
+                            initial={{ opacity: 0, y: '100%' }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 100 }}
-                            transition={{ type: 'spring', damping: 25 }}
+                            exit={{ opacity: 0, y: '100%' }}
+                            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
                             style={{
                                 position: 'fixed',
-                                bottom: 0, left: 0, right: 0,
+                                inset: 0,
                                 zIndex: 100000,
                                 background: 'white',
-                                borderRadius: '20px 20px 0 0',
-                                padding: '24px',
-                                paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+                                display: 'flex',
+                                flexDirection: 'column',
                             }}
                         >
-                            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4, color: 'var(--text-primary)' }}>Share a Contact</h3>
-                            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Enter the contact details to share</p>
-
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-                                <input
-                                    type="text"
-                                    placeholder="Contact Name"
-                                    value={contactName}
-                                    onChange={(e) => setContactName(e.target.value)}
-                                    style={{
-                                        width: '100%', padding: '14px 16px', borderRadius: 12,
-                                        border: '1px solid var(--border)', fontSize: 15, outline: 'none',
-                                        background: 'var(--bg-secondary)',
-                                    }}
-                                />
-                                <input
-                                    type="tel"
-                                    inputMode="numeric"
-                                    placeholder="Phone Number"
-                                    value={contactPhone}
-                                    onChange={(e) => setContactPhone(e.target.value)}
-                                    style={{
-                                        width: '100%', padding: '14px 16px', borderRadius: 12,
-                                        border: '1px solid var(--border)', fontSize: 15, outline: 'none',
-                                        background: 'var(--bg-secondary)',
-                                    }}
-                                />
-                            </div>
-
-                            <div style={{ display: 'flex', gap: 10 }}>
-                                <button
+                            {/* Header */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                padding: '16px 16px',
+                                paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+                                borderBottom: '1px solid var(--border-light)',
+                                flexShrink: 0,
+                            }}>
+                                <motion.button
                                     onClick={() => setShowContactModal(false)}
+                                    whileTap={{ scale: 0.9 }}
                                     style={{
-                                        flex: 1, padding: '14px', borderRadius: 12,
-                                        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                                        fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer',
+                                        width: 36, height: 36, borderRadius: '50%',
+                                        background: 'var(--bg-secondary)', border: 'none',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        cursor: 'pointer', flexShrink: 0,
                                     }}
-                                >Cancel</button>
-                                <button
-                                    onClick={handleSendManualContact}
-                                    style={{
-                                        flex: 1, padding: '14px', borderRadius: 12,
-                                        background: 'var(--gradient-primary)', border: 'none',
-                                        fontSize: 15, fontWeight: 600, color: 'white', cursor: 'pointer',
-                                    }}
-                                >Share</button>
+                                >
+                                    <ArrowLeft size={20} color="var(--text-primary)" />
+                                </motion.button>
+                                <div style={{ flex: 1 }}>
+                                    <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                        Share Contact
+                                    </h3>
+                                    {deviceContacts.length > 0 && (
+                                        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                            {deviceContacts.length} contacts on this device
+                                        </p>
+                                    )}
+                                </div>
                             </div>
+
+                            {/* Show device contacts list when available */}
+                            {deviceContacts.length > 0 ? (
+                                <>
+                                    {/* Search bar */}
+                                    <div style={{
+                                        padding: '12px 16px',
+                                        borderBottom: '1px solid var(--border-light)',
+                                        flexShrink: 0,
+                                    }}>
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', gap: 8,
+                                            padding: '10px 14px',
+                                            background: 'var(--bg-secondary)',
+                                            borderRadius: 12,
+                                            border: '1px solid var(--border-light)',
+                                        }}>
+                                            <Search size={18} color="var(--text-muted)" />
+                                            <input
+                                                type="text"
+                                                placeholder="Search contacts..."
+                                                value={contactSearch}
+                                                onChange={(e) => setContactSearch(e.target.value)}
+                                                autoFocus
+                                                style={{
+                                                    border: 'none', outline: 'none', flex: 1,
+                                                    fontSize: 14, color: 'var(--text-primary)',
+                                                    background: 'transparent', padding: 0,
+                                                }}
+                                            />
+                                            {contactSearch && (
+                                                <motion.button
+                                                    onClick={() => setContactSearch('')}
+                                                    whileTap={{ scale: 0.85 }}
+                                                    style={{
+                                                        width: 22, height: 22, borderRadius: '50%',
+                                                        background: 'var(--text-muted)', border: 'none',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <X size={12} color="white" />
+                                                </motion.button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Contact list */}
+                                    <div style={{
+                                        flex: 1, overflow: 'auto',
+                                        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+                                    }}>
+                                        {contactsLoading ? (
+                                            <div style={{
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                                justifyContent: 'center', padding: 60, gap: 12,
+                                            }}>
+                                                <Loader2 size={32} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
+                                                <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Loading contacts...</p>
+                                            </div>
+                                        ) : filteredContacts.length === 0 ? (
+                                            <div style={{
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                                justifyContent: 'center', padding: 60, gap: 8,
+                                            }}>
+                                                <UserCircle size={48} color="var(--text-muted)" style={{ opacity: 0.4 }} />
+                                                <p style={{ fontSize: 15, color: 'var(--text-muted)', fontWeight: 600 }}>No contacts found</p>
+                                                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Try a different search</p>
+                                            </div>
+                                        ) : (
+                                            filteredContacts.map((contact, idx) => {
+                                                // Show letter divider
+                                                const firstLetter = (contact.name || '#')[0].toUpperCase();
+                                                const prevLetter = idx > 0 ? (filteredContacts[idx - 1]?.name || '#')[0].toUpperCase() : null;
+                                                const showDivider = firstLetter !== prevLetter;
+
+                                                return (
+                                                    <React.Fragment key={`${contact.name}_${contact.phone}_${idx}`}>
+                                                        {showDivider && (
+                                                            <div style={{
+                                                                padding: '8px 16px 4px',
+                                                                fontSize: 12, fontWeight: 700,
+                                                                color: 'var(--primary)',
+                                                                background: 'var(--bg-secondary)',
+                                                                letterSpacing: 0.5,
+                                                                textTransform: 'uppercase',
+                                                            }}>
+                                                                {firstLetter}
+                                                            </div>
+                                                        )}
+                                                        <motion.button
+                                                            onClick={() => handleSelectDeviceContact(contact)}
+                                                            whileTap={{ scale: 0.97, backgroundColor: 'var(--pastel-green)' }}
+                                                            style={{
+                                                                display: 'flex', alignItems: 'center', gap: 12,
+                                                                width: '100%', padding: '12px 16px',
+                                                                border: 'none', background: 'transparent',
+                                                                cursor: 'pointer', textAlign: 'left',
+                                                                transition: 'background 0.15s',
+                                                            }}
+                                                        >
+                                                            {/* Avatar */}
+                                                            <div style={{
+                                                                width: 44, height: 44, borderRadius: '50%',
+                                                                background: `hsl(${(contact.name || '').charCodeAt(0) * 37 % 360}, 60%, 92%)`,
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                flexShrink: 0,
+                                                                fontSize: 18, fontWeight: 700,
+                                                                color: `hsl(${(contact.name || '').charCodeAt(0) * 37 % 360}, 50%, 40%)`,
+                                                            }}>
+                                                                {(contact.name || '?')[0].toUpperCase()}
+                                                            </div>
+                                                            {/* Name + Phone */}
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <p style={{
+                                                                    fontSize: 15, fontWeight: 600,
+                                                                    color: 'var(--text-primary)',
+                                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                                }}>
+                                                                    {contact.name || 'Unknown'}
+                                                                </p>
+                                                                {contact.phone && (
+                                                                    <p style={{
+                                                                        fontSize: 13, color: 'var(--text-muted)',
+                                                                        marginTop: 2,
+                                                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                                    }}>
+                                                                        {contact.phone}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                            {/* Share indicator */}
+                                                            <Send size={16} color="var(--primary)" style={{ opacity: 0.5, flexShrink: 0 }} />
+                                                        </motion.button>
+                                                    </React.Fragment>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                /* Manual entry fallback — when no native contact access */
+                                <div style={{
+                                    padding: '24px 16px',
+                                    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+                                }}>
+                                    <div style={{
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                        padding: '24px 0 20px', gap: 8,
+                                    }}>
+                                        <div style={{
+                                            width: 64, height: 64, borderRadius: '50%',
+                                            background: 'var(--pastel-green)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        }}>
+                                            <UserCircle size={32} color="var(--primary)" />
+                                        </div>
+                                        <p style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
+                                            Enter the contact details to share
+                                        </p>
+                                    </div>
+
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+                                        <input
+                                            type="text"
+                                            placeholder="Contact Name"
+                                            value={contactName}
+                                            onChange={(e) => setContactName(e.target.value)}
+                                            style={{
+                                                width: '100%', padding: '14px 16px', borderRadius: 12,
+                                                border: '1px solid var(--border)', fontSize: 15, outline: 'none',
+                                                background: 'var(--bg-secondary)',
+                                            }}
+                                        />
+                                        <input
+                                            type="tel"
+                                            inputMode="numeric"
+                                            placeholder="Phone Number"
+                                            value={contactPhone}
+                                            onChange={(e) => setContactPhone(e.target.value)}
+                                            style={{
+                                                width: '100%', padding: '14px 16px', borderRadius: 12,
+                                                border: '1px solid var(--border)', fontSize: 15, outline: 'none',
+                                                background: 'var(--bg-secondary)',
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: 10 }}>
+                                        <button
+                                            onClick={() => setShowContactModal(false)}
+                                            style={{
+                                                flex: 1, padding: '14px', borderRadius: 12,
+                                                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                                                fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer',
+                                            }}
+                                        >Cancel</button>
+                                        <button
+                                            onClick={handleSendManualContact}
+                                            style={{
+                                                flex: 1, padding: '14px', borderRadius: 12,
+                                                background: 'var(--gradient-primary)', border: 'none',
+                                                fontSize: 15, fontWeight: 600, color: 'white', cursor: 'pointer',
+                                            }}
+                                        >Share</button>
+                                    </div>
+                                </div>
+                            )}
                         </motion.div>
                     </>
                 )}
