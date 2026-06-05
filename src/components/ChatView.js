@@ -12,7 +12,18 @@ import ReviewModal from './ReviewModal';
 import ProfileDetail from './ProfileDetail';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 
-// ── Shared AudioContext for voice-note volume boost ──
+// ── Detect native WebView (Android/iOS wrapper) ──
+// In native WebView, Web Audio API's createMediaElementSource fails on
+// cross-origin Firebase Storage URLs because CORS headers aren't served.
+// We skip the AudioContext volume boost and use native HTML5 audio instead.
+const _isNativeWebView = typeof window !== 'undefined' && (
+    /wv\b/.test(navigator.userAgent) ||              // Android WebView marker
+    /; wv\)/.test(navigator.userAgent) ||             // Android WebView (full)
+    !!window.PlyshipContacts ||                       // Our native bridge exists
+    !!window.PlyshipPush                              // Our native push bridge exists
+);
+
+// ── Shared AudioContext for voice-note volume boost (desktop/PWA only) ──
 let _sharedAudioCtx = null;
 function getAudioContext() {
     if (!_sharedAudioCtx || _sharedAudioCtx.state === 'closed') {
@@ -38,9 +49,16 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
     const [elapsed, setElapsed] = useState(0);
 
     // Wire up the Web Audio API gain on first play
+    // On native WebView, skip AudioContext entirely — it causes silence
     const ensureGain = () => {
         const audio = audioRef.current;
         if (!audio || connectedRef.current) return;
+        if (_isNativeWebView) {
+            // Native WebView: just use HTML5 audio at max volume
+            connectedRef.current = true;
+            audio.volume = 1.0;
+            return;
+        }
         try {
             const ctx = getAudioContext();
             const source = ctx.createMediaElementSource(audio);
@@ -49,7 +67,12 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
             source.connect(gain).connect(ctx.destination);
             gainNodeRef.current = gain;
             connectedRef.current = true;
-        } catch (_) { /* already connected or unsupported – falls back to native volume */ }
+        } catch (_) {
+            // createMediaElementSource fails on cross-origin audio
+            // Fall back to max native volume
+            connectedRef.current = true;
+            audio.volume = 1.0;
+        }
     };
 
     const toggle = () => {
@@ -72,15 +95,25 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
                 setElapsed(Math.floor(audio.currentTime));
             }
         };
+        // Handle load errors — retry without crossOrigin for WebViews that
+        // reject CORS on Firebase Storage URLs (some older Android WebViews)
+        const onError = () => {
+            if (audio.crossOrigin) {
+                audio.crossOrigin = null;
+                audio.load();
+            }
+        };
         audio.addEventListener('play', onPlay);
         audio.addEventListener('pause', onPause);
         audio.addEventListener('ended', onEnded);
         audio.addEventListener('timeupdate', onTime);
+        audio.addEventListener('error', onError);
         return () => {
             audio.removeEventListener('play', onPlay);
             audio.removeEventListener('pause', onPause);
             audio.removeEventListener('ended', onEnded);
             audio.removeEventListener('timeupdate', onTime);
+            audio.removeEventListener('error', onError);
         };
     }, []);
 
@@ -104,7 +137,8 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
 
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220, padding: '2px 0' }}>
-            <audio ref={audioRef} src={src} preload="none" />
+            <audio ref={audioRef} src={src} preload="metadata"
+                {...(!_isNativeWebView ? { crossOrigin: 'anonymous' } : {})} />
 
             {/* Avatar with mic badge — WhatsApp style */}
             <div style={{ position: 'relative', flexShrink: 0 }}>

@@ -390,6 +390,11 @@ public class MainActivity extends BridgeActivity {
         webView.getSettings().setDomStorageEnabled(true);
         webView.getSettings().setDatabaseEnabled(true);
 
+        // Audio/video playback: allow cross-origin media (Firebase Storage URLs)
+        webView.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        webView.getSettings().setAllowFileAccess(true);
+        webView.getSettings().setAllowContentAccess(true);
+
         webView.setWebChromeClient(new WebChromeClient() {
 
             // Handle <input type="file"> from web page — CRITICAL for image uploads
