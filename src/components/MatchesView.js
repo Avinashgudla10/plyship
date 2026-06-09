@@ -30,7 +30,7 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
         meetings.forEach(m => {
             const partnerId = isSeeker ? m.companyId : m.seekerId;
             if (!partnerId) return;
-            const priority = { PENDING_ACCEPTANCE: 3, SCHEDULED: 3, CONFIRMED: 2, CANCELLED: 1, DECLINED: 1 };
+            const priority = { PROPOSED: 4, PENDING_ACCEPTANCE: 3, SCHEDULED: 3, CONFIRMED: 2, CANCELLED: 1, DECLINED: 1 };
             const existing = map[partnerId];
             if (!existing || (priority[m.status] || 0) > (priority[existing.status] || 0)) {
                 map[partnerId] = m;
@@ -57,7 +57,7 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
         }
         return true;
     }).sort((a, b) => {
-        const priorityMap = { PENDING_ACCEPTANCE: 3, SCHEDULED: 2, CONFIRMED: 1 };
+        const priorityMap = { PROPOSED: 4, PENDING_ACCEPTANCE: 3, SCHEDULED: 2, CONFIRMED: 1 };
         const mA = meetingStatusMap[a.id];
         const mB = meetingStatusMap[b.id];
         const pA = mA ? (priorityMap[mA.status] || 0) : 0;
@@ -67,10 +67,12 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
 
     const getMeetingBadge = (status) => {
         switch (status) {
+            case 'PROPOSED':
+                return { label: '📋 Proposal Pending', color: '#F59E0B', bg: '#FFFBEB' };
             case 'PENDING_ACCEPTANCE':
                 return { label: '⏳ Meeting Pending', color: '#3B82F6', bg: '#EFF6FF' };
             case 'SCHEDULED':
-                return { label: '📅 Meeting Scheduled', color: '#F59E0B', bg: '#FFFBEB' };
+                return { label: '📅 Meeting Scheduled', color: '#3B82F6', bg: '#EFF6FF' };
             case 'CONFIRMED':
                 return { label: '✅ Meeting Done', color: '#22C55E', bg: '#F0FDF4' };
             case 'CANCELLED':
@@ -273,7 +275,7 @@ export default function MatchesView({ allUsers = [], meetings = [], onChatClick,
                     const reviewCount = profile.reviewCount;
                     const meeting = meetingStatusMap[userItem.id];
                     const badge = meeting ? getMeetingBadge(meeting.status) : null;
-                    const hasActiveMeeting = meeting && ['PENDING_ACCEPTANCE', 'SCHEDULED', 'CONFIRMED'].includes(meeting.status);
+                    const hasActiveMeeting = meeting && ['PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED', 'CONFIRMED'].includes(meeting.status);
 
                     return (
                         <motion.div

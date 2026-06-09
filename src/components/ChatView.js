@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { subscribeToMessages, uploadFile } from '../lib/firebase';
 import { StartProjectModal } from './ProjectsView';
-import { ScheduleMeetingModal, AcceptAndScheduleModal } from './MeetingsView';
+import { ScheduleMeetingModal, AcceptAndScheduleModal, CounterProposeModal } from './MeetingsView';
 import ReviewModal from './ReviewModal';
 import ProfileDetail from './ProfileDetail';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
@@ -235,8 +235,9 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
 
     const MEETING_STATUS_CONFIG = {
         REQUESTED: { label: 'Requested', color: '#8B5CF6', bg: '#F5F3FF', icon: '📩' },
+        PROPOSED: { label: 'Proposed', color: '#F59E0B', bg: '#FFFBEB', icon: '📋' },
         PENDING_ACCEPTANCE: { label: 'Pending', color: '#3B82F6', bg: '#EFF6FF', icon: '⏳' },
-        SCHEDULED: { label: 'Scheduled', color: '#F59E0B', bg: '#FFFBEB', icon: '📅' },
+        SCHEDULED: { label: 'Scheduled', color: '#3B82F6', bg: '#EFF6FF', icon: '📅' },
         CONFIRMED: { label: 'Completed', color: '#22C55E', bg: '#F0FDF4', icon: '✓' },
         CANCELLED: { label: 'Cancelled', color: '#EF4444', bg: '#FEF2F2', icon: '✕' },
         DECLINED: { label: 'Declined', color: '#EF4444', bg: '#FEF2F2', icon: '✕' },
@@ -253,7 +254,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
     ];
 
     // Meeting priority: PENDING first, then SCHEDULED, then rest
-    const meetingPriority = { REQUESTED: 4, PENDING_ACCEPTANCE: 3, SCHEDULED: 2 };
+    const meetingPriority = { REQUESTED: 5, PROPOSED: 4, PENDING_ACCEPTANCE: 3, SCHEDULED: 2 };
 
     const filteredChats = chats
         .filter(chat => {
@@ -501,7 +502,7 @@ export function ChatListView({ chats = [], onChatSelect, user }) {
                                 padding: 14,
                                 borderRadius: 14,
                                 background: 'white',
-                                border: statusConfig && (chat.meetingStatus === 'PENDING_ACCEPTANCE' || chat.meetingStatus === 'REQUESTED')
+                                border: statusConfig && (chat.meetingStatus === 'PENDING_ACCEPTANCE' || chat.meetingStatus === 'REQUESTED' || chat.meetingStatus === 'PROPOSED')
                                     ? '1.5px solid #3B82F640'
                                     : '1px solid var(--border-light)',
                                 cursor: 'pointer',
@@ -602,6 +603,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const {
         user, sendMessage, getChatId, getWallet, topUpWallet,
         getMeetings, subscribeMeetings, acceptMeeting, declineMeeting, confirmMeeting, cancelMeeting, denyMeeting, verifyMeetingOTP, acceptAndScheduleMeeting,
+        counterProposeMeeting, acceptProposedMeeting,
         getProjects, subscribeProjects, acceptProject, declineProject, requestRescheduleMeeting,
         subscribeWallet
     } = useAuth();
@@ -621,6 +623,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const [reviewData, setReviewData] = useState(null);
     const [showProfileDetail, setShowProfileDetail] = useState(false);
     const [showAcceptScheduleModal, setShowAcceptScheduleModal] = useState(false);
+    const [showCounterProposeModal, setShowCounterProposeModal] = useState(false);
     const [otpInput, setOtpInput] = useState('');
     const messagesEndRef = useRef(null);
 
@@ -866,7 +869,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     }, [user, isCompanyUser, subscribeWallet]);
 
     const activeMeeting = meetings.find(m =>
-        ['REQUESTED', 'PENDING_ACCEPTANCE', 'SCHEDULED', 'DISPUTE'].includes(m.status)
+        ['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED', 'DISPUTE'].includes(m.status)
     );
     const hasConfirmedMeeting = meetings.some(m => m.status === 'CONFIRMED');
     const cancelledMeeting = meetings.find(m =>
@@ -1468,6 +1471,112 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             setMeetings(updated.filter(m =>
                                                 (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
                                             ));
+                                            setActionLoading(null);
+                                        }}
+                                        disabled={actionLoading}
+                                        whileTap={{ scale: 0.95 }}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: 8, background: '#FEE2E2',
+                                            border: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        }}
+                                    >
+                                        Cancel
+                                    </motion.button>
+                                )}
+                            </div>
+                        </motion.div>
+                    );
+                }
+                // PENDING_ACCEPTANCE + EXPIRED = Show expired message with reschedule
+                // But first handle PROPOSED status — negotiation in progress
+                if (activeMeeting.status === 'PROPOSED') {
+                    const iProposed = activeMeeting.proposedBy === user?.id;
+                    const proposedDate = activeMeeting.scheduledAt
+                        ? new Date(activeMeeting.scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                        : null;
+                    const proposedLocation = activeMeeting.location ? activeMeeting.location.split('||')[0] : null;
+                    const proposerName = iProposed ? 'You' : (isCompanyUser ? (activeMeeting.seekerName || 'Seeker') : (activeMeeting.companyName || 'Company'));
+
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            style={{ padding: 12, background: '#FFFBEB', borderBottom: '1.5px solid #F59E0B' }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                <Calendar size={18} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
+                                        {iProposed ? 'Proposal sent' : `${proposerName} proposed a meeting`}
+                                    </p>
+                                    {proposedDate && (
+                                        <p style={{ fontSize: 12, color: '#B45309', marginTop: 2 }}>
+                                            📅 {proposedDate}{proposedLocation ? ` • 📍 ${proposedLocation}` : ''}
+                                        </p>
+                                    )}
+                                    <p style={{ fontSize: 11, color: '#D97706', marginTop: 2 }}>
+                                        {iProposed
+                                            ? 'Waiting for the other party to accept or suggest changes'
+                                            : 'Accept or suggest different details'}
+                                        {activeMeeting.proposalCount > 1 && ` (Round ${activeMeeting.proposalCount})`}
+                                    </p>
+                                </div>
+                                {!iProposed ? (
+                                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                        <motion.button
+                                            onClick={async () => {
+                                                setActionLoading('acceptProposal');
+                                                const result = await acceptProposedMeeting(activeMeeting.id);
+                                                if (result.success) {
+                                                    showToast('Meeting confirmed! 🎉', 'success');
+                                                } else {
+                                                    showToast(result.error, 'error');
+                                                }
+                                                setActionLoading(null);
+                                            }}
+                                            disabled={actionLoading}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#22C55E',
+                                                border: 'none', color: 'white', fontSize: 12, fontWeight: 600,
+                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <Check size={14} />
+                                            Accept
+                                        </motion.button>
+                                        <motion.button
+                                            onClick={() => setShowCounterProposeModal(true)}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 8, background: '#FFFBEB',
+                                                border: '1px solid #F59E0B', color: '#B45309', fontSize: 12, fontWeight: 600,
+                                                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <RefreshCw size={14} />
+                                        </motion.button>
+                                        <motion.button
+                                            onClick={async () => {
+                                                setActionLoading('decline');
+                                                await declineMeeting(activeMeeting.id);
+                                                setActionLoading(null);
+                                            }}
+                                            disabled={actionLoading}
+                                            whileTap={{ scale: 0.95 }}
+                                            style={{
+                                                padding: '6px 8px', borderRadius: 8, background: '#FEE2E2',
+                                                border: 'none', color: '#EF4444', fontSize: 12, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <X size={14} />
+                                        </motion.button>
+                                    </div>
+                                ) : (
+                                    <motion.button
+                                        onClick={async () => {
+                                            setActionLoading('cancel');
+                                            await cancelMeeting(activeMeeting.id);
                                             setActionLoading(null);
                                         }}
                                         disabled={actionLoading}
@@ -2852,6 +2961,19 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                             setMeetings(updated.filter(m =>
                                 (m.companyId === otherUserId || m.seekerId === otherUserId) && !m.rescheduledTo
                             ));
+                        }}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Counter-Propose Modal — for suggesting different meeting details during negotiation */}
+            <AnimatePresence>
+                {showCounterProposeModal && activeMeeting && activeMeeting.status === 'PROPOSED' && (
+                    <CounterProposeModal
+                        meeting={activeMeeting}
+                        onClose={() => setShowCounterProposeModal(false)}
+                        onProposed={async () => {
+                            setShowCounterProposeModal(false);
                         }}
                     />
                 )}

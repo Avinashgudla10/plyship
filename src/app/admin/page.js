@@ -1912,6 +1912,8 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
     }, [meetings]);
 
     const statusColors = {
+        'REQUESTED': { bg: '#F5F3FF', color: '#7C3AED' },
+        'PROPOSED': { bg: '#FFFBEB', color: '#D97706' },
         'PENDING_ACCEPTANCE': { bg: '#FEF3C7', color: '#D97706' },
         'SCHEDULED': { bg: '#DBEAFE', color: '#2563EB' },
         'CONFIRMED': { bg: '#D1FAE5', color: '#059669' },
@@ -1962,6 +1964,7 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                     <option value="all">All Statuses</option>
                     <option value="zero_confirmed">⚠ 0 Confirmed</option>
                     <option value="REQUESTED">Requested</option>
+                    <option value="PROPOSED">Proposed</option>
                     <option value="PENDING_ACCEPTANCE">Pending</option>
                     <option value="SCHEDULED">Scheduled</option>
                     <option value="CONFIRMED">Confirmed</option>

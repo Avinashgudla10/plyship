@@ -14,7 +14,7 @@ import {
 
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
-    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet, acceptAndScheduleMeeting, requestRescheduleMeeting } = useAuth();
+    const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet, acceptAndScheduleMeeting, requestRescheduleMeeting, counterProposeMeeting, acceptProposedMeeting } = useAuth();
     const { showToast, showConfirm } = useToast();
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -22,6 +22,7 @@ export default function MeetingsView({ onBack }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const [rescheduleModal, setRescheduleModal] = useState(null);
     const [acceptScheduleModal, setAcceptScheduleModal] = useState(null);  // For seeker to accept + schedule
+    const [counterProposeModal, setCounterProposeModal] = useState(null);  // For counter-proposing meeting details
 
     const isCompany = user?.role === 'COMPANY';
     const MEETING_FEE = 500;
@@ -246,11 +247,25 @@ export default function MeetingsView({ onBack }) {
         setActionId(null);
     };
 
+    // Accept a proposed meeting (finalizes to SCHEDULED)
+    const handleAcceptProposal = async (meetingId) => {
+        setActionId(meetingId);
+        const result = await acceptProposedMeeting(meetingId);
+        if (result.success) {
+            showToast('Meeting confirmed! Both parties agreed. 🎉', 'success');
+            refreshMeetings();
+        } else {
+            showToast(result.error, 'error');
+        }
+        setActionId(null);
+    };
+
     const getStatusColor = (status) => {
         switch (status) {
             case 'REQUESTED': return '#8B5CF6';
+            case 'PROPOSED': return '#F59E0B';
             case 'PENDING_ACCEPTANCE': return '#3B82F6';
-            case 'SCHEDULED': return '#F59E0B';
+            case 'SCHEDULED': return '#3B82F6';
             case 'CONFIRMED': return '#22C55E';
             case 'CANCELLED': return '#EF4444';
             case 'DECLINED': return '#EF4444';
@@ -264,6 +279,10 @@ export default function MeetingsView({ onBack }) {
         switch (meeting.status) {
             case 'REQUESTED':
                 return iAmRequester ? 'Request sent' : 'Set details & accept';
+            case 'PROPOSED': {
+                const iProposed = meeting.proposedBy === user?.id;
+                return iProposed ? 'Waiting for response' : 'Review proposal';
+            }
             case 'PENDING_ACCEPTANCE':
                 return iAmRequester ? 'Waiting for response' : 'Accept?';
             case 'SCHEDULED':
@@ -274,7 +293,7 @@ export default function MeetingsView({ onBack }) {
                     if (myConfirmed) return 'Awaiting other';
                     return 'Confirm meeting?';
                 }
-                return 'Scheduled';
+                return 'Scheduled ✓';
             case 'CONFIRMED':
                 return 'Completed ✓';
             case 'CANCELLED':
@@ -321,7 +340,7 @@ export default function MeetingsView({ onBack }) {
     }
 
     // Group meetings by status
-    const pendingMeetings = meetings.filter(m => m.status === 'PENDING_ACCEPTANCE' || m.status === 'REQUESTED');
+    const pendingMeetings = meetings.filter(m => m.status === 'PENDING_ACCEPTANCE' || m.status === 'REQUESTED' || m.status === 'PROPOSED');
     const scheduledMeetings = meetings.filter(m => m.status === 'SCHEDULED');
     const pastMeetings = meetings.filter(m => ['CONFIRMED', 'CANCELLED', 'DECLINED'].includes(m.status));
 
@@ -422,6 +441,8 @@ export default function MeetingsView({ onBack }) {
                                             onReschedule={(m) => setRescheduleModal(m)}
                                             onAcceptAndSchedule={(m) => setAcceptScheduleModal(m)}
                                             onRequestReschedule={handleRequestReschedule}
+                                            onAcceptProposal={handleAcceptProposal}
+                                            onCounterPropose={(m) => setCounterProposeModal(m)}
                                             getStatusColor={getStatusColor}
                                             getStatusText={getStatusText}
                                             formatDate={formatDate}
@@ -526,6 +547,20 @@ export default function MeetingsView({ onBack }) {
                     />
                 )}
             </AnimatePresence>
+
+            {/* Counter-Propose Modal */}
+            <AnimatePresence>
+                {counterProposeModal && (
+                    <CounterProposeModal
+                        meeting={counterProposeModal}
+                        onClose={() => setCounterProposeModal(null)}
+                        onProposed={() => {
+                            setCounterProposeModal(null);
+                            refreshMeetings();
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }
@@ -533,9 +568,11 @@ export default function MeetingsView({ onBack }) {
 // Meeting Card Component
 function MeetingCard({
     meeting, user, isCompany, actionId, onAccept, onDecline, onCancel, onConfirm, onDeny, onReschedule, onAcceptAndSchedule, onRequestReschedule,
+    onAcceptProposal, onCounterPropose,
     getStatusColor, getStatusText, formatDate, isPast
 }) {
     const iAmRequester = meeting.requestedBy === user?.id;
+    const iProposed = meeting.proposedBy === user?.id;
     const isPastMeeting = meeting.scheduledAt ? isPast(meeting.scheduledAt) : false;
     const myConfirmed = isCompany ? meeting.companyConfirmed : meeting.seekerConfirmed;
     const myDenied = isCompany ? meeting.companyDenied : meeting.seekerDenied;
@@ -545,11 +582,14 @@ function MeetingCard({
     // Determine what actions are available
     const canAccept = meeting.status === 'PENDING_ACCEPTANCE' && !iAmRequester;
     const canAcceptAndSchedule = meeting.status === 'REQUESTED' && !iAmRequester;  // Seeker accepts company request
+    const canAcceptProposal = meeting.status === 'PROPOSED' && !iProposed;  // Other party can accept the proposal
+    const canCounterPropose = meeting.status === 'PROPOSED' && !iProposed;  // Other party can counter-propose
     const canCancel = (meeting.status === 'PENDING_ACCEPTANCE' || meeting.status === 'REQUESTED') && iAmRequester;
     const canCancelScheduled = meeting.status === 'SCHEDULED' && !isPastMeeting;
     const canConfirm = meeting.status === 'SCHEDULED' && !hasResponded;
     const canReschedule = ['CANCELLED', 'DECLINED'].includes(meeting.status);
     const isDispute = meeting.status === 'DISPUTE';
+    const isProposedWaiting = meeting.status === 'PROPOSED' && iProposed;  // I proposed, waiting for other party
 
     return (
         <motion.div
@@ -559,7 +599,7 @@ function MeetingCard({
                 padding: 16,
                 borderRadius: 14,
                 background: 'white',
-                border: canAccept ? '2px solid #3B82F6' : '1px solid var(--border-light)',
+                border: canAcceptProposal ? '2px solid #F59E0B' : canAccept ? '2px solid #3B82F6' : '1px solid var(--border-light)',
             }}
         >
             {/* Status Badge */}
@@ -800,6 +840,80 @@ function MeetingCard({
                             <X size={16} />
                         </motion.button>
                     </>
+                )}
+
+                {/* Accept/Counter-propose for PROPOSED meetings */}
+                {canAcceptProposal && (
+                    <>
+                        {/* Proposal info */}
+                        <div style={{
+                            width: '100%', padding: '10px 12px', borderRadius: 10,
+                            background: '#FFFBEB', border: '1px solid #FDE68A',
+                            marginBottom: 8, fontSize: 12, color: '#92400E', fontWeight: 500,
+                        }}>
+                            📋 {iProposed ? 'You proposed' : (isCompany ? meeting.seekerName || 'Seeker' : meeting.companyName || 'Company') + ' proposed'} this date, time & location.
+                            {meeting.proposalCount > 1 && <span style={{ color: '#B45309', fontWeight: 600 }}> (Round {meeting.proposalCount})</span>}
+                        </div>
+                        <motion.button
+                            onClick={() => onAcceptProposal(meeting.id)}
+                            disabled={isLoading}
+                            whileTap={{ scale: 0.95 }}
+                            style={{
+                                flex: 1, padding: 12, borderRadius: 10,
+                                background: 'var(--gradient-primary)', border: 'none',
+                                color: 'white', fontSize: 14, fontWeight: 600,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                cursor: isLoading ? 'wait' : 'pointer', opacity: isLoading ? 0.7 : 1,
+                            }}
+                        >
+                            <Check size={16} />
+                            Accept & Confirm
+                        </motion.button>
+                        <motion.button
+                            onClick={() => onCounterPropose(meeting)}
+                            disabled={isLoading}
+                            whileTap={{ scale: 0.95 }}
+                            style={{
+                                padding: 12, borderRadius: 10,
+                                background: '#FFF7ED', border: '1px solid #F59E0B',
+                                color: '#B45309', fontSize: 14, fontWeight: 600,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                cursor: isLoading ? 'wait' : 'pointer',
+                            }}
+                        >
+                            <RefreshCw size={16} />
+                            Suggest Changes
+                        </motion.button>
+                        <motion.button
+                            onClick={() => onDecline(meeting.id)}
+                            disabled={isLoading}
+                            whileTap={{ scale: 0.95 }}
+                            style={{
+                                padding: 12, borderRadius: 10,
+                                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                                color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600,
+                                cursor: isLoading ? 'wait' : 'pointer',
+                            }}
+                        >
+                            <X size={16} />
+                        </motion.button>
+                    </>
+                )}
+
+                {/* Waiting state for PROPOSED meetings (I proposed, waiting) */}
+                {isProposedWaiting && (
+                    <div style={{
+                        width: '100%', padding: 12, borderRadius: 10,
+                        background: '#FEF3C7', border: '1px solid #FDE68A', textAlign: 'center',
+                    }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 2 }}>
+                            ⏳ Waiting for {isCompany ? (meeting.seekerName || 'Seeker') : (meeting.companyName || 'Company')}
+                        </p>
+                        <p style={{ fontSize: 11, color: '#B45309' }}>
+                            They will accept your proposal or suggest different details
+                            {meeting.proposalCount > 1 && ` (Round ${meeting.proposalCount})`}
+                        </p>
+                    </div>
                 )}
 
                 {/* Accept/Decline for pending */}
@@ -1079,9 +1193,9 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
             if (isCompany) {
                 const [w, meetings] = await Promise.all([getWallet(), getMeetings()]);
                 setWallet(w);
-                // Count active meetings (PENDING_ACCEPTANCE or SCHEDULED)
+                // Count active meetings (REQUESTED, PROPOSED, PENDING_ACCEPTANCE or SCHEDULED)
                 const activeCount = meetings.filter(m =>
-                    m.status === 'PENDING_ACCEPTANCE' || m.status === 'SCHEDULED'
+                    m.status === 'REQUESTED' || m.status === 'PROPOSED' || m.status === 'PENDING_ACCEPTANCE' || m.status === 'SCHEDULED'
                 ).length;
                 setActiveMeetingCount(activeCount);
             }
@@ -1602,7 +1716,7 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
     );
 }
 
-// Accept & Schedule Modal — Seeker sets date/time/location when accepting a company's request
+// Accept & Propose Modal — Seeker sets date/time/location as a proposal (company must still accept)
 export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
     const { acceptAndScheduleMeeting } = useAuth();
     const { showToast } = useToast();
@@ -1649,7 +1763,7 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
         setSubmitting(false);
 
         if (result.success) {
-            showToast('Meeting accepted and scheduled! 🎉', 'success');
+            showToast('Proposal sent! The company will review your suggested details.', 'success');
             onScheduled?.();
             onClose();
         } else {
@@ -1684,8 +1798,8 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
                 >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                         <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
-                            Accept & Set Details
-                        </h2>
+                        Propose Meeting Details
+                    </h2>
                         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
                             <X size={20} color="var(--text-muted)" />
                         </button>
@@ -1808,7 +1922,10 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
                     </label>
 
                     {/* Info */}
-                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
+                        The company will review your proposal and can accept or suggest changes.
+                    </p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
                         You'll earn ₹250 when both parties confirm the offline meeting happened.
                     </p>
 
@@ -1827,7 +1944,260 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
                             cursor: submitting ? 'wait' : 'pointer',
                         }}
                     >
-                        {submitting ? 'Scheduling...' : 'Accept & Schedule Meeting'}
+                        {submitting ? 'Sending...' : 'Propose These Details'}
+                    </motion.button>
+                </motion.div>
+            </motion.div>
+
+            {/* Full-screen Location Picker */}
+            <AnimatePresence>
+                {showLocationPicker && LocationPickerComponent && (
+                    <LocationPickerComponent
+                        onSelect={(loc) => {
+                            setLocation(loc);
+                            setShowLocationPicker(false);
+                        }}
+                        onClose={() => setShowLocationPicker(false)}
+                    />
+                )}
+            </AnimatePresence>
+        </>
+    );
+}
+
+// Counter-Propose Modal — Either party can suggest different date/time/location
+export function CounterProposeModal({ meeting, onClose, onProposed }) {
+    const { counterProposeMeeting } = useAuth();
+    const { showToast } = useToast();
+
+    // Pre-fill with existing meeting details
+    const existingDate = meeting.scheduledAt ? new Date(meeting.scheduledAt).toISOString().split('T')[0] : '';
+    const existingTime = meeting.scheduledAt ? new Date(meeting.scheduledAt).toTimeString().slice(0, 5) : '';
+
+    const [date, setDate] = useState(existingDate);
+    const [time, setTime] = useState(existingTime);
+    const [location, setLocation] = useState(null);
+    const [notes, setNotes] = useState(meeting.notes || '');
+    const [submitting, setSubmitting] = useState(false);
+    const [showLocationPicker, setShowLocationPicker] = useState(false);
+    const [LocationPickerComponent, setLocationPickerComponent] = useState(null);
+    const canCloseRef = useRef(false);
+
+    useEffect(() => {
+        canCloseRef.current = false;
+        const timer = setTimeout(() => { canCloseRef.current = true; }, 400);
+        return () => clearTimeout(timer);
+    }, []);
+
+    // Dynamically import LocationPicker
+    useEffect(() => {
+        import('./LocationPicker').then(mod => {
+            setLocationPickerComponent(() => mod.default);
+        });
+    }, []);
+
+    // Parse existing location if available
+    useEffect(() => {
+        if (meeting.location) {
+            const parts = meeting.location.split('||');
+            if (parts.length === 2) {
+                const [lat, lng] = parts[1].split(',').map(Number);
+                setLocation({ address: parts[0], lat, lng });
+            }
+        }
+    }, [meeting.location]);
+
+    const handleSubmit = async () => {
+        if (!date || !time) {
+            showToast('Please select date and time', 'warning');
+            return;
+        }
+        if (!location) {
+            showToast('Please select the meeting location on the map', 'warning');
+            return;
+        }
+
+        const scheduledAt = new Date(`${date}T${time}`).toISOString();
+        const locationStr = `${location.address}||${location.lat},${location.lng}`;
+
+        setSubmitting(true);
+        const result = await counterProposeMeeting(meeting.id, scheduledAt, locationStr, notes);
+        setSubmitting(false);
+
+        if (result.success) {
+            showToast('Your suggestion has been sent! Waiting for response.', 'success');
+            onProposed?.();
+            onClose();
+        } else {
+            showToast(result.error || 'Failed to send suggestion', 'error');
+        }
+    };
+
+    return (
+        <>
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                style={{
+                    position: 'fixed', inset: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: 20, zIndex: 100,
+                }}
+                onClick={(e) => { if (e.target === e.currentTarget && canCloseRef.current) onClose(); }}
+            >
+                <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    style={{
+                        width: '100%', maxWidth: 400,
+                        background: 'white', borderRadius: 20, padding: 24,
+                        maxHeight: '90vh', overflow: 'auto',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                        <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Suggest Different Details
+                        </h2>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <X size={20} color="var(--text-muted)" />
+                        </button>
+                    </div>
+
+                    {/* Current proposal info */}
+                    <div style={{
+                        padding: 12, borderRadius: 10,
+                        background: '#FFFBEB', border: '1px solid #FDE68A',
+                        marginBottom: 16,
+                    }}>
+                        <p style={{ fontSize: 12, color: '#92400E', fontWeight: 500 }}>
+                            <RefreshCw size={14} style={{ display: 'inline', marginRight: 6 }} />
+                            Change the date, time, or location below to suggest your preferred meeting details.
+                        </p>
+                    </div>
+
+                    {/* Date */}
+                    <label style={{ display: 'block', marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Suggested Date *
+                        </span>
+                        <input
+                            type="date"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            style={{
+                                width: '100%', padding: 12, borderRadius: 10,
+                                border: '1px solid var(--border)', fontSize: 15,
+                            }}
+                        />
+                    </label>
+
+                    {/* Time */}
+                    <label style={{ display: 'block', marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Suggested Time *
+                        </span>
+                        <input
+                            type="time"
+                            value={time}
+                            onChange={(e) => setTime(e.target.value)}
+                            style={{
+                                width: '100%', padding: 12, borderRadius: 10,
+                                border: '1px solid var(--border)', fontSize: 15,
+                            }}
+                        />
+                    </label>
+
+                    {/* Location — tap to open map picker */}
+                    <div style={{ marginBottom: 16 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Meeting Location *
+                        </span>
+                        <motion.div
+                            onClick={() => setShowLocationPicker(true)}
+                            whileTap={{ scale: 0.98 }}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                padding: 12, borderRadius: 12,
+                                border: location ? '1.5px solid #22C55E' : '1.5px dashed #D1D5DB',
+                                background: location ? '#F0FDF4' : '#F9FAFB',
+                                cursor: 'pointer', transition: 'all 0.2s',
+                            }}
+                        >
+                            <div style={{
+                                width: 40, height: 40, borderRadius: 10,
+                                background: location ? '#DCFCE7' : '#E5E7EB',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                <MapPin size={20} color={location ? '#22C55E' : '#9CA3AF'} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                {location ? (
+                                    <>
+                                        <p style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 2 }}>
+                                            📍 Location selected
+                                        </p>
+                                        <p style={{
+                                            fontSize: 12, color: '#6B7280', lineHeight: 1.3,
+                                            overflow: 'hidden', textOverflow: 'ellipsis',
+                                            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                        }}>
+                                            {location.address}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>
+                                            Select on Map
+                                        </p>
+                                        <p style={{ fontSize: 12, color: '#9CA3AF' }}>
+                                            Tap to open the map and pin a different spot
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                            <ChevronRight size={18} color="#9CA3AF" />
+                        </motion.div>
+                    </div>
+
+                    {/* Notes */}
+                    <label style={{ display: 'block', marginBottom: 20 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                            Notes (optional)
+                        </span>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="Why are you suggesting different details..."
+                            style={{
+                                width: '100%', padding: 12, borderRadius: 10,
+                                border: '1px solid var(--border)', fontSize: 14,
+                                minHeight: 70, resize: 'vertical', fontFamily: 'inherit',
+                            }}
+                        />
+                    </label>
+
+                    {/* Submit */}
+                    <motion.button
+                        onClick={handleSubmit}
+                        disabled={submitting}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        style={{
+                            width: '100%', padding: 14, borderRadius: 12,
+                            background: submitting ? '#E5E7EB' : 'linear-gradient(135deg, #F59E0B, #D97706)',
+                            border: 'none',
+                            color: submitting ? '#9CA3AF' : 'white',
+                            fontSize: 15, fontWeight: 600,
+                            cursor: submitting ? 'wait' : 'pointer',
+                        }}
+                    >
+                        {submitting ? 'Sending...' : 'Send Suggestion'}
                     </motion.button>
                 </motion.div>
             </motion.div>

@@ -253,6 +253,7 @@ function buildNotification(activity) {
         if (activity.meetingUpdates.length === 1) {
             const statusLabels = {
                 'REQUESTED': 'New meeting request',
+                'PROPOSED': 'Meeting proposal to review',
                 'PENDING_ACCEPTANCE': 'Meeting awaiting approval',
                 'SCHEDULED': 'Meeting confirmed',
                 'CANCELLED': 'Meeting cancelled',

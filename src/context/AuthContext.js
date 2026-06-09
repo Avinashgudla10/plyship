@@ -518,7 +518,7 @@ export const AuthProvider = ({ children }) => {
                 fetchPromises.push(
                     getDocs(query(
                         collection(db, 'meetings'),
-                        where('status', 'in', ['PENDING_ACCEPTANCE', 'SCHEDULED'])
+                        where('status', 'in', ['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED'])
                     ))
                 );
             }
@@ -1462,7 +1462,7 @@ export const AuthProvider = ({ children }) => {
             const activeMeetingsSnap = await getDocs(query(collection(db, 'meetings'), where('companyId', '==', companyId)));
             const activeMeetingCount = activeMeetingsSnap.docs.filter(d => {
                 const s = d.data().status;
-                return s === 'REQUESTED' || s === 'PENDING_ACCEPTANCE' || s === 'SCHEDULED';
+                return s === 'REQUESTED' || s === 'PROPOSED' || s === 'PENDING_ACCEPTANCE' || s === 'SCHEDULED';
             }).length;
 
             if (activeMeetingCount >= maxMeetingSlots) {
@@ -1539,7 +1539,8 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user, getChatId]);
 
-    // Accept a REQUESTED meeting and set date/time/location (Seeker only)
+    // Accept a REQUESTED meeting and PROPOSE date/time/location (Seeker proposes first)
+    // This no longer directly schedules — it creates a proposal for the company to review
     const acceptAndScheduleMeeting = useCallback(async (meetingId, scheduledAt, location, notes = '') => {
         if (!user || !user.id) return { success: false, error: 'Not logged in' };
 
@@ -1549,7 +1550,7 @@ export const AuthProvider = ({ children }) => {
             if (!meetingSnap.exists()) return { success: false, error: 'Meeting not found' };
 
             const meeting = meetingSnap.data();
-            if (meeting.seekerId !== user.id) return { success: false, error: 'Only the seeker can accept and schedule' };
+            if (meeting.seekerId !== user.id) return { success: false, error: 'Only the seeker can respond to this request' };
             if (meeting.status !== 'REQUESTED') return { success: false, error: 'This meeting has already been responded to' };
 
             // Check company wallet
@@ -1559,37 +1560,170 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Cannot accept — the company has insufficient funds.' };
             }
 
+            // Set status to PROPOSED (not SCHEDULED) — company must review and accept
+            await updateDoc(meetingRef, {
+                status: 'PROPOSED',
+                scheduledAt, location: location || '', notes: notes || '',
+                proposedBy: user.id,
+                proposalCount: 1,
+                lastProposedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'PROPOSED', meetingId }, { merge: true });
+
+            const dateStr = new Date(scheduledAt).toLocaleDateString('en-IN', {
+                weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+            });
+            const locationDisplay = location ? location.split('||')[0] : '';
+            const locationStr = locationDisplay ? ` at ${locationDisplay}` : '';
+            const seekerName = user.name || user.profile?.name || 'Seeker';
+
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: `📋 ${seekerName} proposed: ${dateStr}${locationStr}${notes ? ` — "${notes}"` : ''}. Please review and accept or suggest changes.`,
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
+            createNotification(meeting.companyId, {
+                type: 'meeting_proposal', title: '📋 Meeting Proposal',
+                message: `${seekerName} proposed ${dateStr}${locationStr}. Accept or suggest changes.`,
+                data: { meetingId },
+            });
+
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }, [user, getChatId]);
+
+    // Counter-propose meeting — either party can suggest new date/time/location
+    const counterProposeMeeting = useCallback(async (meetingId, scheduledAt, location, notes = '') => {
+        if (!user || !user.id) return { success: false, error: 'Not logged in' };
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+            if (!meetingSnap.exists()) return { success: false, error: 'Meeting not found' };
+
+            const meeting = meetingSnap.data();
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+            if (meeting.status !== 'PROPOSED') {
+                return { success: false, error: 'Can only counter-propose a proposed meeting' };
+            }
+            if (meeting.proposedBy === user.id) {
+                return { success: false, error: 'You already made the last proposal. Wait for the other party to respond.' };
+            }
+
+            const currentCount = meeting.proposalCount || 1;
+
+            await updateDoc(meetingRef, {
+                scheduledAt, location: location || '', notes: notes || '',
+                proposedBy: user.id,
+                proposalCount: currentCount + 1,
+                lastProposedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+
+            const chatId = getChatId(meeting.companyId, meeting.seekerId);
+            const dateStr = new Date(scheduledAt).toLocaleDateString('en-IN', {
+                weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+            });
+            const locationDisplay = location ? location.split('||')[0] : '';
+            const locationStr = locationDisplay ? ` at ${locationDisplay}` : '';
+            const myName = user.profile?.companyName || user.profile?.name || user.name || 'User';
+
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+                senderId: 'system', senderName: 'PlyShip',
+                text: `🔄 ${myName} suggested: ${dateStr}${locationStr}${notes ? ` — "${notes}"` : ''}. Please review and accept or suggest changes.`,
+                type: 'meeting_update', createdAt: serverTimestamp(),
+            });
+
+            const otherPartyId = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
+            createNotification(otherPartyId, {
+                type: 'meeting_counter_proposal', title: '🔄 New Meeting Suggestion',
+                message: `${myName} suggested ${dateStr}${locationStr}. Accept or suggest changes.`,
+                data: { meetingId },
+            });
+
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }, [user, getChatId]);
+
+    // Accept the current proposal — finalizes the meeting to SCHEDULED with OTP
+    const acceptProposedMeeting = useCallback(async (meetingId) => {
+        if (!user || !user.id) return { success: false, error: 'Not logged in' };
+
+        try {
+            const meetingRef = doc(db, 'meetings', meetingId);
+            const meetingSnap = await getDoc(meetingRef);
+            if (!meetingSnap.exists()) return { success: false, error: 'Meeting not found' };
+
+            const meeting = meetingSnap.data();
+            if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
+                return { success: false, error: 'Not authorized' };
+            }
+            if (meeting.status !== 'PROPOSED') {
+                return { success: false, error: 'Meeting is not in proposed state' };
+            }
+            if (meeting.proposedBy === user.id) {
+                return { success: false, error: 'You made the last proposal. Wait for the other party.' };
+            }
+
+            // Check if meeting time has already passed
+            if (meeting.scheduledAt && new Date(meeting.scheduledAt) < new Date()) {
+                return { success: false, error: 'The proposed meeting time has already passed. Please suggest a new time.' };
+            }
+
+            // Check company wallet
+            const MEETING_FEE = 500;
+            const companyWalletSnap = await getDoc(doc(db, 'wallets', meeting.companyId));
+            if (!companyWalletSnap.exists() || (companyWalletSnap.data().balance || 0) < MEETING_FEE) {
+                return { success: false, error: 'Cannot finalize — the company has insufficient funds.' };
+            }
+
+            // Generate OTP and finalize to SCHEDULED
             const meetingOTP = String(Math.floor(100000 + Math.random() * 900000));
 
             await updateDoc(meetingRef, {
-                status: 'SCHEDULED', acceptedBy: user.id,
+                status: 'SCHEDULED',
+                acceptedBy: user.id,
                 acceptedAt: new Date().toISOString(),
-                scheduledAt, location: location || '', notes: notes || '',
-                meetingOTP, updatedAt: new Date().toISOString(),
+                meetingOTP,
+                updatedAt: new Date().toISOString(),
             });
 
             const chatId = getChatId(meeting.companyId, meeting.seekerId);
             await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'SCHEDULED', meetingId }, { merge: true });
 
-            const dateStr = new Date(scheduledAt).toLocaleDateString('en-IN', {
+            const dateStr = new Date(meeting.scheduledAt).toLocaleDateString('en-IN', {
                 weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
             });
-            const locationStr = location ? ` at ${location}` : '';
+            const locationDisplay = meeting.location ? meeting.location.split('||')[0] : '';
+            const locationStr = locationDisplay ? ` at ${locationDisplay}` : '';
+            const myName = user.profile?.companyName || user.profile?.name || user.name || 'User';
+
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
                 senderId: 'system', senderName: 'PlyShip',
-                text: `✅ Meeting accepted! Scheduled for ${dateStr}${locationStr}. OTP verification required upon meeting.`,
+                text: `✅ Both parties agreed! Meeting confirmed for ${dateStr}${locationStr}. OTP verification required upon meeting.`,
                 type: 'meeting_update', createdAt: serverTimestamp(),
             });
 
-            const seekerName = user.name || user.profile?.name || 'Seeker';
-            createNotification(meeting.companyId, {
-                type: 'meeting_accepted', title: '✅ Meeting Accepted!',
-                message: `${seekerName} accepted — ${dateStr}${locationStr}`,
+            // Notify both parties
+            const otherPartyId = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
+            createNotification(otherPartyId, {
+                type: 'meeting_accepted', title: '✅ Meeting Confirmed!',
+                message: `${myName} accepted the proposal — ${dateStr}${locationStr}`,
                 data: { meetingId },
             });
             createNotification(meeting.seekerId, {
                 type: 'meeting_otp', title: '🔐 Share OTP with Company',
-                message: `Your meeting OTP is ${meetingOTP}. Share it after the meeting.`,
+                message: `Your meeting OTP is ${meetingOTP}. Share it only after the meeting.`,
                 data: { meetingId, otp: meetingOTP },
             });
             createNotification(meeting.companyId, {
@@ -1852,7 +1986,7 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user, getChatId]);
 
-    // Request reschedule — company asks the seeker to pick a different date/time
+    // Request reschedule — either party asks to restart negotiation
     const requestRescheduleMeeting = useCallback(async (meetingId, reason = '') => {
         if (!user || !user.id) return { success: false, error: 'Not logged in' };
 
@@ -1865,8 +1999,8 @@ export const AuthProvider = ({ children }) => {
             if (meeting.companyId !== user.id && meeting.seekerId !== user.id) {
                 return { success: false, error: 'Not authorized' };
             }
-            if (meeting.status !== 'PENDING_ACCEPTANCE') {
-                return { success: false, error: 'Can only request reschedule for pending meetings' };
+            if (meeting.status !== 'PENDING_ACCEPTANCE' && meeting.status !== 'PROPOSED') {
+                return { success: false, error: 'Can only request reschedule for pending or proposed meetings' };
             }
 
             // Reset meeting back to REQUESTED so seeker can pick new date/time/location
@@ -1985,8 +2119,8 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Not authorized' };
             }
 
-            // Can cancel REQUESTED, PENDING_ACCEPTANCE or SCHEDULED meetings
-            if (!['REQUESTED', 'PENDING_ACCEPTANCE', 'SCHEDULED'].includes(meeting.status)) {
+            // Can cancel REQUESTED, PROPOSED, PENDING_ACCEPTANCE or SCHEDULED meetings
+            if (!['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED'].includes(meeting.status)) {
                 return { success: false, error: 'Cannot cancel this meeting' };
             }
 
@@ -3200,6 +3334,8 @@ export const AuthProvider = ({ children }) => {
             getWithdrawals,
             scheduleMeeting,
             acceptAndScheduleMeeting,
+            counterProposeMeeting,
+            acceptProposedMeeting,
             getMeetings,
             subscribeMeetings,
             acceptMeeting,

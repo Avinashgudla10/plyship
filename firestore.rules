@@ -1,0 +1,134 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper ──────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    // ── User profiles ───────────────────────────────────────
+    match /seekers/{userId} {
+      allow read: if isAuth();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    match /companies/{userId} {
+      allow read: if isAuth();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // ── Usernames ───────────────────────────────────────────
+    match /usernames/{username} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // ── Likes ───────────────────────────────────────────────
+    match /likes/{userId}/{sub}/{docId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // ── Passes ──────────────────────────────────────────────
+    match /passes/{userId}/{sub}/{docId} {
+      allow read: if isOwner(userId);
+      allow write: if isAuth();
+    }
+
+    // ── Matches ─────────────────────────────────────────────
+    match /matches/{userId}/{sub}/{docId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // ── Chats ───────────────────────────────────────────────
+    match /chats/{chatId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+      allow delete: if isAuth();
+
+      match /messages/{messageId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update: if isAuth();
+        allow delete: if isAuth();
+      }
+    }
+
+    // ── Meetings ────────────────────────────────────────────
+    match /meetings/{meetingId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+      allow delete: if isAuth();
+    }
+
+    // ── Wallets ─────────────────────────────────────────────
+    match /wallets/{userId} {
+      allow read: if isAuth();
+      allow create: if isOwner(userId);
+      allow update: if isAuth();
+      allow delete: if isOwner(userId);
+    }
+
+    // ── Transactions ────────────────────────────────────────
+    match /transactions/{txId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+    }
+
+    // ── Withdrawals ─────────────────────────────────────────
+    match /withdrawals/{wId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+    }
+
+    // ── Projects ────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+      allow delete: if isAuth();
+    }
+
+    // ── Reviews ─────────────────────────────────────────────
+    match /reviews/{reviewId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+    }
+
+    // ── Notifications ───────────────────────────────────────
+    match /notifications/{userId} {
+      allow read, write: if isAuth();
+
+      match /items/{itemId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update: if isAuth();
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // ── FCM Tokens ──────────────────────────────────────────
+    match /fcmTokens/{userId} {
+      allow read: if isAuth();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+  }
+}

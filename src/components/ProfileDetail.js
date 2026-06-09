@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { X, Star, MapPin, Shield, Sparkles, CheckCircle, Briefcase, Calendar, Wallet, Home, User } from 'lucide-react';
+import { X, Star, MapPin, Shield, Sparkles, CheckCircle, Briefcase, Calendar, Wallet, Home, User, MessageCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function ProfileDetail({ profile, onClose, onMeet, onReject, viewerRole }) {
@@ -576,8 +576,8 @@ export default function ProfileDetail({ profile, onClose, onMeet, onReject, view
                         cursor: 'pointer',
                     }}
                 >
-                    <Calendar size={20} />
-                    Schedule Meeting
+                    <MessageCircle size={20} />
+                    Send Message
                 </motion.button>
             </motion.div>
         </motion.div>
