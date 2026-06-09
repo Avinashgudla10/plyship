@@ -33,8 +33,16 @@ function getAudioContext() {
     return _sharedAudioCtx;
 }
 
-// ── WhatsApp-style Voice-Note Player (3× volume via GainNode) ──
-// Waveform bars pattern — generates pseudo-random heights for a natural look
+// ── WhatsApp-style Voice-Note Player (with optional volume boost) ──
+// Desktop browsers: uses AudioContext.decodeAudioData for 3× gain boost
+// Native WebView / fallback: uses plain HTML5 <audio> at max volume
+//
+// Key design: we NEVER use createMediaElementSource because it permanently
+// captures the <audio> element's output. If the GainNode pipeline fails
+// (CORS, security policy), the audio is silenced with no recovery path.
+// Instead, we keep the <audio> element as the primary playback mechanism
+// and use a completely independent AudioContext buffer for the gain boost.
+
 const WAVEFORM_BARS = (() => {
     const seed = [4,7,5,8,3,9,6,4,7,5,8,6,3,9,7,5,8,4,6,9,5,7,3,8,6,4,9,5,7,8,3,6,4,9,7,5,8,6,3,7];
     return seed.map(v => v / 9); // normalize to 0-1
@@ -42,86 +50,186 @@ const WAVEFORM_BARS = (() => {
 
 function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) {
     const audioRef = useRef(null);
-    const gainNodeRef = useRef(null);
-    const connectedRef = useRef(false);
     const [playing, setPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [elapsed, setElapsed] = useState(0);
 
-    // Wire up the Web Audio API gain on first play
-    // On native WebView, skip AudioContext entirely — it causes silence
-    const ensureGain = () => {
-        const audio = audioRef.current;
-        if (!audio || connectedRef.current) return;
-        if (_isNativeWebView) {
-            // Native WebView: just use HTML5 audio at max volume
-            connectedRef.current = true;
-            audio.volume = 1.0;
-            return;
-        }
+    // AudioContext-based playback state (desktop gain boost)
+    const ctxSourceRef = useRef(null);   // AudioBufferSourceNode (currently playing)
+    const audioBufferRef = useRef(null); // decoded AudioBuffer
+    const ctxStartTimeRef = useRef(0);   // audioContext.currentTime when playback started
+    const ctxOffsetRef = useRef(0);      // resume offset in seconds
+    const ctxTimerRef = useRef(null);    // progress update interval
+    const useCtxPlaybackRef = useRef(false); // whether AudioContext path is active
+    const gainLoadedRef = useRef(false); // whether we've already attempted buffer decode
+
+    // Try to decode audio into an AudioBuffer for gain-boosted playback.
+    // This runs once per src change and is completely non-blocking.
+    useEffect(() => {
+        gainLoadedRef.current = false;
+        audioBufferRef.current = null;
+        useCtxPlaybackRef.current = false;
+
+        // Skip AudioContext path on native WebViews — HTML5 audio works fine
+        if (_isNativeWebView || !src) return;
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const resp = await fetch(src);
+                if (cancelled || !resp.ok) return;
+                const arrayBuf = await resp.arrayBuffer();
+                if (cancelled) return;
+                const ctx = getAudioContext();
+                const decoded = await ctx.decodeAudioData(arrayBuf);
+                if (cancelled) return;
+                audioBufferRef.current = decoded;
+                useCtxPlaybackRef.current = true;
+                gainLoadedRef.current = true;
+            } catch (e) {
+                // Decode failed (CORS, unsupported codec, etc.) — fall back to HTML5 audio
+                console.warn('⚠️ VoiceNote: AudioContext decode failed, using HTML5 audio:', e.message);
+                useCtxPlaybackRef.current = false;
+            }
+        })();
+
+        return () => { cancelled = true; };
+    }, [src]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (ctxSourceRef.current) {
+                try { ctxSourceRef.current.stop(); } catch (_) {}
+            }
+            if (ctxTimerRef.current) clearInterval(ctxTimerRef.current);
+        };
+    }, []);
+
+    // --- AudioContext playback helpers (gain-boosted path) ---
+    const ctxPlay = (offset = 0) => {
+        const buffer = audioBufferRef.current;
+        if (!buffer) return false;
         try {
             const ctx = getAudioContext();
-            const source = ctx.createMediaElementSource(audio);
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
             const gain = ctx.createGain();
             gain.gain.value = 3.0; // 3× volume boost
             source.connect(gain).connect(ctx.destination);
-            gainNodeRef.current = gain;
-            connectedRef.current = true;
-        } catch (_) {
-            // createMediaElementSource fails on cross-origin audio
-            // Fall back to max native volume
-            connectedRef.current = true;
-            audio.volume = 1.0;
+            source.onended = () => {
+                if (ctxSourceRef.current === source) {
+                    setPlaying(false);
+                    setProgress(0);
+                    setElapsed(0);
+                    ctxOffsetRef.current = 0;
+                    if (ctxTimerRef.current) { clearInterval(ctxTimerRef.current); ctxTimerRef.current = null; }
+                }
+            };
+            source.start(0, offset);
+            ctxSourceRef.current = source;
+            ctxStartTimeRef.current = ctx.currentTime;
+            ctxOffsetRef.current = offset;
+            setPlaying(true);
+
+            // Progress updater
+            if (ctxTimerRef.current) clearInterval(ctxTimerRef.current);
+            ctxTimerRef.current = setInterval(() => {
+                const ctx2 = getAudioContext();
+                const cur = ctxOffsetRef.current + (ctx2.currentTime - ctxStartTimeRef.current);
+                const dur = buffer.duration;
+                if (dur > 0) {
+                    setProgress(Math.min(1, cur / dur));
+                    setElapsed(Math.floor(cur));
+                }
+            }, 100);
+            return true;
+        } catch (e) {
+            console.warn('⚠️ VoiceNote: AudioContext play failed:', e.message);
+            return false;
         }
     };
 
-    const toggle = () => {
-        const audio = audioRef.current;
-        if (!audio) return;
-        ensureGain();
-        if (playing) { audio.pause(); }
-        else { audio.play().catch(() => {}); }
+    const ctxPause = () => {
+        if (ctxSourceRef.current) {
+            const ctx = getAudioContext();
+            ctxOffsetRef.current += ctx.currentTime - ctxStartTimeRef.current;
+            try { ctxSourceRef.current.stop(); } catch (_) {}
+            ctxSourceRef.current = null;
+        }
+        if (ctxTimerRef.current) { clearInterval(ctxTimerRef.current); ctxTimerRef.current = null; }
+        setPlaying(false);
     };
 
+    // --- Toggle play/pause ---
+    const toggle = () => {
+        // Path 1: AudioContext gain-boosted playback (desktop)
+        if (useCtxPlaybackRef.current && audioBufferRef.current) {
+            if (playing) {
+                ctxPause();
+            } else {
+                ctxPlay(ctxOffsetRef.current);
+            }
+            return;
+        }
+
+        // Path 2: Plain HTML5 <audio> (always works, native WebView + fallback)
+        const audio = audioRef.current;
+        if (!audio) return;
+        audio.volume = 1.0;
+        if (playing) {
+            audio.pause();
+        } else {
+            audio.play().catch((e) => {
+                console.warn('⚠️ VoiceNote: HTML5 play failed:', e.message);
+            });
+        }
+    };
+
+    // HTML5 audio event listeners (for fallback path)
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio) return;
-        const onPlay = () => setPlaying(true);
-        const onPause = () => setPlaying(false);
-        const onEnded = () => { setPlaying(false); setProgress(0); setElapsed(0); };
+        const onPlay = () => { if (!useCtxPlaybackRef.current) setPlaying(true); };
+        const onPause = () => { if (!useCtxPlaybackRef.current) setPlaying(false); };
+        const onEnded = () => { if (!useCtxPlaybackRef.current) { setPlaying(false); setProgress(0); setElapsed(0); } };
         const onTime = () => {
-            if (audio.duration && isFinite(audio.duration)) {
+            if (!useCtxPlaybackRef.current && audio.duration && isFinite(audio.duration)) {
                 setProgress(audio.currentTime / audio.duration);
                 setElapsed(Math.floor(audio.currentTime));
-            }
-        };
-        // Handle load errors — retry without crossOrigin for WebViews that
-        // reject CORS on Firebase Storage URLs (some older Android WebViews)
-        const onError = () => {
-            if (audio.crossOrigin) {
-                audio.crossOrigin = null;
-                audio.load();
             }
         };
         audio.addEventListener('play', onPlay);
         audio.addEventListener('pause', onPause);
         audio.addEventListener('ended', onEnded);
         audio.addEventListener('timeupdate', onTime);
-        audio.addEventListener('error', onError);
         return () => {
             audio.removeEventListener('play', onPlay);
             audio.removeEventListener('pause', onPause);
             audio.removeEventListener('ended', onEnded);
             audio.removeEventListener('timeupdate', onTime);
-            audio.removeEventListener('error', onError);
         };
     }, []);
 
     const seek = (e) => {
-        const audio = audioRef.current;
-        if (!audio || !audio.duration) return;
         const rect = e.currentTarget.getBoundingClientRect();
         const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+
+        if (useCtxPlaybackRef.current && audioBufferRef.current) {
+            const newOffset = ratio * audioBufferRef.current.duration;
+            if (playing) {
+                ctxPause();
+                ctxPlay(newOffset);
+            } else {
+                ctxOffsetRef.current = newOffset;
+                setProgress(ratio);
+                setElapsed(Math.floor(newOffset));
+            }
+            return;
+        }
+
+        const audio = audioRef.current;
+        if (!audio || !audio.duration) return;
         audio.currentTime = ratio * audio.duration;
     };
 
@@ -137,8 +245,8 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
 
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220, padding: '2px 0' }}>
-            <audio ref={audioRef} src={src} preload="metadata"
-                {...(!_isNativeWebView ? { crossOrigin: 'anonymous' } : {})} />
+            {/* Hidden audio element — NO crossOrigin so it always loads */}
+            <audio ref={audioRef} src={src} preload="metadata" style={{ display: 'none' }} />
 
             {/* Avatar with mic badge — WhatsApp style */}
             <div style={{ position: 'relative', flexShrink: 0 }}>
