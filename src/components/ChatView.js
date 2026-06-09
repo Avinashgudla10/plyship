@@ -1379,7 +1379,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     <motion.button
                         onClick={() => {
                             if (hasMeetingRequest && otherUserPhone) {
-                                window.open(`tel:${otherUserPhone}`, '_self');
+                                window.location.href = `tel:${otherUserPhone}`;
                             } else {
                                 showToast('Schedule a meeting first to get their contact number 📅', 'info');
                             }
@@ -2584,7 +2584,11 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             </div>
                                             {msg.fileUrl && (
                                                 <a href={`tel:${msg.fileUrl}`}
-                                                    onClick={(e) => e.stopPropagation()}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        window.location.href = `tel:${msg.fileUrl}`;
+                                                    }}
                                                     style={{
                                                         width: 36, height: 36, borderRadius: '50%',
                                                         background: isMe ? 'rgba(255,255,255,0.2)' : '#E8F5E9',

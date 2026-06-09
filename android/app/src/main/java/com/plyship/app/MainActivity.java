@@ -316,6 +316,28 @@ public class MainActivity extends BridgeActivity {
                     return true;
                 }
 
+                // Handle tel: URIs — open phone dialer
+                if (scheme != null && scheme.equalsIgnoreCase("tel")) {
+                    try {
+                        Intent dialIntent = new Intent(Intent.ACTION_DIAL, url);
+                        startActivity(dialIntent);
+                    } catch (Exception e) {
+                        Log.e("Plyship", "Failed to open dialer: " + e.getMessage());
+                    }
+                    return true;
+                }
+
+                // Handle mailto: URIs — open email client
+                if (scheme != null && scheme.equalsIgnoreCase("mailto")) {
+                    try {
+                        Intent mailIntent = new Intent(Intent.ACTION_SENDTO, url);
+                        startActivity(mailIntent);
+                    } catch (Exception e) {
+                        Log.e("Plyship", "Failed to open email: " + e.getMessage());
+                    }
+                    return true;
+                }
+
                 // Handle UPI intent URLs — these come from Razorpay checkout
                 // when the user selects a UPI app (GPay, PhonePe, Paytm, etc.)
                 if (scheme != null && (
