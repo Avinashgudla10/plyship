@@ -485,6 +485,7 @@ export const AuthProvider = ({ children }) => {
             });
             return users;
         } catch (error) {
+            console.error('❌ getAllUsers error:', error);
             return [];
         }
     }, [user]);
@@ -501,6 +502,7 @@ export const AuthProvider = ({ children }) => {
             const cooldownCutoff = sevenDaysAgo.toISOString();
 
             // Fetch liked, passed, meeting, and matched users in parallel
+            // Use allSettled so a single query failure doesn't crash everything
             const fetchPromises = [
                 getDocs(collection(db, 'likes', user.id, 'outgoing')),
                 getDocs(collection(db, 'passes', user.id, 'passed')),
@@ -511,21 +513,29 @@ export const AuthProvider = ({ children }) => {
                 getDocs(collection(db, 'matches', user.id, 'matched')),
             ];
 
+            const settled = await Promise.allSettled(fetchPromises);
+            const safeSnap = (r) => r.status === 'fulfilled' ? r.value : { forEach: () => {} };
+            settled.forEach((r, i) => {
+                if (r.status === 'rejected') console.warn(`⚠️ getSwipeProfiles query[${i}] failed:`, r.reason);
+            });
+            const [likedUsersSnapshot, passedUsersSnapshot, meetingsSnapshot, matchesSnapshot] =
+                settled.map(safeSnap);
+
             // For COMPANY users: also fetch ALL active seeker meetings globally
-            // so we can deprioritize seekers who already have appointment requests
+            // so we can deprioritize seekers who already have appointment requests.
+            // This is in its own try-catch so it never blocks profile loading.
             const isCompanyUser = user.role === 'COMPANY';
+            let globalActiveMeetingsSnapshot = null;
             if (isCompanyUser) {
-                fetchPromises.push(
-                    getDocs(query(
+                try {
+                    globalActiveMeetingsSnapshot = await getDocs(query(
                         collection(db, 'meetings'),
                         where('status', 'in', ['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED'])
-                    ))
-                );
+                    ));
+                } catch (globalMeetErr) {
+                    console.warn('⚠️ Global meetings query failed (non-blocking):', globalMeetErr);
+                }
             }
-
-            const results = await Promise.all(fetchPromises);
-            const [likedUsersSnapshot, passedUsersSnapshot, meetingsSnapshot, matchesSnapshot] = results;
-            const globalActiveMeetingsSnapshot = isCompanyUser ? results[4] : null;
 
             // Liked users — only exclude if liked within last 7 days
             const likedUserIds = new Set();
@@ -643,6 +653,7 @@ export const AuthProvider = ({ children }) => {
 
             return profiles;
         } catch (error) {
+            console.error('❌ getSwipeProfiles error:', error);
             return [];
         }
     }, [user]);

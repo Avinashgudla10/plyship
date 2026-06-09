@@ -100,7 +100,7 @@ export default function Home() {
       if (user && user.profileComplete && activeTab === 'explore') {
         const swipeProfiles = await getSwipeProfiles();
         setProfiles(swipeProfiles);
-        console.log('🔄 Loaded', swipeProfiles.length, 'profiles for swiping');
+        console.log('🔄 Loaded', swipeProfiles.length, 'profiles for swiping (role:', user.role, ')');
       }
     };
     loadProfiles();
