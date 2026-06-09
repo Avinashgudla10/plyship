@@ -413,6 +413,10 @@ export const AuthProvider = ({ children }) => {
             // Update local state
             setUser({ id: user.id, ...updatedUser });
 
+            // Initialize wallet document so user appears in admin dashboard immediately
+            // (fire-and-forget — don't block profile completion)
+            initializeWallet(user.id, user.role).catch(() => {});
+
             // Clear onboarding flag and localStorage role - profile is complete
             isOnboarding.current = false;
             localStorage.removeItem('onboardingRole');
