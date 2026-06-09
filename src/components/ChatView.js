@@ -1768,6 +1768,12 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     const isReceiver = activeMeeting.requestedBy !== user?.id;
                     const hasLowBalance = isCompanyUser && walletBalance !== null && walletBalance < MEETING_FEE;
 
+                    // Parse location for the 📍 button
+                    const locParts = activeMeeting.location ? activeMeeting.location.split('||') : [];
+                    const locDisplay = locParts[0] || null;
+                    const locCoords = locParts[1] || null;
+                    const hasLocation = !!(locDisplay || locCoords);
+
                     // Show low balance warning for company receiving a meeting request
                     if (isReceiver && hasLowBalance) {
                         // Inline pay-and-accept handler (like Uber pay-per-ride)
@@ -1879,6 +1885,27 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                                 weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                                             })}
                                         </p>
+                                        {/* 📍 Location Button */}
+                                        {hasLocation && (
+                                            <a
+                                                href={locCoords ? `https://www.google.com/maps?q=${locCoords}` : `https://www.google.com/maps/search/${encodeURIComponent(locDisplay)}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                    marginTop: 4, marginBottom: 6, padding: '3px 10px', borderRadius: 20,
+                                                    background: '#DCFCE7', border: '1px solid #86EFAC',
+                                                    color: '#166534', fontSize: 12, fontWeight: 600,
+                                                    textDecoration: 'none', cursor: 'pointer',
+                                                    transition: 'all 0.15s',
+                                                }}
+                                                onMouseEnter={(e) => { e.currentTarget.style.background = '#BBF7D0'; }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.background = '#DCFCE7'; }}
+                                            >
+                                                <MapPin size={13} />
+                                                LOCATION
+                                            </a>
+                                        )}
 
                                         {/* Pay & Accept — primary action */}
                                         <motion.button
@@ -1982,6 +2009,27 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                                         })}
                                     </p>
+                                    {/* 📍 Location Button */}
+                                    {hasLocation && (
+                                        <a
+                                            href={locCoords ? `https://www.google.com/maps?q=${locCoords}` : `https://www.google.com/maps/search/${encodeURIComponent(locDisplay)}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                marginTop: 4, padding: '3px 10px', borderRadius: 20,
+                                                background: '#DBEAFE', border: '1px solid #93C5FD',
+                                                color: '#1E40AF', fontSize: 12, fontWeight: 600,
+                                                textDecoration: 'none', cursor: 'pointer',
+                                                transition: 'all 0.15s',
+                                            }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#BFDBFE'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = '#DBEAFE'; }}
+                                        >
+                                            <MapPin size={13} />
+                                            LOCATION
+                                        </a>
+                                    )}
                                 </div>
                                     {isReceiver && (
                                     <div style={{ display: 'flex', gap: 6 }}>
