@@ -33,6 +33,30 @@ function getAudioContext() {
     return _sharedAudioCtx;
 }
 
+// ── Global exclusive playback manager ──
+// Ensures only one voice note plays at a time across all VoiceNotePlayer instances.
+// When a new note starts, the currently playing note is stopped automatically.
+const _audioManager = {
+    _currentStopFn: null,
+    _currentId: null,
+    // Register a playing instance. Returns true if successfully registered.
+    play(id, stopFn) {
+        // Stop the currently playing note (if any & different)
+        if (this._currentId && this._currentId !== id && this._currentStopFn) {
+            try { this._currentStopFn(); } catch (_) {}
+        }
+        this._currentId = id;
+        this._currentStopFn = stopFn;
+    },
+    // Unregister when playback stops naturally
+    stop(id) {
+        if (this._currentId === id) {
+            this._currentId = null;
+            this._currentStopFn = null;
+        }
+    },
+};
+
 // ── WhatsApp-style Voice-Note Player (with optional volume boost) ──
 // Desktop browsers: uses AudioContext.decodeAudioData for 3× gain boost
 // Native WebView / fallback: uses plain HTML5 <audio> at max volume
@@ -48,11 +72,19 @@ const WAVEFORM_BARS = (() => {
     return seed.map(v => v / 9); // normalize to 0-1
 })();
 
+// Stable unique ID counter for each VoiceNotePlayer instance
+let _vnpIdCounter = 0;
+
 function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) {
     const audioRef = useRef(null);
     const [playing, setPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [elapsed, setElapsed] = useState(0);
+    const [loading, setLoading] = useState(false); // loading state for lazy decode
+
+    // Stable unique ID for this player instance (for exclusive playback)
+    const instanceIdRef = useRef(null);
+    if (instanceIdRef.current === null) instanceIdRef.current = `vnp_${++_vnpIdCounter}`;
 
     // AudioContext-based playback state (desktop gain boost)
     const ctxSourceRef = useRef(null);   // AudioBufferSourceNode (currently playing)
@@ -63,37 +95,47 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
     const useCtxPlaybackRef = useRef(false); // whether AudioContext path is active
     const gainLoadedRef = useRef(false); // whether we've already attempted buffer decode
 
-    // Try to decode audio into an AudioBuffer for gain-boosted playback.
-    // This runs once per src change and is completely non-blocking.
+    // LAZY audio decoding — only fetches & decodes when the user actually taps play.
+    // This avoids flooding the network with fetch requests for every voice note on screen.
+    // Returns true if AudioContext buffer path is ready, false to fall back to HTML5.
+    const ensureAudioBuffer = async () => {
+        // Already decoded
+        if (gainLoadedRef.current) return useCtxPlaybackRef.current;
+
+        // Skip AudioContext path on native WebViews — HTML5 audio works fine
+        if (_isNativeWebView || !src) {
+            gainLoadedRef.current = true;
+            useCtxPlaybackRef.current = false;
+            return false;
+        }
+
+        setLoading(true);
+        try {
+            const resp = await fetch(src);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const arrayBuf = await resp.arrayBuffer();
+            const ctx = getAudioContext();
+            const decoded = await ctx.decodeAudioData(arrayBuf);
+            audioBufferRef.current = decoded;
+            useCtxPlaybackRef.current = true;
+            gainLoadedRef.current = true;
+            return true;
+        } catch (e) {
+            // Decode failed (CORS, unsupported codec, etc.) — fall back to HTML5 audio
+            console.warn('⚠️ VoiceNote: AudioContext decode failed, using HTML5 audio:', e.message);
+            useCtxPlaybackRef.current = false;
+            gainLoadedRef.current = true;
+            return false;
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Reset decode state when src changes
     useEffect(() => {
         gainLoadedRef.current = false;
         audioBufferRef.current = null;
         useCtxPlaybackRef.current = false;
-
-        // Skip AudioContext path on native WebViews — HTML5 audio works fine
-        if (_isNativeWebView || !src) return;
-
-        let cancelled = false;
-        (async () => {
-            try {
-                const resp = await fetch(src);
-                if (cancelled || !resp.ok) return;
-                const arrayBuf = await resp.arrayBuffer();
-                if (cancelled) return;
-                const ctx = getAudioContext();
-                const decoded = await ctx.decodeAudioData(arrayBuf);
-                if (cancelled) return;
-                audioBufferRef.current = decoded;
-                useCtxPlaybackRef.current = true;
-                gainLoadedRef.current = true;
-            } catch (e) {
-                // Decode failed (CORS, unsupported codec, etc.) — fall back to HTML5 audio
-                console.warn('⚠️ VoiceNote: AudioContext decode failed, using HTML5 audio:', e.message);
-                useCtxPlaybackRef.current = false;
-            }
-        })();
-
-        return () => { cancelled = true; };
     }, [src]);
 
     // Cleanup on unmount
@@ -124,6 +166,7 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
                     setElapsed(0);
                     ctxOffsetRef.current = 0;
                     if (ctxTimerRef.current) { clearInterval(ctxTimerRef.current); ctxTimerRef.current = null; }
+                    _audioManager.stop(instanceIdRef.current);
                 }
             };
             source.start(0, offset);
@@ -131,6 +174,11 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
             ctxStartTimeRef.current = ctx.currentTime;
             ctxOffsetRef.current = offset;
             setPlaying(true);
+
+            // Register with global manager for exclusive playback
+            _audioManager.play(instanceIdRef.current, () => {
+                ctxPause();
+            });
 
             // Progress updater
             if (ctxTimerRef.current) clearInterval(ctxTimerRef.current);
@@ -159,31 +207,45 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
         }
         if (ctxTimerRef.current) { clearInterval(ctxTimerRef.current); ctxTimerRef.current = null; }
         setPlaying(false);
+        _audioManager.stop(instanceIdRef.current);
     };
 
-    // --- Toggle play/pause ---
-    const toggle = () => {
-        // Path 1: AudioContext gain-boosted playback (desktop)
-        if (useCtxPlaybackRef.current && audioBufferRef.current) {
-            if (playing) {
+    // --- Toggle play/pause (now async for lazy decode) ---
+    const toggle = async () => {
+        // If already playing, just pause
+        if (playing) {
+            if (useCtxPlaybackRef.current && audioBufferRef.current) {
                 ctxPause();
             } else {
-                ctxPlay(ctxOffsetRef.current);
+                const audio = audioRef.current;
+                if (audio) audio.pause();
             }
             return;
         }
 
-        // Path 2: Plain HTML5 <audio> (always works, native WebView + fallback)
+        // Not playing — ensure audio is decoded/loaded first (lazy)
+        const useCtx = await ensureAudioBuffer();
+
+        // Path 1: AudioContext gain-boosted playback (desktop)
+        if (useCtx && audioBufferRef.current) {
+            ctxPlay(ctxOffsetRef.current);
+            return;
+        }
+
+        // Path 2: Plain HTML5 <audio> (native WebView + fallback)
         const audio = audioRef.current;
         if (!audio) return;
         audio.volume = 1.0;
-        if (playing) {
+        // Register with global manager for exclusive playback
+        _audioManager.play(instanceIdRef.current, () => {
             audio.pause();
-        } else {
-            audio.play().catch((e) => {
-                console.warn('⚠️ VoiceNote: HTML5 play failed:', e.message);
-            });
-        }
+            setPlaying(false);
+            _audioManager.stop(instanceIdRef.current);
+        });
+        audio.play().catch((e) => {
+            console.warn('⚠️ VoiceNote: HTML5 play failed:', e.message);
+            _audioManager.stop(instanceIdRef.current);
+        });
     };
 
     // HTML5 audio event listeners (for fallback path)
@@ -192,7 +254,12 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
         if (!audio) return;
         const onPlay = () => { if (!useCtxPlaybackRef.current) setPlaying(true); };
         const onPause = () => { if (!useCtxPlaybackRef.current) setPlaying(false); };
-        const onEnded = () => { if (!useCtxPlaybackRef.current) { setPlaying(false); setProgress(0); setElapsed(0); } };
+        const onEnded = () => {
+            if (!useCtxPlaybackRef.current) {
+                setPlaying(false); setProgress(0); setElapsed(0);
+                _audioManager.stop(instanceIdRef.current);
+            }
+        };
         const onTime = () => {
             if (!useCtxPlaybackRef.current && audio.duration && isFinite(audio.duration)) {
                 setProgress(audio.currentTime / audio.duration);
@@ -246,7 +313,7 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220, padding: '2px 0' }}>
             {/* Hidden audio element — NO crossOrigin so it always loads */}
-            <audio ref={audioRef} src={src} preload="metadata" style={{ display: 'none' }} />
+            <audio ref={audioRef} src={src} preload="none" style={{ display: 'none' }} />
 
             {/* Avatar with mic badge — WhatsApp style */}
             <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -284,9 +351,11 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
                     cursor: 'pointer', flexShrink: 0,
                 }}
             >
-                {playing
-                    ? <Pause size={18} color={accentColor} fill={accentColor} />
-                    : <Play  size={18} color={accentColor} fill={accentColor} style={{ marginLeft: 2 }} />}
+                {loading
+                    ? <Loader2 size={18} color={accentColor} style={{ animation: 'spin 1s linear infinite' }} />
+                    : playing
+                        ? <Pause size={18} color={accentColor} fill={accentColor} />
+                        : <Play  size={18} color={accentColor} fill={accentColor} style={{ marginLeft: 2 }} />}
             </motion.button>
 
             {/* Waveform + Duration column */}
@@ -1397,37 +1466,6 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                         <Phone size={15} color={hasMeetingRequest && otherUserPhone ? '#22C55E' : 'var(--text-muted)'} />
                     </motion.button>
                 )}
-
-                {/* 📍 Meeting Location Button — OTP-bar-style, visible only when meeting is SCHEDULED */}
-                {!isBroadcast && activeMeeting?.status === 'SCHEDULED' && activeMeeting?.location && (() => {
-                    const parts = activeMeeting.location.split('||');
-                    const displayAddress = parts[0] || activeMeeting.location;
-                    const coords = parts[1]; // "lat,lng" or undefined
-
-                    return (
-                        <motion.button
-                            onClick={() => openMapsUrl(coords, displayAddress)}
-                            whileTap={{ scale: 0.9 }}
-                            style={{
-                                padding: '8px 12px',
-                                borderRadius: 10,
-                                background: '#F0FDF4',
-                                border: '1.5px solid #BBF7D0',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 5,
-                                cursor: 'pointer',
-                                flexShrink: 0,
-                            }}
-                            title={displayAddress}
-                        >
-                            <MapPin size={14} color="#22C55E" />
-                            <span style={{ fontSize: 12, fontWeight: 600, color: '#16A34A', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                Location
-                            </span>
-                        </motion.button>
-                    );
-                })()}
 
                 {/* Schedule Meeting Button - hide once meeting is confirmed and Start Project is visible */}
                 {!isBroadcast && !hasConfirmedMeeting && (
