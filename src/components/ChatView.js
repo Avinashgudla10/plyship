@@ -1495,6 +1495,13 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                         ? new Date(activeMeeting.scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
                         : null;
                     const proposedLocation = activeMeeting.location ? activeMeeting.location.split('||')[0] : null;
+                    const proposedCoords = activeMeeting.location && activeMeeting.location.includes('||')
+                        ? activeMeeting.location.split('||')[1] : null;
+                    const locationMapUrl = proposedCoords
+                        ? `https://www.google.com/maps?q=${proposedCoords}`
+                        : proposedLocation
+                            ? `https://www.google.com/maps/search/${encodeURIComponent(proposedLocation)}`
+                            : null;
                     const proposerName = iProposed ? 'You' : (isCompanyUser ? (activeMeeting.seekerName || 'Seeker') : (activeMeeting.companyName || 'Company'));
 
                     return (
@@ -1511,10 +1518,31 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     </p>
                                     {proposedDate && (
                                         <p style={{ fontSize: 12, color: '#B45309', marginTop: 2 }}>
-                                            📅 {proposedDate}{proposedLocation ? ` • 📍 ${proposedLocation}` : ''}
+                                            📅 {proposedDate}
                                         </p>
                                     )}
-                                    <p style={{ fontSize: 11, color: '#D97706', marginTop: 2 }}>
+                                    {/* Clickable Location Button */}
+                                    {locationMapUrl && (
+                                        <a
+                                            href={locationMapUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                marginTop: 4, padding: '3px 10px', borderRadius: 20,
+                                                background: '#DCFCE7', border: '1px solid #86EFAC',
+                                                color: '#166534', fontSize: 12, fontWeight: 600,
+                                                textDecoration: 'none', cursor: 'pointer',
+                                                transition: 'all 0.15s',
+                                            }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#BBF7D0'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = '#DCFCE7'; }}
+                                        >
+                                            <MapPin size={13} />
+                                            LOCATION
+                                        </a>
+                                    )}
+                                    <p style={{ fontSize: 11, color: '#D97706', marginTop: 4 }}>
                                         {iProposed
                                             ? 'Waiting for the other party to accept or suggest changes'
                                             : 'Accept or suggest different details'}
