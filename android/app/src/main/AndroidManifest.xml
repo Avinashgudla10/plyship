@@ -82,13 +82,18 @@
     <!-- Contacts: needed for sharing device contacts in chat -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <!-- Android 13+ granular media permissions -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- Fallback for Android 12 and below -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+
+    <!-- No media/storage read permissions are declared: image & file picking goes
+         through the system document picker (SAF) and the camera capture intent, neither
+         of which needs READ_MEDIA_* or *_EXTERNAL_STORAGE. Omitting them also avoids the
+         Play Console "photo & video permissions" policy declaration. -->
+
+    <!-- Camera & microphone are optional hardware: the WebView file chooser and voice
+         notes degrade gracefully, so don't let their permissions exclude devices (some
+         tablets/TVs) that lack the hardware. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Package visibility: needed on Android 11+ (API 30) to discover UPI apps
          for Razorpay's UPI intent flow. Without this, resolveActivity() returns null. -->

@@ -149,22 +149,13 @@ public class MainActivity extends BridgeActivity {
                 != PackageManager.PERMISSION_GRANTED) {
             needed.add(android.Manifest.permission.READ_CONTACTS);
         }
-        // Storage / Media
+        // Notifications (Android 13+ requires explicit runtime permission).
+        // No media/storage read permissions are requested: image/file uploads use the
+        // system document picker (SAF) and the camera intent, which don't need them.
         if (Build.VERSION.SDK_INT >= 33) {
-            // Android 13+ granular media permissions
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES)
-                    != PackageManager.PERMISSION_GRANTED) {
-                needed.add(android.Manifest.permission.READ_MEDIA_IMAGES);
-            }
-            // Android 13+ requires explicit notification permission
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
                 needed.add(android.Manifest.permission.POST_NOTIFICATIONS);
-            }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                needed.add(android.Manifest.permission.READ_EXTERNAL_STORAGE);
             }
         }
 
