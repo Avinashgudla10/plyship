@@ -89,93 +89,16 @@ class PlyshipViewController: CAPBridgeViewController {
         networkMonitor.cancel()
     }
 
-    // MARK: - Pull to Refresh (JavaScript Injection)
-    // Native UIRefreshControl doesn't work because the web page uses overflow:hidden
-    // on its main container, so the WKWebView scrollView never bounces.
+    // MARK: - Pull to Refresh
+    // NOTE: Native injected pull-to-refresh is DISABLED.
+    // The React AppShell component (AppShell.js) provides its own pull-to-refresh
+    // implementation that correctly respects data-no-pull-refresh opt-out attributes.
+    // Having both the native injected JS and AppShell PTR running simultaneously
+    // caused two refresh indicators to appear on screen (one from each system).
+    // The AppShell PTR is the single source of truth for pull-to-refresh behavior.
 
     private func injectPullToRefreshScript() {
-        let js = """
-        (function() {
-            if (window.__plyPTR) return;
-            window.__plyPTR = true;
-
-            var startY = 0, pulling = false, el = null;
-
-            function mkEl() {
-                if (el) return;
-                el = document.createElement('div');
-                el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;display:flex;justify-content:center;padding-top:env(safe-area-inset-top,44px);pointer-events:none;opacity:0;transition:opacity 0.2s;';
-                var dot = document.createElement('div');
-                dot.style.cssText = 'width:36px;height:36px;margin-top:8px;border-radius:50%;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;';
-                dot.innerHTML = '<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#22C55E\" stroke-width=\"2.5\" stroke-linecap=\"round\"><polyline points=\"23 4 23 10 17 10\"/><path d=\"M20.49 15a9 9 0 1 1-2.12-9.36L23 10\"/></svg>';
-                el.appendChild(dot);
-                document.body.appendChild(el);
-            }
-
-            function atTop() {
-                var t = document.elementFromPoint(window.innerWidth / 2, 100);
-                while (t && t !== document.body && t !== document.documentElement) {
-                    if (t.scrollTop > 5) return false;
-                    t = t.parentElement;
-                }
-                return (document.documentElement.scrollTop || 0) <= 5;
-            }
-
-            document.addEventListener('touchstart', function(e) {
-                // Global kill switch — set by overlay views (e.g. ProfileDetail)
-                if (window.__plyPTR_disabled) return;
-                // Skip pull-to-refresh inside elements marked with data-no-ptr
-                var target = e.target;
-                while (target && target !== document.body) {
-                    if (target.hasAttribute && target.hasAttribute('data-no-ptr')) return;
-                    target = target.parentElement;
-                }
-                if (atTop()) { startY = e.touches[0].clientY; pulling = true; }
-            }, {passive:true});
-
-            document.addEventListener('touchmove', function(e) {
-                if (!pulling) return;
-                var dy = e.touches[0].clientY - startY;
-                if (dy > 10) {
-                    mkEl();
-                    var p = Math.min(dy / 120, 1);
-                    el.style.opacity = String(Math.min(p * 1.5, 1));
-                    var svg = el.querySelector('svg');
-                    if (svg) svg.style.transform = 'rotate(' + (p * 360) + 'deg)';
-                } else if (dy < -5) {
-                    pulling = false;
-                    if (el) el.style.opacity = '0';
-                }
-            }, {passive:true});
-
-            document.addEventListener('touchend', function(e) {
-                if (!pulling) return;
-                pulling = false;
-                var dy = (e.changedTouches[0] ? e.changedTouches[0].clientY : 0) - startY;
-                if (dy > 100) {
-                    if (el) {
-                        var svg = el.querySelector('svg');
-                        if (svg) svg.style.animation = 'spin 0.6s linear infinite';
-                        if (!document.getElementById('__ptr_style')) {
-                            var s = document.createElement('style');
-                            s.id = '__ptr_style';
-                            s.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
-                            document.head.appendChild(s);
-                        }
-                    }
-                    setTimeout(function() { window.location.reload(); }, 300);
-                } else {
-                    if (el) el.style.opacity = '0';
-                }
-            }, {passive:true});
-        })();
-        """
-
-        let userScript = WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
-        webView?.configuration.userContentController.addUserScript(userScript)
-
-        // Also inject into the currently loaded page
-        webView?.evaluateJavaScript(js, completionHandler: nil)
+        // No-op: pull-to-refresh is handled by the React AppShell component
     }
 
     // MARK: - Network Monitoring
@@ -490,10 +413,6 @@ extension PlyshipViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFailToLoad = false
         hideOfflineFullScreen()
-
-        // Re-inject pull-to-refresh into the loaded page
-        let reinject = "(function(){ if(!window.__plyPTR){ window.__plyPTR=false; } })();"
-        webView.evaluateJavaScript(reinject, completionHandler: nil)
     }
 
     // Page failed to load (likely no internet)

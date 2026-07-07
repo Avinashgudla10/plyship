@@ -23,6 +23,14 @@ const config: CapacitorConfig = {
             backgroundColor: '#FFFFFF',
             overlaysWebView: false,
         },
+        // Native phone auth (Android Play Integrity / iOS silent APNs) — no web reCAPTCHA.
+        // skipNativeAuth keeps the Firebase JS SDK as the single source of truth: the
+        // plugin only verifies the phone number natively; we create the JS session via
+        // signInWithCredential so the rest of the app (auth.currentUser) is unchanged.
+        FirebaseAuthentication: {
+            skipNativeAuth: true,
+            providers: ['phone'],
+        },
     },
     android: {
         allowMixedContent: false,

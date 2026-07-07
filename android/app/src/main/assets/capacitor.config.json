@@ -1,5 +1,5 @@
 {
-	"appId": "com.plyship.app",
+	"appId": "com.agxfactor.plyship",
 	"appName": "PLYSHIP",
 	"webDir": "out",
 	"server": {
@@ -17,6 +17,12 @@
 			"style": "DARK",
 			"backgroundColor": "#FFFFFF",
 			"overlaysWebView": false
+		},
+		"FirebaseAuthentication": {
+			"skipNativeAuth": true,
+			"providers": [
+				"phone"
+			]
 		}
 	},
 	"android": {
@@ -24,9 +30,9 @@
 		"backgroundColor": "#FFFFFF"
 	},
 	"ios": {
-		"contentInset": "automatic",
-		"backgroundColor": "#FFFFFF",
-		"scrollEnabled": true,
+		"contentInset": "never",
+		"backgroundColor": "#000000",
+		"allowsLinkPreview": false,
 		"preferredContentMode": "mobile"
 	}
 }
