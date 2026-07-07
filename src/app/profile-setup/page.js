@@ -849,6 +849,17 @@ function SeekerBasicInfo({ data, setData, errors }) {
                             )}
                         </motion.div>
                     )}
+                    {/* Manual city fallback when GPS is denied/unavailable — otherwise a
+                        location-denied user could never satisfy the required "city" field. */}
+                    {(locStatus === 'denied' || locStatus === 'error') && (
+                        <input
+                            type="text"
+                            value={data.city || ''}
+                            onChange={(e) => setData({ ...data, city: e.target.value })}
+                            placeholder="Or type your city (e.g., Hyderabad)"
+                            style={{ width: '100%', marginTop: 4, padding: '14px 16px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 16, fontWeight: 500, outline: 'none' }}
+                        />
+                    )}
                     {errors?.city && <p style={errorTextStyle}>{errors.city}</p>}
                 </div>
 
@@ -1132,6 +1143,17 @@ function CompanyBasicInfo({ data, setData, errors }) {
                                 </button>
                             )}
                         </motion.div>
+                    )}
+                    {/* Manual city fallback when GPS is denied/unavailable — otherwise a
+                        location-denied user could never satisfy the required "city" field. */}
+                    {(locStatus === 'denied' || locStatus === 'error') && (
+                        <input
+                            type="text"
+                            value={data.city || ''}
+                            onChange={(e) => setData({ ...data, city: e.target.value })}
+                            placeholder="Or type your city (e.g., Hyderabad)"
+                            style={{ width: '100%', marginTop: 4, padding: '14px 16px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 16, fontWeight: 500, outline: 'none' }}
+                        />
                     )}
                     {errors?.city && <p style={errorTextStyle}>{errors.city}</p>}
                 </div>

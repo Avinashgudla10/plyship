@@ -8,8 +8,11 @@ import {
     signOut,
     onAuthStateChanged,
     RecaptchaVerifier,
-    signInWithPhoneNumber
+    signInWithPhoneNumber,
+    PhoneAuthProvider,
+    signInWithCredential
 } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
 import {
     doc,
     setDoc,
@@ -26,6 +29,17 @@ import {
     updateDoc,
     deleteDoc
 } from 'firebase/firestore';
+
+// ── Platform economics ──
+// A 4% commission is charged on a completed project's total value, owed by the
+// company and settled on its next wallet top-up. Of that 4%: 1% goes to the
+// admin (platform), and 3% goes to the interior SEEKER.
+// IMPORTANT: the seeker's 3% is credited to their wallet ONLY at settlement —
+// i.e. once the company actually pays the full 4% — never at project confirmation.
+const PROJECT_COMMISSION_RATE = 0.04;  // total commission owed by the company
+const ADMIN_COMMISSION_RATE = 0.01;    // platform's share (the remaining 3% goes to the seeker)
+// Minimum usable top-up on top of any owed commission (covers one meeting fee).
+const MEETING_MIN_TOPUP = 500;
 
 // ── Username utilities ──
 function slugifyName(name) {
@@ -66,6 +80,8 @@ export const AuthProvider = ({ children }) => {
     // Flag to prevent auth listener from overwriting state during onboarding
     const isOnboarding = useRef(false);
     const confirmationResultRef = useRef(null);
+    // Native (Capacitor) phone auth stores a verificationId instead of a confirmationResult
+    const nativeVerificationIdRef = useRef(null);
     const recaptchaVerifierRef = useRef(null);
     const [isImpersonating, setIsImpersonating] = useState(false);
     const adminUserRef = useRef(null);
@@ -208,9 +224,58 @@ export const AuthProvider = ({ children }) => {
 
     // Send OTP to phone number
     const sendOTP = async (phoneNumber, buttonId = 'recaptcha-container') => {
+        const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+
+        // ── Native (Android/iOS): verify the phone via the native SDK — no web reCAPTCHA ──
+        // Guard with isPluginAvailable so OLD app builds (without the plugin compiled in)
+        // safely fall through to the web reCAPTCHA flow instead of erroring.
+        if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication')) {
+            try {
+                const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+                await FirebaseAuthentication.removeAllListeners();
+                confirmationResultRef.current = null;
+                nativeVerificationIdRef.current = null;
+
+                return await new Promise((resolve) => {
+                    let settled = false;
+                    const done = (val) => { if (!settled) { settled = true; resolve(val); } };
+
+                    // Normal path: SMS code sent → store verificationId to confirm later
+                    FirebaseAuthentication.addListener('phoneCodeSent', (event) => {
+                        nativeVerificationIdRef.current = event.verificationId;
+                        console.log('[OTP native] code sent');
+                        done({ success: true });
+                    });
+
+                    // Android instant/auto-verification: sign in immediately via the JS SDK
+                    FirebaseAuthentication.addListener('phoneVerificationCompleted', async (event) => {
+                        try {
+                            if (event.verificationId && event.verificationCode) {
+                                const credential = PhoneAuthProvider.credential(event.verificationId, event.verificationCode);
+                                await signInWithCredential(auth, credential);
+                            }
+                            done({ success: true, autoVerified: true });
+                        } catch (e) {
+                            done({ success: false, error: e.message });
+                        }
+                    });
+
+                    FirebaseAuthentication.addListener('phoneVerificationFailed', (event) => {
+                        done({ success: false, error: event?.message || 'Verification failed. Please try again.' });
+                    });
+
+                    FirebaseAuthentication.signInWithPhoneNumber({ phoneNumber: formattedPhone })
+                        .catch((err) => done({ success: false, error: err.message }));
+                });
+            } catch (error) {
+                console.error('[OTP native] Error:', error.message);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // ── Web / PWA: existing invisible-reCAPTCHA flow ──
         try {
             const appVerifier = setupRecaptcha(buttonId);
-            const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
             console.log('[OTP] Sending to:', formattedPhone);
             const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
             confirmationResultRef.current = confirmationResult;
@@ -241,6 +306,20 @@ export const AuthProvider = ({ children }) => {
     // Verify OTP code
     const verifyOTP = async (otpCode) => {
         try {
+            // ── Native: build a credential from the stored verificationId + code ──
+            if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication')) {
+                if (!nativeVerificationIdRef.current) {
+                    // Android auto-verification may already have signed the user in
+                    if (auth.currentUser) return { success: true, user: auth.currentUser };
+                    return { success: false, error: 'No OTP request found. Please send OTP again.' };
+                }
+                const credential = PhoneAuthProvider.credential(nativeVerificationIdRef.current, otpCode);
+                const result = await signInWithCredential(auth, credential);
+                nativeVerificationIdRef.current = null;
+                return { success: true, user: result.user };
+            }
+
+            // ── Web ──
             if (!confirmationResultRef.current) {
                 return { success: false, error: 'No OTP request found. Please send OTP again.' };
             }
@@ -348,6 +427,30 @@ export const AuthProvider = ({ children }) => {
             return { success: false, error: 'User has no role selected' };
         }
 
+        // Get phone from user state or Firebase Auth or localStorage
+        const userPhone = user.phone || auth.currentUser?.phoneNumber || localStorage.getItem('userPhone') || '';
+
+        // ── Duplicate phone check ──
+        // Verify this phone number doesn't already have a completed profile
+        // in either collection (prevents same phone → two accounts)
+        if (userPhone) {
+            try {
+                const [seekerSnap, companySnap] = await Promise.all([
+                    getDocs(query(collection(db, 'seekers'), where('phone', '==', userPhone))),
+                    getDocs(query(collection(db, 'companies'), where('phone', '==', userPhone))),
+                ]);
+                // Allow if the only match is the current user's own doc
+                const otherSeekers = seekerSnap.docs.filter(d => d.id !== user.id);
+                const otherCompanies = companySnap.docs.filter(d => d.id !== user.id);
+                if (otherSeekers.length > 0 || otherCompanies.length > 0) {
+                    return { success: false, error: 'This phone number is already registered with another account.' };
+                }
+            } catch (checkErr) {
+                console.error('Phone duplicate check error:', checkErr);
+                // Continue — don't block if the check itself fails
+            }
+        }
+
         // Upload images to Firebase Storage
         const cleanedProfile = { ...profileData };
 
@@ -377,9 +480,6 @@ export const AuthProvider = ({ children }) => {
             cleanedProfile.avatar = null;
             cleanedProfile.portfolioImages = [];
         }
-
-        // Get phone from user state or Firebase Auth or localStorage
-        const userPhone = user.phone || auth.currentUser?.phoneNumber || localStorage.getItem('userPhone') || '';
 
         // Inject phone into profile sub-object so admin dashboard can read it
         if (userPhone && !cleanedProfile.phone) {
@@ -426,6 +526,7 @@ export const AuthProvider = ({ children }) => {
             return { success: false, error: error.message };
         }
     };
+
 
     // Update username
     const updateUsername = async (newUsername) => {
@@ -1291,15 +1392,21 @@ export const AuthProvider = ({ children }) => {
             const walletSnap = await getDoc(walletRef);
 
             let currentBalance = 0;
+            let commissionOwed = 0;
             if (walletSnap.exists()) {
                 currentBalance = walletSnap.data().balance || 0;
+                commissionOwed = walletSnap.data().commissionOwed || 0;
             }
 
-            const newBalance = currentBalance + amount;
+            // Settle any owed project commission first; the remainder is usable balance.
+            const settledCommission = Math.min(commissionOwed, amount);
+            const netCredit = amount - settledCommission;
+            const newBalance = currentBalance + netCredit;
 
-            // Update wallet balance
+            // Update wallet balance + reduce owed commission
             await setDoc(walletRef, {
                 balance: newBalance,
+                commissionOwed: commissionOwed - settledCommission,
                 updatedAt: new Date().toISOString(),
                 lastTopUp: {
                     amount,
@@ -1309,7 +1416,7 @@ export const AuthProvider = ({ children }) => {
                 },
             }, { merge: true });
 
-            // Record transaction
+            // Record the gross top-up transaction (carries paymentId for idempotency)
             await addDoc(collection(db, 'transactions'), {
                 userId: user.id,
                 type: 'CREDIT',
@@ -1321,15 +1428,99 @@ export const AuthProvider = ({ children }) => {
                 createdAt: new Date().toISOString(),
             });
 
+            // Settle the owed commission now that the company has paid it:
+            //   • 1% → admin (platform)
+            //   • 3% → each project's seeker (credited HERE, never at confirmation)
+            // The top-up minimum always covers the FULL owed commission.
+            if (settledCommission > 0) {
+                try {
+                    const pendingProjSnap = await getDocs(query(
+                        collection(db, 'projects'),
+                        where('companyId', '==', user.id),
+                        where('commissionStatus', '==', 'PENDING')
+                    ));
+
+                    let adminShareTotal = 0;
+
+                    for (const d of pendingProjSnap.docs) {
+                        const p = d.data();
+                        const total = p.commissionAmount || 0;
+                        // Legacy projects (pre-4% split) only have commissionAmount → all to admin.
+                        const seekerShare = (p.seekerCommission != null) ? p.seekerCommission : 0;
+                        const adminShare = (p.adminCommission != null) ? p.adminCommission : total;
+                        adminShareTotal += adminShare;
+
+                        // Credit the seeker's 3% NOW — only because the company has just paid.
+                        if (seekerShare > 0 && p.seekerId) {
+                            const sRef = doc(db, 'wallets', p.seekerId);
+                            const sSnap = await getDoc(sRef);
+                            const sBal = sSnap.exists() ? (sSnap.data().balance || 0) : 0;
+                            const sEarn = sSnap.exists() ? (sSnap.data().totalEarnings || 0) : 0;
+                            await setDoc(sRef, {
+                                balance: sBal + seekerShare,
+                                totalEarnings: sEarn + seekerShare,
+                                updatedAt: new Date().toISOString(),
+                            }, { merge: true });
+                            await addDoc(collection(db, 'transactions'), {
+                                userId: p.seekerId, type: 'CREDIT', amount: seekerShare,
+                                reason: 'PROJECT_COMMISSION_REWARD', relatedProjectId: d.id,
+                                relatedUserId: user.id, status: 'COMPLETED',
+                                createdAt: new Date().toISOString(),
+                            });
+                            createNotification(p.seekerId, {
+                                type: 'wallet_credit',
+                                title: '🎉 Project reward credited!',
+                                message: `₹${seekerShare} project reward has been added to your wallet.`,
+                                data: { amount: seekerShare, projectId: d.id },
+                            });
+                        }
+
+                        await updateDoc(d.ref, {
+                            commissionStatus: 'COLLECTED',
+                            commissionCollectedAt: new Date().toISOString(),
+                        });
+                    }
+
+                    // Admin receives only its 1% share (fallback to the full settled amount
+                    // for legacy data that has no per-project split recorded).
+                    const adminCredit = adminShareTotal > 0 ? adminShareTotal : settledCommission;
+                    const adminRef = doc(db, 'wallets', 'admin_wallet');
+                    const adminSnap = await getDoc(adminRef);
+                    const adminBalance = adminSnap.exists() ? (adminSnap.data().balance || 0) : 0;
+                    const adminEarnings = adminSnap.exists() ? (adminSnap.data().totalEarnings || 0) : 0;
+                    await setDoc(adminRef, {
+                        userId: 'admin_wallet',
+                        type: 'ADMIN',
+                        balance: adminBalance + adminCredit,
+                        totalEarnings: adminEarnings + adminCredit,
+                        updatedAt: new Date().toISOString(),
+                    }, { merge: true });
+
+                    // Company paid the full 4% (settledCommission); admin keeps its 1% share.
+                    await addDoc(collection(db, 'transactions'), {
+                        userId: user.id, type: 'DEBIT', amount: settledCommission,
+                        reason: 'PROJECT_COMMISSION', paymentId, status: 'COMPLETED',
+                        createdAt: new Date().toISOString(),
+                    });
+                    await addDoc(collection(db, 'transactions'), {
+                        userId: 'admin_wallet', type: 'CREDIT', amount: adminCredit,
+                        reason: 'PROJECT_COMMISSION', relatedUserId: user.id, status: 'COMPLETED',
+                        createdAt: new Date().toISOString(),
+                    });
+                } catch (e) { console.error('Commission settlement failed:', e); }
+            }
+
             // Notify user about successful top-up
             createNotification(user.id, {
                 type: 'wallet_credit',
                 title: '💰 Wallet Topped Up!',
-                message: `₹${amount} added to your wallet. New balance: ₹${newBalance}`,
-                data: { amount, newBalance },
+                message: settledCommission > 0
+                    ? `₹${amount} received — ₹${settledCommission} settled as project commission, ₹${netCredit} added to your balance.`
+                    : `₹${amount} added to your wallet. New balance: ₹${newBalance}`,
+                data: { amount, newBalance, settledCommission },
             });
 
-            return { success: true, newBalance };
+            return { success: true, newBalance, settledCommission };
         } catch (error) {
             return { success: false, error: error.message };
         }
@@ -1430,6 +1621,28 @@ export const AuthProvider = ({ children }) => {
             const companyId = isCompany ? user.id : targetUserId;
             const seekerId = isCompany ? targetUserId : user.id;
 
+            // ── Duplicate-meeting guard ──
+            // Check if there's already an active meeting between these two users
+            // (in either direction — covers seeker-to-seeker cases where companyId/seekerId swap)
+            const existingSnap1 = await getDocs(query(
+                collection(db, 'meetings'),
+                where('companyId', '==', companyId),
+                where('seekerId', '==', seekerId)
+            ));
+            const existingSnap2 = await getDocs(query(
+                collection(db, 'meetings'),
+                where('companyId', '==', seekerId),
+                where('seekerId', '==', companyId)
+            ));
+            const allExisting = [...existingSnap1.docs, ...existingSnap2.docs];
+            const hasActiveMeeting = allExisting.some(d => {
+                const s = d.data().status;
+                return ['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED'].includes(s);
+            });
+            if (hasActiveMeeting) {
+                return { success: false, error: 'There is already an active meeting request with this user.' };
+            }
+
             const MEETING_COST = 500;
 
             // 1. Get company's wallet balance
@@ -1523,9 +1736,19 @@ export const AuthProvider = ({ children }) => {
             const meetingRef = await addDoc(collection(db, 'meetings'), meetingData);
             const chatId = getChatId(user.id, targetUserId);
             const locationDisplay = location ? location.split('||')[0] : '';
+            const locationCoords = location && location.includes('||') ? location.split('||')[1] : null;
+            // Build a clickable Google Maps link for the location
+            const locationMapLink = locationCoords
+                ? `https://www.google.com/maps?q=${locationCoords}`
+                : locationDisplay
+                    ? `https://www.google.com/maps/search/${encodeURIComponent(locationDisplay)}`
+                    : '';
+            const locationMsgPart = locationDisplay
+                ? `, 📍 ${locationDisplay} (${locationMapLink})`
+                : '';
             const systemMsg = isCompany
                 ? `📅 ${myName} wants to schedule a meeting with you. Please accept and set the date, time & location.`
-                : `📅 Meeting requested for ${new Date(scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${locationDisplay ? ` at ${locationDisplay}` : ''}${notes ? ` — "${notes}"` : ''}. Awaiting approval.`;
+                : `📅 Meeting proposal: ${new Date(scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${locationMsgPart}${notes ? ` — "${notes}"` : ''}. Awaiting approval.`;
 
             await setDoc(doc(db, 'chats', chatId), {
                 participants: [user.id, targetUserId],
@@ -1592,18 +1815,26 @@ export const AuthProvider = ({ children }) => {
                 weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
             });
             const locationDisplay = location ? location.split('||')[0] : '';
-            const locationStr = locationDisplay ? ` at ${locationDisplay}` : '';
+            const locationCoords = location && location.includes('||') ? location.split('||')[1] : null;
+            const locationMapLink = locationCoords
+                ? `https://www.google.com/maps?q=${locationCoords}`
+                : locationDisplay
+                    ? `https://www.google.com/maps/search/${encodeURIComponent(locationDisplay)}`
+                    : '';
+            const locationMsgPart = locationDisplay
+                ? `, 📍 ${locationDisplay} (${locationMapLink})`
+                : '';
             const seekerName = user.name || user.profile?.name || 'Seeker';
 
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
                 senderId: 'system', senderName: 'PlyShip',
-                text: `📋 ${seekerName} proposed: ${dateStr}${locationStr}${notes ? ` — "${notes}"` : ''}. Please review and accept or suggest changes.`,
+                text: `📋 Meeting proposal: ${dateStr}${locationMsgPart}${notes ? ` — "${notes}"` : ''}. ${seekerName} proposed. Please review and accept or suggest changes.`,
                 type: 'meeting_update', createdAt: serverTimestamp(),
             });
 
             createNotification(meeting.companyId, {
                 type: 'meeting_proposal', title: '📋 Meeting Proposal',
-                message: `${seekerName} proposed ${dateStr}${locationStr}. Accept or suggest changes.`,
+                message: `${seekerName} proposed ${dateStr}${locationMsgPart}. Accept or suggest changes.`,
                 data: { meetingId },
             });
 
@@ -1648,19 +1879,27 @@ export const AuthProvider = ({ children }) => {
                 weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
             });
             const locationDisplay = location ? location.split('||')[0] : '';
-            const locationStr = locationDisplay ? ` at ${locationDisplay}` : '';
+            const locationCoords = location && location.includes('||') ? location.split('||')[1] : null;
+            const locationMapLink = locationCoords
+                ? `https://www.google.com/maps?q=${locationCoords}`
+                : locationDisplay
+                    ? `https://www.google.com/maps/search/${encodeURIComponent(locationDisplay)}`
+                    : '';
+            const locationMsgPart = locationDisplay
+                ? `, 📍 ${locationDisplay} (${locationMapLink})`
+                : '';
             const myName = user.profile?.companyName || user.profile?.name || user.name || 'User';
 
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
                 senderId: 'system', senderName: 'PlyShip',
-                text: `🔄 ${myName} suggested: ${dateStr}${locationStr}${notes ? ` — "${notes}"` : ''}. Please review and accept or suggest changes.`,
+                text: `🔄 Meeting proposal: ${dateStr}${locationMsgPart}${notes ? ` — "${notes}"` : ''}. ${myName} suggested changes. Please review and accept or suggest changes.`,
                 type: 'meeting_update', createdAt: serverTimestamp(),
             });
 
             const otherPartyId = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
             createNotification(otherPartyId, {
                 type: 'meeting_counter_proposal', title: '🔄 New Meeting Suggestion',
-                message: `${myName} suggested ${dateStr}${locationStr}. Accept or suggest changes.`,
+                message: `${myName} suggested ${dateStr}${locationMsgPart}. Accept or suggest changes.`,
                 data: { meetingId },
             });
 
@@ -1720,12 +1959,20 @@ export const AuthProvider = ({ children }) => {
                 weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
             });
             const locationDisplay = meeting.location ? meeting.location.split('||')[0] : '';
-            const locationStr = locationDisplay ? ` at ${locationDisplay}` : '';
+            const locationCoords = meeting.location && meeting.location.includes('||') ? meeting.location.split('||')[1] : null;
+            const locationMapLink = locationCoords
+                ? `https://www.google.com/maps?q=${locationCoords}`
+                : locationDisplay
+                    ? `https://www.google.com/maps/search/${encodeURIComponent(locationDisplay)}`
+                    : '';
+            const locationMsgPart = locationDisplay
+                ? `, 📍 ${locationDisplay} (${locationMapLink})`
+                : '';
             const myName = user.profile?.companyName || user.profile?.name || user.name || 'User';
 
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
                 senderId: 'system', senderName: 'PlyShip',
-                text: `✅ Both parties agreed! Meeting confirmed for ${dateStr}${locationStr}. OTP verification required upon meeting.`,
+                text: `✅ Both parties agreed! Meeting confirmed: ${dateStr}${locationMsgPart}. OTP verification required upon meeting.`,
                 type: 'meeting_update', createdAt: serverTimestamp(),
             });
 
@@ -1733,7 +1980,7 @@ export const AuthProvider = ({ children }) => {
             const otherPartyId = user.id === meeting.companyId ? meeting.seekerId : meeting.companyId;
             createNotification(otherPartyId, {
                 type: 'meeting_accepted', title: '✅ Meeting Confirmed!',
-                message: `${myName} accepted the proposal — ${dateStr}${locationStr}`,
+                message: `${myName} accepted — ${dateStr}${locationMsgPart}`,
                 data: { meetingId },
             });
             createNotification(meeting.seekerId, {
@@ -1755,31 +2002,41 @@ export const AuthProvider = ({ children }) => {
 
 
     // Get all meetings for current user
+    // Queries BOTH companyId and seekerId fields because in seeker-to-seeker
+    // meetings, the current user could be stored in either field.
     const getMeetings = useCallback(async () => {
         if (!user || !user.id) {
             return [];
         }
 
         try {
-            const isCompany = user.role === 'COMPANY';
-            const fieldToQuery = isCompany ? 'companyId' : 'seekerId';
+            // Query both fields to catch all meetings involving this user
+            const q1 = query(collection(db, 'meetings'), where('companyId', '==', user.id));
+            const q2 = query(collection(db, 'meetings'), where('seekerId', '==', user.id));
 
-            const q = query(
-                collection(db, 'meetings'),
-                where(fieldToQuery, '==', user.id)
-            );
+            const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
 
-            const snapshot = await getDocs(q);
+            // Merge and deduplicate (a meeting might match both if companyId === seekerId, though unlikely)
+            const seen = new Set();
             const meetings = [];
-            snapshot.forEach((d) => {
-                meetings.push({ id: d.id, ...d.data() });
+            [...snap1.docs, ...snap2.docs].forEach((d) => {
+                if (!seen.has(d.id)) {
+                    seen.add(d.id);
+                    meetings.push({ id: d.id, ...d.data() });
+                }
             });
 
             // Enrich meetings that are missing partner names
+            // For each meeting, the "partner" is whichever ID is NOT the current user
             const namesToFetch = new Map();
             meetings.forEach(m => {
-                if (isCompany && !m.seekerName && m.seekerId) namesToFetch.set(m.seekerId, 'seekers');
-                if (!isCompany && !m.companyName && m.companyId) namesToFetch.set(m.companyId, 'companies');
+                const partnerId = m.companyId === user.id ? m.seekerId : m.companyId;
+                if (partnerId && !m.seekerName && m.seekerId === partnerId) {
+                    namesToFetch.set(partnerId, 'seekers');
+                }
+                if (partnerId && !m.companyName && m.companyId === partnerId) {
+                    namesToFetch.set(partnerId, 'companies');
+                }
             });
 
             if (namesToFetch.size > 0) {
@@ -1787,17 +2044,26 @@ export const AuthProvider = ({ children }) => {
                 await Promise.all(
                     Array.from(namesToFetch.entries()).map(async ([id, coll]) => {
                         try {
+                            // Try the specified collection first, fall back to the other
                             const snap = await getDoc(doc(db, coll, id));
                             if (snap.exists()) {
                                 const d = snap.data();
                                 nameMap[id] = d.profile?.companyName || d.profile?.name || d.name || '';
+                            } else {
+                                // User might be in the other collection (seeker-to-seeker case)
+                                const altColl = coll === 'seekers' ? 'companies' : 'seekers';
+                                const altSnap = await getDoc(doc(db, altColl, id));
+                                if (altSnap.exists()) {
+                                    const d = altSnap.data();
+                                    nameMap[id] = d.profile?.companyName || d.profile?.name || d.name || '';
+                                }
                             }
                         } catch (_) { }
                     })
                 );
                 meetings.forEach(m => {
-                    if (isCompany && !m.seekerName && nameMap[m.seekerId]) m.seekerName = nameMap[m.seekerId];
-                    if (!isCompany && !m.companyName && nameMap[m.companyId]) m.companyName = nameMap[m.companyId];
+                    if (!m.seekerName && nameMap[m.seekerId]) m.seekerName = nameMap[m.seekerId];
+                    if (!m.companyName && nameMap[m.companyId]) m.companyName = nameMap[m.companyId];
                 });
             }
 
@@ -1811,34 +2077,43 @@ export const AuthProvider = ({ children }) => {
     }, [user]);
 
     // Subscribe to real-time meetings for current user (replaces polling)
+    // Uses TWO listeners (companyId + seekerId) to catch seeker-to-seeker meetings
+    // where the current user could be stored in either field.
     const subscribeMeetings = useCallback((callback) => {
         if (!user || !user.id) return () => {};
-
-        const isCompany = user.role === 'COMPANY';
-        const fieldToQuery = isCompany ? 'companyId' : 'seekerId';
-        const q = query(
-            collection(db, 'meetings'),
-            where(fieldToQuery, '==', user.id)
-        );
 
         // Cache partner names to avoid re-fetching on every snapshot
         const nameCache = {};
 
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
+        // We need two queries because Firestore doesn't support OR across fields.
+        // q1: meetings where this user is the "company" (or was assigned companyId)
+        // q2: meetings where this user is the "seeker" (or was assigned seekerId)
+        const q1 = query(collection(db, 'meetings'), where('companyId', '==', user.id));
+        const q2 = query(collection(db, 'meetings'), where('seekerId', '==', user.id));
+
+        // Track results from both queries and merge on each snapshot
+        let results1 = [];
+        let results2 = [];
+
+        const processMerged = async () => {
             try {
+                // Merge and deduplicate
+                const seen = new Set();
                 const meetings = [];
-                snapshot.forEach((d) => {
-                    meetings.push({ id: d.id, ...d.data() });
+                [...results1, ...results2].forEach(m => {
+                    if (!seen.has(m.id)) {
+                        seen.add(m.id);
+                        meetings.push(m);
+                    }
                 });
 
                 // Enrich meetings missing partner names (using cache)
                 const namesToFetch = new Map();
                 meetings.forEach(m => {
-                    if (isCompany && !m.seekerName && m.seekerId && !nameCache[m.seekerId]) {
-                        namesToFetch.set(m.seekerId, 'seekers');
-                    }
-                    if (!isCompany && !m.companyName && m.companyId && !nameCache[m.companyId]) {
-                        namesToFetch.set(m.companyId, 'companies');
+                    const partnerId = m.companyId === user.id ? m.seekerId : m.companyId;
+                    if (partnerId && !nameCache[partnerId]) {
+                        // Try seekers first, then companies — we'll fall back inside the fetch
+                        namesToFetch.set(partnerId, m.seekerId === partnerId ? 'seekers' : 'companies');
                     }
                 });
 
@@ -1850,6 +2125,14 @@ export const AuthProvider = ({ children }) => {
                                 if (snap.exists()) {
                                     const d = snap.data();
                                     nameCache[id] = d.profile?.companyName || d.profile?.name || d.name || '';
+                                } else {
+                                    // User might be in the other collection (seeker-to-seeker case)
+                                    const altColl = coll === 'seekers' ? 'companies' : 'seekers';
+                                    const altSnap = await getDoc(doc(db, altColl, id));
+                                    if (altSnap.exists()) {
+                                        const d = altSnap.data();
+                                        nameCache[id] = d.profile?.companyName || d.profile?.name || d.name || '';
+                                    }
                                 }
                             } catch (_) {}
                         })
@@ -1857,8 +2140,8 @@ export const AuthProvider = ({ children }) => {
                 }
 
                 meetings.forEach(m => {
-                    if (isCompany && !m.seekerName && nameCache[m.seekerId]) m.seekerName = nameCache[m.seekerId];
-                    if (!isCompany && !m.companyName && nameCache[m.companyId]) m.companyName = nameCache[m.companyId];
+                    if (!m.seekerName && nameCache[m.seekerId]) m.seekerName = nameCache[m.seekerId];
+                    if (!m.companyName && nameCache[m.companyId]) m.companyName = nameCache[m.companyId];
                 });
 
                 meetings.sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt));
@@ -1867,9 +2150,21 @@ export const AuthProvider = ({ children }) => {
                 console.error('subscribeMeetings error:', error);
                 callback([]);
             }
+        };
+
+        const unsub1 = onSnapshot(q1, (snapshot) => {
+            results1 = [];
+            snapshot.forEach((d) => results1.push({ id: d.id, ...d.data() }));
+            processMerged();
         });
 
-        return unsubscribe;
+        const unsub2 = onSnapshot(q2, (snapshot) => {
+            results2 = [];
+            snapshot.forEach((d) => results2.push({ id: d.id, ...d.data() }));
+            processMerged();
+        });
+
+        return () => { unsub1(); unsub2(); };
     }, [user]);
 
     // Accept a meeting request (other party accepts)
@@ -2923,7 +3218,7 @@ export const AuthProvider = ({ children }) => {
     }, [user]);
 
     // Company confirms receiving advance payment (triggers unlock)
-    const confirmAdvancePayment = useCallback(async (projectId) => {
+    const confirmAdvancePayment = useCallback(async (projectId, projectValue = 0) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
@@ -2931,6 +3226,16 @@ export const AuthProvider = ({ children }) => {
         if (user.role !== 'COMPANY') {
             return { success: false, error: 'Only companies can confirm advance payments' };
         }
+
+        // Total project value the company enters — a 4% commission (1% platform + 3% seeker)
+        // is charged on this and settled on the company's next wallet top-up.
+        const value = Math.round(Number(projectValue) || 0);
+        if (value <= 0) {
+            return { success: false, error: 'Please enter the total project value' };
+        }
+        const commission = Math.round(value * PROJECT_COMMISSION_RATE);      // 4% total — owed by the company
+        const adminCommission = Math.round(value * ADMIN_COMMISSION_RATE);   // 1% — platform share
+        const seekerCommission = Math.max(0, commission - adminCommission);  // remaining ~3% — the seeker's share
 
         try {
             const projectRef = doc(db, 'projects', projectId);
@@ -2949,32 +3254,53 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Advance payment must be recorded first' };
             }
 
-            // Use transaction to update project and unlock earnings atomically
+            // Use transaction to update project and unlock earnings atomically.
+            // NOTE: Firestore transactions require ALL reads before ANY writes,
+            // so we must read the wallets first, then perform the updates.
+            const seekerId = project.seekerId;
+            const seekerWalletRef = doc(db, 'wallets', seekerId);
+            const companyWalletRef = doc(db, 'wallets', user.id);
             await runTransaction(db, async (transaction) => {
-                // Update project status
+                // ── ALL READS FIRST ──
+                const seekerWalletSnap = await transaction.get(seekerWalletRef);
+                const companyWalletSnap = await transaction.get(companyWalletRef);
+
+                // ── THEN ALL WRITES ──
+                // Update project status + record its value and commission owed
                 transaction.update(projectRef, {
                     status: 'CONFIRMED',
                     companyConfirmedAdvance: true,
+                    projectValue: value,
+                    commissionAmount: commission,          // 4% total the company owes
+                    adminCommission: adminCommission,      // 1% → platform
+                    seekerCommission: seekerCommission,    // 3% → seeker (credited only at settlement)
+                    // PENDING until the company pays the 4% on its next top-up. Only THEN is
+                    // the seeker's 3% credited — never at confirmation.
+                    commissionStatus: commission > 0 ? 'PENDING' : 'NONE',
                     confirmedAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
 
-                // Unlock seeker's earnings
-                const seekerId = project.seekerId;
-                const seekerWalletRef = doc(db, 'wallets', seekerId);
-                const seekerWalletSnap = await transaction.get(seekerWalletRef);
-
+                // Unlock seeker's earnings — move all locked balance to available
                 if (seekerWalletSnap.exists()) {
                     const seekerWallet = seekerWalletSnap.data();
                     const lockedBalance = seekerWallet.lockedBalance || 0;
 
-                    // Move all locked balance to available balance
                     transaction.update(seekerWalletRef, {
                         balance: (seekerWallet.balance || 0) + lockedBalance,
                         lockedBalance: 0,
                         updatedAt: new Date().toISOString(),
                     });
+                }
 
+                // Accrue the full 4% commission the company now owes (1% platform + 3% seeker).
+                // Settled on the company's next wallet top-up; the seeker's 3% is paid out then.
+                if (commission > 0 && companyWalletSnap.exists()) {
+                    const companyWallet = companyWalletSnap.data();
+                    transaction.update(companyWalletRef, {
+                        commissionOwed: (companyWallet.commissionOwed || 0) + commission,
+                        updatedAt: new Date().toISOString(),
+                    });
                 }
             });
 

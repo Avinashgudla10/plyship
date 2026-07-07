@@ -305,6 +305,7 @@ export default function AdminDashboard() {
     const [companies, setCompanies] = useState([]);
     const [meetings, setMeetings] = useState([]);
     const [transactions, setTransactions] = useState([]);
+    const [projects, setProjects] = useState([]);
 
     const [chats, setChats] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -410,7 +411,14 @@ export default function AdminDashboard() {
                 (error) => console.error('Transactions listener error:', error)
             ));
 
-
+            // Real-time projects listener
+            firestoreUnsubs.push(onSnapshot(
+                query(collection(db, 'projects'), orderBy('createdAt', 'desc'), limit(100)),
+                (snapshot) => {
+                    setProjects(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+                },
+                (error) => console.error('Projects listener error:', error)
+            ));
 
             // Real-time chats listener
             firestoreUnsubs.push(onSnapshot(
@@ -544,108 +552,124 @@ export default function AdminDashboard() {
         try { await deleteDoc(doc(db, 'wallets', userId)); } catch (e) { /* may not exist */ }
 
         // 2. Delete all meetings
-        const [mtg1, mtg2] = await Promise.all([
-            getDocs(query(collection(db, 'meetings'), where('companyId', '==', userId))),
-            getDocs(query(collection(db, 'meetings'), where('seekerId', '==', userId))),
-        ]);
-        for (const d of [...mtg1.docs, ...mtg2.docs]) {
-            await deleteDoc(doc(db, 'meetings', d.id));
-        }
+        try {
+            const [mtg1, mtg2] = await Promise.all([
+                getDocs(query(collection(db, 'meetings'), where('companyId', '==', userId))),
+                getDocs(query(collection(db, 'meetings'), where('seekerId', '==', userId))),
+            ]);
+            for (const d of [...mtg1.docs, ...mtg2.docs]) {
+                await deleteDoc(doc(db, 'meetings', d.id));
+            }
+        } catch (e) { console.warn('Meetings cleanup:', e.message); }
 
         // 3. Delete all transactions
-        const [tx1, tx2] = await Promise.all([
-            getDocs(query(collection(db, 'transactions'), where('userId', '==', userId))),
-            getDocs(query(collection(db, 'transactions'), where('relatedUserId', '==', userId))),
-        ]);
-        const deletedTxIds = new Set();
-        for (const d of [...tx1.docs, ...tx2.docs]) {
-            if (!deletedTxIds.has(d.id)) {
-                deletedTxIds.add(d.id);
-                await deleteDoc(doc(db, 'transactions', d.id));
+        try {
+            const [tx1, tx2] = await Promise.all([
+                getDocs(query(collection(db, 'transactions'), where('userId', '==', userId))),
+                getDocs(query(collection(db, 'transactions'), where('relatedUserId', '==', userId))),
+            ]);
+            const deletedTxIds = new Set();
+            for (const d of [...tx1.docs, ...tx2.docs]) {
+                if (!deletedTxIds.has(d.id)) {
+                    deletedTxIds.add(d.id);
+                    await deleteDoc(doc(db, 'transactions', d.id));
+                }
             }
-        }
+        } catch (e) { console.warn('Transactions cleanup:', e.message); }
 
         // 4. Delete all chats and their messages
-        const chatSnap = await getDocs(query(collection(db, 'chats'), where('participants', 'array-contains', userId)));
-        for (const chatDoc of chatSnap.docs) {
-            // Delete all messages in this chat
-            const msgs = await getDocs(collection(db, 'chats', chatDoc.id, 'messages'));
-            for (const msgDoc of msgs.docs) {
-                await deleteDoc(doc(db, 'chats', chatDoc.id, 'messages', msgDoc.id));
+        try {
+            const chatSnap = await getDocs(query(collection(db, 'chats'), where('participants', 'array-contains', userId)));
+            for (const chatDoc of chatSnap.docs) {
+                const msgs = await getDocs(collection(db, 'chats', chatDoc.id, 'messages'));
+                for (const msgDoc of msgs.docs) {
+                    await deleteDoc(doc(db, 'chats', chatDoc.id, 'messages', msgDoc.id));
+                }
+                await deleteDoc(doc(db, 'chats', chatDoc.id));
             }
-            await deleteDoc(doc(db, 'chats', chatDoc.id));
-        }
+        } catch (e) { console.warn('Chats cleanup:', e.message); }
 
-        // 5. Delete matches (stored with 'users' array)
-        // Also try user1Id/user2Id field patterns
-        const [m1, m2, m3, m4] = await Promise.all([
-            getDocs(query(collection(db, 'matches'), where('users', 'array-contains', userId))),
-            getDocs(query(collection(db, 'matches'), where('user1Id', '==', userId))),
-            getDocs(query(collection(db, 'matches'), where('user2Id', '==', userId))),
-            getDocs(collection(db, 'matches', userId, 'matched')),
-        ]);
-        const deletedMatchIds = new Set();
-        for (const d of [...m1.docs, ...m2.docs, ...m3.docs]) {
-            if (!deletedMatchIds.has(d.id)) {
-                deletedMatchIds.add(d.id);
-                await deleteDoc(doc(db, 'matches', d.id));
+        // 5. Delete matches — sub-collections first, then top-level
+        try {
+            const m4 = await getDocs(collection(db, 'matches', userId, 'matched'));
+            for (const d of m4.docs) {
+                await deleteDoc(doc(db, 'matches', userId, 'matched', d.id));
             }
-        }
-        // Sub-collection matches
-        for (const d of m4.docs) {
-            await deleteDoc(doc(db, 'matches', userId, 'matched', d.id));
-        }
+        } catch (e) { /* sub-collection may not exist */ }
+        try {
+            const [m1, m2, m3] = await Promise.all([
+                getDocs(query(collection(db, 'matches'), where('users', 'array-contains', userId))),
+                getDocs(query(collection(db, 'matches'), where('user1Id', '==', userId))),
+                getDocs(query(collection(db, 'matches'), where('user2Id', '==', userId))),
+            ]);
+            const deletedMatchIds = new Set();
+            for (const d of [...m1.docs, ...m2.docs, ...m3.docs]) {
+                if (!deletedMatchIds.has(d.id)) {
+                    deletedMatchIds.add(d.id);
+                    await deleteDoc(doc(db, 'matches', d.id));
+                }
+            }
+        } catch (e) { console.warn('Matches top-level cleanup:', e.message); }
 
-        // 6. Delete likes
-        const [l1, l2] = await Promise.all([
-            getDocs(query(collection(db, 'likes'), where('likerId', '==', userId))),
-            getDocs(query(collection(db, 'likes'), where('likedId', '==', userId))),
-        ]);
-        for (const d of [...l1.docs, ...l2.docs]) {
-            await deleteDoc(doc(db, 'likes', d.id));
-        }
-        // Sub-collection likes
+        // 6. Delete likes — sub-collections first, then top-level
         try {
             const outgoing = await getDocs(collection(db, 'likes', userId, 'outgoing'));
             for (const d of outgoing.docs) { await deleteDoc(doc(db, 'likes', userId, 'outgoing', d.id)); }
             const incoming = await getDocs(collection(db, 'likes', userId, 'incoming'));
             for (const d of incoming.docs) { await deleteDoc(doc(db, 'likes', userId, 'incoming', d.id)); }
         } catch (e) { /* sub-collections may not exist */ }
+        try {
+            const [l1, l2] = await Promise.all([
+                getDocs(query(collection(db, 'likes'), where('likerId', '==', userId))),
+                getDocs(query(collection(db, 'likes'), where('likedId', '==', userId))),
+            ]);
+            for (const d of [...l1.docs, ...l2.docs]) {
+                await deleteDoc(doc(db, 'likes', d.id));
+            }
+        } catch (e) { console.warn('Likes top-level cleanup:', e.message); }
 
-        // 7. Delete passes
-        const [p1, p2] = await Promise.all([
-            getDocs(query(collection(db, 'passes'), where('passerId', '==', userId))),
-            getDocs(query(collection(db, 'passes'), where('passedId', '==', userId))),
-        ]);
-        for (const d of [...p1.docs, ...p2.docs]) {
-            await deleteDoc(doc(db, 'passes', d.id));
-        }
+        // 7. Delete passes — sub-collections first, then top-level
         try {
             const passed = await getDocs(collection(db, 'passes', userId, 'passed'));
             for (const d of passed.docs) { await deleteDoc(doc(db, 'passes', userId, 'passed', d.id)); }
-        } catch (e) { /* may not exist */ }
+        } catch (e) { /* sub-collection may not exist */ }
+        try {
+            const [p1, p2] = await Promise.all([
+                getDocs(query(collection(db, 'passes'), where('passerId', '==', userId))),
+                getDocs(query(collection(db, 'passes'), where('passedId', '==', userId))),
+            ]);
+            for (const d of [...p1.docs, ...p2.docs]) {
+                await deleteDoc(doc(db, 'passes', d.id));
+            }
+        } catch (e) { console.warn('Passes top-level cleanup:', e.message); }
 
         // 8. Delete projects
-        const [pj1, pj2] = await Promise.all([
-            getDocs(query(collection(db, 'projects'), where('companyId', '==', userId))),
-            getDocs(query(collection(db, 'projects'), where('seekerId', '==', userId))),
-        ]);
-        for (const d of [...pj1.docs, ...pj2.docs]) {
-            await deleteDoc(doc(db, 'projects', d.id));
-        }
+        try {
+            const [pj1, pj2] = await Promise.all([
+                getDocs(query(collection(db, 'projects'), where('companyId', '==', userId))),
+                getDocs(query(collection(db, 'projects'), where('seekerId', '==', userId))),
+            ]);
+            for (const d of [...pj1.docs, ...pj2.docs]) {
+                await deleteDoc(doc(db, 'projects', d.id));
+            }
+        } catch (e) { console.warn('Projects cleanup:', e.message); }
 
         // 9. Delete withdrawals
-        const wdSnap = await getDocs(query(collection(db, 'withdrawals'), where('seekerId', '==', userId)));
-        for (const d of wdSnap.docs) { await deleteDoc(doc(db, 'withdrawals', d.id)); }
+        try {
+            const wdSnap = await getDocs(query(collection(db, 'withdrawals'), where('seekerId', '==', userId)));
+            for (const d of wdSnap.docs) { await deleteDoc(doc(db, 'withdrawals', d.id)); }
+        } catch (e) { console.warn('Withdrawals cleanup:', e.message); }
 
         // 10. Delete reviews (by and about this user)
-        const [rv1, rv2] = await Promise.all([
-            getDocs(query(collection(db, 'reviews'), where('reviewerId', '==', userId))),
-            getDocs(query(collection(db, 'reviews'), where('companyId', '==', userId))),
-        ]);
-        for (const d of [...rv1.docs, ...rv2.docs]) {
-            await deleteDoc(doc(db, 'reviews', d.id));
-        }
+        try {
+            const [rv1, rv2] = await Promise.all([
+                getDocs(query(collection(db, 'reviews'), where('reviewerId', '==', userId))),
+                getDocs(query(collection(db, 'reviews'), where('companyId', '==', userId))),
+            ]);
+            for (const d of [...rv1.docs, ...rv2.docs]) {
+                await deleteDoc(doc(db, 'reviews', d.id));
+            }
+        } catch (e) { console.warn('Reviews cleanup:', e.message); }
 
         // 11. Delete notifications
         try {
@@ -655,18 +679,24 @@ export default function AdminDashboard() {
         } catch (e) { /* may not exist */ }
 
         // 12. Delete username reservation
-        const userDoc = await getDoc(doc(db, collectionName, userId));
-        if (userDoc.exists() && userDoc.data().username) {
-            try { await deleteDoc(doc(db, 'usernames', userDoc.data().username)); } catch (e) { /* ok */ }
-        }
+        try {
+            const userDoc = await getDoc(doc(db, collectionName, userId));
+            if (userDoc.exists() && userDoc.data().username) {
+                await deleteDoc(doc(db, 'usernames', userDoc.data().username));
+            }
+        } catch (e) { console.warn('Username cleanup:', e.message); }
 
         // 13. Delete storage files (avatars, portfolio images)
-        await deleteUserStorage(userId);
+        try { await deleteUserStorage(userId); } catch (e) { /* ok */ }
 
         // 14. Delete the user document itself
         try { await deleteDoc(doc(db, 'seekers', userId)); } catch (e) { /* may not exist */ }
         try { await deleteDoc(doc(db, 'companies', userId)); } catch (e) { /* may not exist */ }
+
+        // 15. Delete FCM token
+        try { await deleteDoc(doc(db, 'fcmTokens', userId)); } catch (e) { /* may not exist */ }
     };
+
 
     const handleDeleteUser = async (userId) => {
         setSaving(true);
@@ -757,6 +787,19 @@ export default function AdminDashboard() {
         } catch (error) {
             console.error('Error updating transaction:', error);
             showToast('Failed to update transaction: ' + error.message, 'error');
+        }
+        setSaving(false);
+    };
+
+    const handleDeleteProject = async (projectId) => {
+        setSaving(true);
+        try {
+            await deleteDoc(doc(db, 'projects', projectId));
+            showToast('Project deleted successfully');
+            setConfirmDelete(null);
+        } catch (error) {
+            console.error('Error deleting project:', error);
+            showToast('Failed to delete project: ' + error.message, 'error');
         }
         setSaving(false);
     };
@@ -861,6 +904,7 @@ export default function AdminDashboard() {
         { id: 'overview', label: 'Overview', icon: TrendingUp },
         { id: 'users', label: 'Users', icon: Users },
         { id: 'meetings', label: 'Meetings', icon: Calendar },
+        { id: 'projects', label: 'Projects', icon: Building2 },
         { id: 'transactions', label: 'Transactions', icon: Wallet },
 
         { id: 'chats', label: 'Chats', icon: MessageCircle },
@@ -1027,6 +1071,7 @@ export default function AdminDashboard() {
                         <button
                             onClick={async () => {
                                 await signOut(auth);
+                                localStorage.removeItem('userPhone');
                                 localStorage.removeItem('userEmail');
                                 router.push('/login');
                             }}
@@ -1120,6 +1165,13 @@ export default function AdminDashboard() {
                         onDelete={(meeting) => setConfirmDelete({ type: 'meeting', data: meeting })}
                     />
                 )}
+                {activeTab === 'projects' && (
+                    <ProjectsTab
+                        projects={projects}
+                        users={users}
+                        onDelete={(project) => setConfirmDelete({ type: 'project', data: project })}
+                    />
+                )}
                 {activeTab === 'transactions' && (
                     <TransactionsTab
                         transactions={transactions}
@@ -1178,7 +1230,7 @@ export default function AdminDashboard() {
             {/* Confirm Delete Modal */}
             {confirmDelete && (
                 <ConfirmModal
-                    title={`Delete ${confirmDelete.type === 'user' ? 'User' : confirmDelete.type === 'meeting' ? 'Meeting' : confirmDelete.type === 'transaction' ? 'Transaction' : confirmDelete.type === 'chat' ? 'Chat' : 'Match'}?`}
+                    title={`Delete ${confirmDelete.type === 'user' ? 'User' : confirmDelete.type === 'meeting' ? 'Meeting' : confirmDelete.type === 'transaction' ? 'Transaction' : confirmDelete.type === 'chat' ? 'Chat' : confirmDelete.type === 'project' ? 'Project' : 'Match'}?`}
                     message={
                         confirmDelete.type === 'user'
                             ? `Are you sure you want to delete "${confirmDelete.data.profile?.name || confirmDelete.data.profile?.companyName || confirmDelete.data.email}"? This action is permanent and cannot be undone.`
@@ -1188,7 +1240,9 @@ export default function AdminDashboard() {
                                     ? `Are you sure you want to delete this ₹${confirmDelete.data.amount} ${confirmDelete.data.type?.replace(/_/g, ' ')} transaction? This action is permanent.`
                                     : confirmDelete.type === 'chat'
                                         ? `Are you sure you want to delete this chat and all its messages? This action is permanent.`
-                                        : `Are you sure you want to delete this match? Both users will lose the match. This action is permanent.`
+                                        : confirmDelete.type === 'project'
+                                            ? `Are you sure you want to delete this project (${confirmDelete.data.status?.replace(/_/g, ' ')})? This action is permanent.`
+                                            : `Are you sure you want to delete this match? Both users will lose the match. This action is permanent.`
                     }
                     loading={saving}
                     onCancel={() => setConfirmDelete(null)}
@@ -1198,6 +1252,7 @@ export default function AdminDashboard() {
                         else if (confirmDelete.type === 'transaction') handleDeleteTransaction(confirmDelete.data.id);
                         else if (confirmDelete.type === 'match') handleDeleteMatch(confirmDelete.data);
                         else if (confirmDelete.type === 'chat') handleDeleteChat(confirmDelete.data.id);
+                        else if (confirmDelete.type === 'project') handleDeleteProject(confirmDelete.data.id);
                     }}
                 />
             )}
@@ -2080,6 +2135,170 @@ function MeetingsTab({ meetings, users, onEdit, onDelete }) {
                 </table>
                 <p style={{ padding: 12, fontSize: 13, color: '#888' }}>
                     Showing {filtered.length} of {meetings.length} meetings
+                </p>
+            </div>
+        </div>
+    );
+}
+
+// ============ PROJECTS TAB ============
+function ProjectsTab({ projects, users, onDelete }) {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const getUser = (id) => users.find(u => u.id === id);
+
+    const statusColors = {
+        'PENDING_ACCEPTANCE': { bg: '#FEF3C7', color: '#D97706' },
+        'ACCEPTED': { bg: '#DBEAFE', color: '#2563EB' },
+        'ADVANCE_RECORDED': { bg: '#F5F3FF', color: '#7C3AED' },
+        'CONFIRMED': { bg: '#D1FAE5', color: '#059669' },
+        'CANCELLED': { bg: '#FEE2E2', color: '#DC2626' },
+    };
+
+    const s = searchTerm.toLowerCase();
+    const filtered = projects.filter(project => {
+        if (statusFilter !== 'all' && project.status !== statusFilter) return false;
+        const company = getUser(project.companyId);
+        const seeker = getUser(project.seekerId);
+        return !s ||
+            company?.profile?.companyName?.toLowerCase().includes(s) ||
+            company?.email?.toLowerCase().includes(s) ||
+            seeker?.profile?.name?.toLowerCase().includes(s) ||
+            seeker?.email?.toLowerCase().includes(s) ||
+            project.budgetRange?.toLowerCase().includes(s) ||
+            project.status?.toLowerCase().includes(s);
+    });
+
+    return (
+        <div>
+            <div style={{ marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'white', borderRadius: 10, border: '1px solid #E5E7EB', flex: 1, maxWidth: 400 }}>
+                    <Search size={18} color="#888" />
+                    <input type="text" placeholder="Search projects..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ border: 'none', outline: 'none', flex: 1, fontSize: 14 }} />
+                </div>
+                <select
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                    style={{
+                        padding: '10px 14px', borderRadius: 10,
+                        border: statusFilter !== 'all' ? '1.5px solid #4F46E5' : '1px solid #E5E7EB',
+                        fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                        background: statusFilter !== 'all' ? '#EEF2FF' : 'white',
+                        color: statusFilter !== 'all' ? '#4F46E5' : '#333',
+                    }}
+                >
+                    <option value="all">All Statuses</option>
+                    <option value="PENDING_ACCEPTANCE">Pending Acceptance</option>
+                    <option value="ACCEPTED">Accepted</option>
+                    <option value="ADVANCE_RECORDED">Advance Recorded</option>
+                    <option value="CONFIRMED">Confirmed</option>
+                    <option value="CANCELLED">Cancelled</option>
+                </select>
+            </div>
+            <div style={{ background: 'white', borderRadius: 12, overflow: 'auto', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#F9FAFB' }}>
+                            <th style={thStyle}>Company</th>
+                            <th style={thStyle}>Seeker</th>
+                            <th style={thStyle}>Status</th>
+                            <th style={thStyle}>Budget</th>
+                            <th style={thStyle}>Advance</th>
+                            <th style={thStyle}>Project Value</th>
+                            <th style={thStyle}>Commission (4%)</th>
+                            <th style={thStyle}>Created</th>
+                            <th style={thStyle}>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filtered.map(project => {
+                            const company = getUser(project.companyId);
+                            const seeker = getUser(project.seekerId);
+                            const sc = statusColors[project.status] || { bg: '#F3F4F6', color: '#666' };
+                            return (
+                                <tr key={project.id} style={{ borderTop: '1px solid #E5E7EB' }}>
+                                    <td style={tdStyle}>
+                                        <div>{company?.profile?.companyName || company?.email || 'Unknown'}</div>
+                                        {company?.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{company.username}</div>}
+                                        {company?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{company.profile.phone}</div>}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        <div>{seeker?.profile?.name || seeker?.email || 'Unknown'}</div>
+                                        {seeker?.username && <div style={{ fontSize: 11, color: '#8B5CF6', marginTop: 2 }}>@{seeker.username}</div>}
+                                        {seeker?.profile?.phone && <div style={{ fontSize: 11, color: '#888' }}>{seeker.profile.phone}</div>}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: sc.bg, color: sc.color }}>
+                                            {project.status?.replace(/_/g, ' ')}
+                                        </span>
+                                    </td>
+                                    <td style={tdStyle}>
+                                        {project.budgetRange || <span style={{ color: '#999', fontStyle: 'italic' }}>—</span>}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        {project.advanceAmount ? (
+                                            <div>
+                                                <span style={{ fontWeight: 600, color: '#059669' }}>₹{Number(project.advanceAmount).toLocaleString('en-IN')}</span>
+                                                {project.advanceProofUrl && (
+                                                    <div>
+                                                        <a href={project.advanceProofUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#3B82F6', textDecoration: 'none' }}>View proof ↗</a>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: 12, color: '#999', fontStyle: 'italic' }}>—</span>
+                                        )}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        {project.projectValue ? (
+                                            <span style={{ fontWeight: 600 }}>₹{Number(project.projectValue).toLocaleString('en-IN')}</span>
+                                        ) : (
+                                            <span style={{ fontSize: 12, color: '#999', fontStyle: 'italic' }}>—</span>
+                                        )}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        {project.commissionAmount ? (
+                                            <div>
+                                                <span style={{ fontWeight: 700, color: '#7C3AED' }}>₹{Number(project.commissionAmount).toLocaleString('en-IN')}</span>
+                                                <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                                                    Admin ₹{Number(project.adminCommission != null ? project.adminCommission : project.commissionAmount).toLocaleString('en-IN')} · Seeker ₹{Number(project.seekerCommission || 0).toLocaleString('en-IN')}
+                                                </div>
+                                                <div style={{ marginTop: 4 }}>
+                                                    {project.commissionStatus === 'COLLECTED' ? (
+                                                        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#D1FAE5', color: '#059669' }}>✓ Collected</span>
+                                                    ) : (
+                                                        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#FEF3C7', color: '#D97706' }}>● Pending</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: 12, color: '#999', fontStyle: 'italic' }}>—</span>
+                                        )}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        {project.createdAt ? new Date(project.createdAt).toLocaleDateString() : 'N/A'}
+                                    </td>
+                                    <td style={tdStyle}>
+                                        <button
+                                            onClick={() => onDelete(project)}
+                                            title="Delete project"
+                                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer' }}
+                                        >
+                                            <Trash2 size={15} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+                <p style={{ padding: 12, fontSize: 13, color: '#888' }}>
+                    Showing {filtered.length} of {projects.length} projects
+                    {' · '}
+                    <span style={{ color: '#7C3AED', fontWeight: 600 }}>
+                        Total commission: ₹{filtered.reduce((sum, p) => sum + (Number(p.commissionAmount) || 0), 0).toLocaleString('en-IN')}
+                        {' '}(Admin ₹{filtered.reduce((sum, p) => sum + (Number(p.adminCommission != null ? p.adminCommission : p.commissionAmount) || 0), 0).toLocaleString('en-IN')} · Seeker ₹{filtered.reduce((sum, p) => sum + (Number(p.seekerCommission) || 0), 0).toLocaleString('en-IN')})
+                    </span>
                 </p>
             </div>
         </div>

@@ -51,7 +51,14 @@ export default function Home() {
   const { user, loading, getSwipeProfiles, getAllUsers, likeProfile, passProfile, getMatches, getIncomingLikes, acceptMatch, refuseMatch, getChats, getChatId, getMeetings, impersonateUser, exitImpersonation, isImpersonating } = useAuth();
   const [match, setMatch] = useState(null);
   const [detailProfile, setDetailProfile] = useState(null);
-  const [activeTab, setActiveTab] = useState('explore');
+  // Restore active tab from sessionStorage so pull-to-refresh (which does
+  // window.location.reload()) returns the user to the same tab, not 'explore'.
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('plyship_activeTab') || 'explore';
+    }
+    return 'explore';
+  });
   const [profiles, setProfiles] = useState([]);
   const [matches, setMatches] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -62,6 +69,13 @@ export default function Home() {
   const [allUsers, setAllUsers] = useState([]);
   const [showMeetingOnOpen, setShowMeetingOnOpen] = useState(false);
   const [userMeetings, setUserMeetings] = useState([]);
+
+  // Persist active tab to sessionStorage so it survives page reloads
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('plyship_activeTab', activeTab);
+    }
+  }, [activeTab]);
 
   // Redirect logic for admin and incomplete profiles
   useEffect(() => {
@@ -575,18 +589,24 @@ export default function Home() {
         background: 'var(--bg-secondary)',
       }}>
         <Suspense fallback={<TabSkeleton />}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab + (selectedChat?.id || '') + (profileSubPage || '')}
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              transition={{ duration: 0.2 }}
-              style={{ height: '100%' }}
-            >
-              {renderContent()}
-            </motion.div>
-          </AnimatePresence>
+          {/*
+            NOTE: Do not wrap this in <AnimatePresence mode="wait">. The tab
+            content includes React.lazy/Suspense children; with mode="wait",
+            AnimatePresence can deadlock waiting for an exiting lazy child's
+            onExitComplete that never fires (e.g. when switching tabs quickly),
+            which freezes the whole content area until a full reload.
+            A keyed motion.div remounts on tab change and plays the enter
+            animation without needing an exit callback.
+          */}
+          <motion.div
+            key={activeTab + (selectedChat?.id || '') + (profileSubPage || '')}
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ height: '100%' }}
+          >
+            {renderContent()}
+          </motion.div>
         </Suspense>
       </div>
 

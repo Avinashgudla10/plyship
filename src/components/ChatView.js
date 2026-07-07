@@ -10,6 +10,7 @@ import { StartProjectModal } from './ProjectsView';
 import { ScheduleMeetingModal, AcceptAndScheduleModal, CounterProposeModal } from './MeetingsView';
 import ReviewModal from './ReviewModal';
 import ProfileDetail from './ProfileDetail';
+import LocationPicker from './LocationPicker';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 
 // ── Detect native WebView (Android/iOS wrapper) ──
@@ -102,8 +103,12 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
         // Already decoded
         if (gainLoadedRef.current) return useCtxPlaybackRef.current;
 
-        // Skip AudioContext path on native WebViews — HTML5 audio works fine
-        if (_isNativeWebView || !src) {
+        // Run the AudioContext gain-boost path on native WebViews (Android/iOS) too.
+        // It uses fetch + decodeAudioData + a buffer source (NOT createMediaElementSource),
+        // so it works cross-origin in the WebView and applies the same volume boost as
+        // desktop. Skipping it on native made voice notes play un-boosted (barely audible)
+        // on mobile. If decode fails on any platform, we fall back to HTML5 audio below.
+        if (!src) {
             gainLoadedRef.current = true;
             useCtxPlaybackRef.current = false;
             return false;
@@ -156,9 +161,20 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
             const ctx = getAudioContext();
             const source = ctx.createBufferSource();
             source.buffer = buffer;
+
+            // Volume boost pipeline: Source → Gain (5×) → Compressor → Destination
+            // The compressor prevents clipping/distortion at high gain levels
             const gain = ctx.createGain();
-            gain.gain.value = 3.0; // 3× volume boost
-            source.connect(gain).connect(ctx.destination);
+            gain.gain.value = 5.0; // 5× volume boost for clear, loud playback
+
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.threshold.value = -20;  // Start compressing at -20dB
+            compressor.knee.value = 10;         // Smooth compression transition
+            compressor.ratio.value = 4;         // 4:1 compression ratio
+            compressor.attack.value = 0.003;    // Fast attack for voice
+            compressor.release.value = 0.15;    // Medium release
+
+            source.connect(gain).connect(compressor).connect(ctx.destination);
             source.onended = () => {
                 if (ctxSourceRef.current === source) {
                     setPlaying(false);
@@ -401,6 +417,39 @@ function VoiceNotePlayer({ src, duration, isMe, formatDuration, senderAvatar }) 
             </div>
         </div>
     );
+}
+
+// ── Keyboard/Back-button handler for file preview overlay ──
+// Listens for Escape key on desktop and popstate (back button) on mobile.
+// Rendered inside AnimatePresence so it auto-mounts/unmounts with the overlay.
+function FilePreviewKeyHandler({ onClose }) {
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                onClose();
+            }
+        };
+
+        // Push a fake history state so the mobile back button closes the overlay
+        // instead of navigating away from the chat.
+        window.history.pushState({ filePreview: true }, '');
+
+        const handlePopState = (e) => {
+            // Back button pressed while overlay is open → close overlay
+            onClose();
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('popstate', handlePopState);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [onClose]);
+
+    return null;
 }
 
 // Chat list view
@@ -804,6 +853,18 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const [otpInput, setOtpInput] = useState('');
     const messagesEndRef = useRef(null);
 
+    // File preview overlay state (images, PDFs — fullscreen in-app viewer)
+    const [filePreview, setFilePreview] = useState(null); // { url, type: 'image'|'pdf', name }
+
+    // In-app map preview popup (PDF-popup style) — for viewing a location without leaving chat
+    const [mapPreview, setMapPreview] = useState(null); // { coords: 'lat,lng'|null, address: string|null }
+    const openMapPreview = (coords, address) => {
+        if (!coords && !address) return;
+        setMapPreview({ coords: coords || null, address: address || null });
+    };
+    // "+" menu location picker (choose current location or pin on map)
+    const [showLocationPicker, setShowLocationPicker] = useState(false);
+
     // Voice recording state
     const [isRecording, setIsRecording] = useState(false);
     const [micConnecting, setMicConnecting] = useState(false);
@@ -817,6 +878,47 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
     const docInputRef = useRef(null);
+
+    // ── Prevent ALL forms of page refresh while inside the chat ──
+    // Blocks: browser-native pull-to-refresh (overscroll-behavior CSS),
+    // native WebView pull-to-refresh (global kill switch for injected JS),
+    // AppShell custom pull-to-refresh (data-no-pull-refresh attribute),
+    // and keyboard shortcuts (F5, Ctrl+R / Cmd+R).
+    // NOTE: We do NOT use beforeunload — it shows a browser-like dialog
+    // which looks out of place in a mobile app.
+    useEffect(() => {
+        // 1. Block browser-native pull-to-refresh (Chrome mobile, PWA, etc.)
+        const html = document.documentElement;
+        const body = document.body;
+        const prevHtmlOverscroll = html.style.overscrollBehavior;
+        const prevBodyOverscroll = body.style.overscrollBehavior;
+        html.style.overscrollBehavior = 'none';
+        body.style.overscrollBehavior = 'none';
+
+        // 2. Set global kill switch for native Android/iOS injected pull-to-refresh scripts.
+        //    Both PlyshipViewController.swift and MainActivity.java check this flag
+        //    in their touchstart handlers before allowing pull-to-refresh.
+        window.__plyPTR_disabled = true;
+
+        // 3. Block F5, Ctrl+R (Windows/Linux), Cmd+R (Mac) keyboard refresh
+        const blockRefreshKeys = (e) => {
+            if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key === 'r')) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        };
+
+        document.addEventListener('keydown', blockRefreshKeys, true);
+
+        return () => {
+            // Restore original overscroll behavior when leaving chat
+            html.style.overscrollBehavior = prevHtmlOverscroll || '';
+            body.style.overscrollBehavior = prevBodyOverscroll || '';
+            // Re-enable native pull-to-refresh for other views
+            window.__plyPTR_disabled = false;
+            document.removeEventListener('keydown', blockRefreshKeys, true);
+        };
+    }, []);
 
     const MAX_VOICE_DURATION = 300; // 5 minutes in seconds
     const ALLOWED_FILE_TYPES = {
@@ -866,9 +968,32 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         } catch (e) {}
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Enhanced audio constraints for maximum recording quality & volume
+            // AGC (Auto Gain Control) boosts quiet voices, noise suppression
+            // cleans up background hiss, echo cancellation prevents feedback.
+            // sampleRate / channelCount ensure high-fidelity capture.
+            const audioConstraints = {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    sampleRate: { ideal: 48000 },
+                    sampleSize: { ideal: 16 },
+                    channelCount: { ideal: 1 },
+                },
+            };
+            const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
             const mimeType = getSupportedMimeType();
-            const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+
+            // Use higher bitrate for better audio quality when supported
+            const recorderOptions = mimeType ? { mimeType } : {};
+            if (mimeType && mimeType.includes('opus')) {
+                recorderOptions.audioBitsPerSecond = 128000; // 128kbps for clear voice
+            } else if (mimeType) {
+                recorderOptions.audioBitsPerSecond = 96000; // 96kbps fallback
+            }
+
+            const mediaRecorder = new MediaRecorder(stream, recorderOptions);
             audioChunksRef.current = [];
 
             mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
@@ -1090,17 +1215,16 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const handleSend = async () => {
         if (!message.trim() || sending) return;
 
-        const hasMeetingScheduled = activeMeeting?.status === 'SCHEDULED';
-
-        // Block messages containing phone numbers or emails before meeting is scheduled
-        if (!hasMeetingScheduled && containsContactInfo(message)) {
-            showToast('\u26a0\ufe0f Sharing personal contact info (phone/email) is not allowed before a meeting is scheduled. Schedule a meeting first \ud83d\udcc5', 'error');
+        // Contact info / location in typed messages unlocks once a meeting is
+        // requested/proposed (same gate as the call + share buttons), so the parties
+        // can coordinate before the meeting is formally scheduled.
+        if (!hasMeetingRequest && containsContactInfo(message)) {
+            showToast('\u26a0\ufe0f Sharing personal contact info (phone/email) unlocks once a meeting is requested. Request or propose a meeting first \ud83d\udcc5', 'error');
             return;
         }
 
-        // Block raw location URLs before meeting is scheduled
-        if (!hasMeetingScheduled && containsLocationUrl(message)) {
-            showToast('\u26a0\ufe0f Location sharing is only available after a meeting is scheduled. Use the meeting location feature instead \ud83d\udcc5', 'info');
+        if (!hasMeetingRequest && containsLocationUrl(message)) {
+            showToast('\u26a0\ufe0f Location sharing unlocks once a meeting is requested. Request or propose a meeting first \ud83d\udcc5', 'info');
             return;
         }
 
@@ -1115,35 +1239,35 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     // Share current location as a Google Maps link
     const handleShareLocation = () => {
         setShowAttachMenu(false);
-        // Block location sharing before a meeting is scheduled
-        if (!activeMeeting || activeMeeting.status !== 'SCHEDULED') {
-            showToast('⚠️ Location sharing is only available after a meeting is scheduled. Schedule a meeting first 📅', 'info');
+        // Location sharing unlocks as soon as a meeting is requested/proposed
+        // (same gate as the call button) so both sides can coordinate before it's scheduled.
+        if (!hasMeetingRequest) {
+            showToast('⚠️ Location sharing unlocks once a meeting is requested. Request or propose a meeting first 📅', 'info');
             return;
         }
-        if (!navigator.geolocation) {
-            showToast('Location is not supported on this device.', 'error');
-            return;
-        }
-        showToast('Getting your location...', 'info');
-        navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                const { latitude, longitude } = pos.coords;
-                const mapUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
-                await sendMessage(otherUserId, `📍 My Location: ${mapUrl}`);
-            },
-            () => showToast('Could not get your location. Please allow location access.', 'error'),
-            { enableHighAccuracy: true, timeout: 10000 }
-        );
+        // Open the map picker so the user can send their current location OR pin one
+        // on the map (same picker used in the meeting flow).
+        setShowLocationPicker(true);
+    };
+
+    // Called when a location is chosen/sent from the LocationPicker
+    const handleLocationSelected = async (loc) => {
+        setShowLocationPicker(false);
+        if (!loc || loc.lat == null || loc.lng == null) return;
+        const coords = `${loc.lat},${loc.lng}`;
+        const mapUrl = `https://www.google.com/maps?q=${coords}`;
+        const label = loc.address ? loc.address : 'My Location';
+        await sendMessage(otherUserId, `📍 ${label}: ${mapUrl}`);
     };
 
     // Share a contact from device address book
     const [showContactModal, setShowContactModal] = useState(false);
-    const [contactName, setContactName] = useState('');
-    const [contactPhone, setContactPhone] = useState('');
     const [deviceContacts, setDeviceContacts] = useState([]);
     const [contactsLoading, setContactsLoading] = useState(false);
     const [contactSearch, setContactSearch] = useState('');
     const [contactsPermissionDenied, setContactsPermissionDenied] = useState(false);
+    const [manualName, setManualName] = useState('');
+    const [manualPhone, setManualPhone] = useState('');
 
     // Cross-platform contact fetching:
     // Android: window.PlyshipContacts.getContacts() — synchronous JS interface
@@ -1153,14 +1277,37 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         setContactsLoading(true);
         setContactsPermissionDenied(false);
 
+        // Detect Android WebView environment:
+        // - Check for our injected bridge object (PlyshipContacts)
+        // - Also check the User-Agent for the Android WebView marker 'wv'
+        //   so we don't accidentally fall through to the PWA Contact Picker API
+        //   which Chrome-based WebViews may also expose.
+        const isAndroidWebView = !!window.PlyshipContacts
+            || /; wv[);]/.test(navigator.userAgent)
+            || (/Android/i.test(navigator.userAgent) && /Version\/[\d.]+/.test(navigator.userAgent));
+
         // Try Android native bridge first
-        if (window.PlyshipContacts && typeof window.PlyshipContacts.getContacts === 'function') {
+        // NOTE: We do NOT use `typeof getContacts === 'function'` because
+        // Java methods injected via addJavascriptInterface don't always
+        // report as 'function' in typeof checks on all WebView versions.
+        if (window.PlyshipContacts) {
             try {
-                const result = window.PlyshipContacts.getContacts();
+                let result = window.PlyshipContacts.getContacts();
+                // On the first call, if permission isn't granted yet the native side
+                // shows the system permission dialog and returns PERMISSION_DENIED.
+                // Poll until the user responds (granted → JSON) so contacts load
+                // automatically without needing a manual Retry.
+                if (result === 'PERMISSION_DENIED') {
+                    for (let i = 0; i < 16; i++) {
+                        await new Promise(r => setTimeout(r, 500));
+                        result = window.PlyshipContacts.getContacts();
+                        if (result !== 'PERMISSION_DENIED') break;
+                    }
+                }
                 if (result === 'PERMISSION_DENIED') {
                     setContactsPermissionDenied(true);
                     setContactsLoading(false);
-                    showToast('Please allow contacts access in your device settings.', 'error');
+                    showToast('Please allow contacts access to share a contact.', 'error');
                     return [];
                 }
                 const contacts = JSON.parse(result);
@@ -1169,7 +1316,18 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                 return contacts;
             } catch (err) {
                 console.log('Android contacts bridge error:', err);
+                // Still on Android — don't fall through to iOS/PWA checks.
+                setContactsLoading(false);
+                return [];
             }
+        }
+
+        // If we detected Android WebView but the bridge object isn't available
+        // (e.g. timing issue), don't fall through to PWA — return empty.
+        if (isAndroidWebView) {
+            console.log('Android WebView detected but PlyshipContacts bridge not found');
+            setContactsLoading(false);
+            return [];
         }
 
         // Try iOS native bridge (async via callback)
@@ -1207,10 +1365,14 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                     return [];
                 }
                 console.log('iOS contacts bridge error:', err);
+                // Still on iOS — don't fall through to PWA.
+                setContactsLoading(false);
+                return [];
             }
         }
 
         // PWA fallback: Contact Picker API (limited: single or multi pick, but no list view)
+        // Only runs on desktop/mobile browsers — NOT inside native WebViews
         if ('contacts' in navigator && 'ContactsManager' in window) {
             try {
                 const rawContacts = await navigator.contacts.select(
@@ -1240,34 +1402,31 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
     const handleShareContact = async () => {
         setShowAttachMenu(false);
-        // Block contact sharing before a meeting is scheduled
-        if (!activeMeeting || activeMeeting.status !== 'SCHEDULED') {
-            showToast('⚠️ Contact sharing is only available after a meeting is scheduled. Schedule a meeting first 📅', 'info');
+        // Contact sharing unlocks as soon as a meeting is requested/proposed
+        // (same gate as the call button) so both sides can coordinate before it's scheduled.
+        if (!hasMeetingRequest) {
+            showToast('⚠️ Contact sharing unlocks once a meeting is requested. Request or propose a meeting first 📅', 'info');
             return;
         }
 
+        // Open the modal immediately with loading state, then fetch contacts
         setContactSearch('');
         setDeviceContacts([]);
+        setContactsLoading(true);
+        setShowContactModal(true);
+
         const contacts = await fetchDeviceContacts();
 
         if (contacts === null) {
-            // No native access — show manual entry
-            setContactName('');
-            setContactPhone('');
-            setShowContactModal(true);
-        } else if (contacts.length > 0) {
-            // We got contacts from device — show the picker
-            setShowContactModal(true);
-        } else if (!contactsPermissionDenied) {
-            // Got empty result (user dismissed picker or no contacts)
-            showToast('No contacts found on this device.', 'info');
+            // No native access — modal already open, will show "not available" state
+            setContactsLoading(false);
+        } else if (contacts.length === 0 && !contactsPermissionDenied) {
+            setContactsLoading(false);
         }
     };
 
     const handleSelectDeviceContact = async (contact) => {
-        const contactMsg = contact.phone
-            ? `👤 ${contact.name}\n📞 ${contact.phone}`
-            : `👤 ${contact.name}`;
+        const contactMsg = `👤 ${contact.name}`;
         await sendMessage(otherUserId, contactMsg, {
             type: 'contact',
             name: contact.name || 'Contact',
@@ -1275,27 +1434,6 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         });
         showToast('Contact shared!', 'success');
         setShowContactModal(false);
-    };
-
-    const handleSendManualContact = async () => {
-        const trimName = contactName.trim();
-        const trimPhone = contactPhone.trim();
-        if (!trimName && !trimPhone) {
-            showToast('Please enter a name or phone number', 'warning');
-            return;
-        }
-        const contactMsg = trimPhone
-            ? `👤 ${trimName || 'Contact'}\n📞 ${trimPhone}`
-            : `👤 ${trimName}`;
-        await sendMessage(otherUserId, contactMsg, {
-            type: 'contact',
-            name: trimName || 'Contact',
-            url: trimPhone || '',
-        });
-        showToast('Contact shared!', 'success');
-        setShowContactModal(false);
-        setContactName('');
-        setContactPhone('');
     };
 
     // Filter contacts based on search
@@ -1365,11 +1503,12 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     };
 
     return (
-        <div style={{
+        <div data-no-pull-refresh data-no-ptr="true" style={{
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
             background: 'var(--bg-secondary)',
+            overscrollBehavior: 'contain',
         }}>
             {/* Header */}
             <div style={{
@@ -1669,10 +1808,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     )}
                                     {/* Clickable Location Button */}
                                     {locationMapUrl && (
-                                        <a
-                                            href={locationMapUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
+                                        <button
+                                            type="button"
+                                            onClick={() => openMapPreview(proposedCoords, proposedLocation)}
                                             style={{
                                                 display: 'inline-flex', alignItems: 'center', gap: 5,
                                                 marginTop: 4, padding: '3px 10px', borderRadius: 20,
@@ -1686,7 +1824,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         >
                                             <MapPin size={13} />
                                             LOCATION
-                                        </a>
+                                        </button>
                                     )}
                                     <p style={{ fontSize: 11, color: '#D97706', marginTop: 4 }}>
                                         {iProposed
@@ -1925,10 +2063,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         </p>
                                         {/* 📍 Location Button */}
                                         {hasLocation && (
-                                            <a
-                                                href={locCoords ? `https://www.google.com/maps?q=${locCoords}` : `https://www.google.com/maps/search/${encodeURIComponent(locDisplay)}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
+                                            <button
+                                                type="button"
+                                                onClick={() => openMapPreview(locCoords, locDisplay)}
                                                 style={{
                                                     display: 'inline-flex', alignItems: 'center', gap: 5,
                                                     marginTop: 4, marginBottom: 6, padding: '3px 10px', borderRadius: 20,
@@ -1942,7 +2079,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             >
                                                 <MapPin size={13} />
                                                 LOCATION
-                                            </a>
+                                            </button>
                                         )}
 
                                         {/* Pay & Accept — primary action */}
@@ -2049,10 +2186,9 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     </p>
                                     {/* 📍 Location Button */}
                                     {hasLocation && (
-                                        <a
-                                            href={locCoords ? `https://www.google.com/maps?q=${locCoords}` : `https://www.google.com/maps/search/${encodeURIComponent(locDisplay)}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
+                                        <button
+                                            type="button"
+                                            onClick={() => openMapPreview(locCoords, locDisplay)}
                                             style={{
                                                 display: 'inline-flex', alignItems: 'center', gap: 5,
                                                 marginTop: 4, padding: '3px 10px', borderRadius: 20,
@@ -2066,7 +2202,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         >
                                             <MapPin size={13} />
                                             LOCATION
-                                        </a>
+                                        </button>
                                     )}
                                 </div>
                                     {isReceiver && (
@@ -2210,7 +2346,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         const coords = parts[1];
                                         return (
                                             <motion.button
-                                                onClick={() => openMapsUrl(coords, displayAddr)}
+                                                onClick={() => openMapPreview(coords, displayAddr)}
                                                 whileTap={{ scale: 0.95 }}
                                                 style={{
                                                     marginTop: 8,
@@ -2345,7 +2481,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     const coords = parts[1];
                                     return (
                                         <motion.button
-                                            onClick={() => openMapsUrl(coords, displayAddr)}
+                                            onClick={() => openMapPreview(coords, displayAddr)}
                                             whileTap={{ scale: 0.95 }}
                                             style={{
                                                 marginTop: 8,
@@ -2552,9 +2688,12 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             senderAvatar={isMe ? (user?.avatar || user?.profileImage) : image}
                                         />
                                     )}
-                                    {/* Image */}
+                                    {/* Image — opens in fullscreen preview overlay */}
                                     {msg.fileType === 'image' && msg.fileUrl && (
-                                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">
+                                        <div
+                                            onClick={() => setFilePreview({ url: msg.fileUrl, type: 'image', name: msg.fileName || 'Photo' })}
+                                            style={{ cursor: 'pointer' }}
+                                        >
                                             <img src={msg.fileUrl} alt="Shared image"
                                                 style={{
                                                     maxWidth: '100%', maxHeight: 280,
@@ -2562,14 +2701,16 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                                     objectFit: 'cover',
                                                 }}
                                             />
-                                        </a>
+                                        </div>
                                     )}
-                                    {/* PDF / Document */}
+                                    {/* PDF / Document — opens in fullscreen preview overlay */}
                                     {(msg.fileType === 'pdf' || msg.fileType === 'document') && msg.fileUrl && (
-                                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer"
+                                        <div
+                                            onClick={() => setFilePreview({ url: msg.fileUrl, type: msg.fileType, name: msg.fileName || (msg.fileType === 'pdf' ? 'PDF Document' : 'Document') })}
                                             style={{
                                                 display: 'flex', alignItems: 'center', gap: 10,
                                                 textDecoration: 'none', color: 'inherit',
+                                                cursor: 'pointer',
                                             }}
                                         >
                                             <div style={{
@@ -2588,10 +2729,10 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                                     {msg.fileName || (msg.fileType === 'pdf' ? 'PDF Document' : 'Document')}
                                                 </p>
                                                 <p style={{ fontSize: 11, opacity: 0.7 }}>
-                                                    {msg.fileType === 'pdf' ? 'PDF' : 'DOC'} • Tap to open
+                                                    {msg.fileType === 'pdf' ? 'PDF' : 'DOC'} • Tap to view
                                                 </p>
                                             </div>
-                                        </a>
+                                        </div>
                                     )}
                                     {/* Contact Card — WhatsApp-style rich contact sharing */}
                                     {msg.fileType === 'contact' && (
@@ -2639,8 +2780,90 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             )}
                                         </div>
                                     )}
-                                    {/* Text message */}
-                                    {msg.text && !msg.fileType && <p style={{ fontSize: 14, lineHeight: 1.4, marginTop: msg.fileUrl ? 8 : 0 }}>{msg.text}</p>}
+                                    {/* Text message — with clickable location card for Google Maps links */}
+                                    {msg.text && !msg.fileType && (() => {
+                                        // Detect any Google Maps URL in the text (direct shares + meeting proposals)
+                                        const mapsUrlMatch = msg.text.match(/https?:\/\/(www\.)?google\.com\/(maps\?q=[-\d.,]+|maps\/search\/[^\s)]+)/);
+                                        if (mapsUrlMatch) {
+                                            const mapsUrl = mapsUrlMatch[0];
+                                            // Extract the text surrounding the URL
+                                            // Remove the URL (and optional parentheses around it) from the display text
+                                            let label = msg.text
+                                                .replace(`(${mapsUrl})`, '')   // "(https://...)" 
+                                                .replace(mapsUrl, '')           // bare "https://..."
+                                                .replace(/📍\s*/, '')
+                                                .replace(/,\s*$/, '')           // trailing comma
+                                                .replace(/^\s*,\s*/, '')        // leading comma
+                                                .replace(/:\s*$/, '')
+                                                .trim();
+                                            
+                                            // For meeting proposal messages, keep the context text
+                                            const isMeetingMsg = msg.senderId === 'system' || msg.type === 'meeting_update';
+                                            
+                                            return (
+                                                <div>
+                                                    {/* Show the message text without the URL */}
+                                                    {label && (
+                                                        <p style={{ fontSize: 14, lineHeight: 1.5, marginBottom: 8 }}>
+                                                            {label}
+                                                        </p>
+                                                    )}
+                                                    {/* Clickable Google Maps card */}
+                                                    <a
+                                                        href={mapsUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            // Use the cross-platform openMapsUrl if available
+                                                            const coordMatch = mapsUrl.match(/q=([-\d.]+),([-\d.]+)/);
+                                                            if (coordMatch) {
+                                                                openMapPreview(`${coordMatch[1]},${coordMatch[2]}`, label);
+                                                            } else {
+                                                                // Search-based URL — extract search query
+                                                                const searchMatch = mapsUrl.match(/search\/(.+?)$/);
+                                                                const searchTerm = searchMatch ? decodeURIComponent(searchMatch[1]) : label;
+                                                                openMapPreview(null, searchTerm || label);
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', gap: 10,
+                                                            textDecoration: 'none', color: 'inherit',
+                                                            cursor: 'pointer',
+                                                            padding: '8px 12px',
+                                                            borderRadius: 12,
+                                                            background: isMe ? 'rgba(255,255,255,0.12)' : '#F0FDF4',
+                                                            border: isMe ? '1px solid rgba(255,255,255,0.2)' : '1px solid #BBF7D0',
+                                                        }}
+                                                    >
+                                                        <div style={{
+                                                            width: 40, height: 40, borderRadius: '50%',
+                                                            background: isMe ? 'rgba(255,255,255,0.2)' : 'linear-gradient(135deg, #E8F5E9, #C8E6C9)',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            flexShrink: 0,
+                                                        }}>
+                                                            <MapPin size={20} color={isMe ? 'white' : '#22C55E'} />
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <p style={{
+                                                                fontSize: 13, fontWeight: 600, lineHeight: 1.3,
+                                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                            }}>
+                                                                📍 Open in Google Maps
+                                                            </p>
+                                                            <p style={{
+                                                                fontSize: 11, marginTop: 2,
+                                                                opacity: 0.7, fontWeight: 500,
+                                                            }}>
+                                                                Tap to view meeting location
+                                                            </p>
+                                                        </div>
+                                                    </a>
+                                                </div>
+                                            );
+                                        }
+                                        return <p style={{ fontSize: 14, lineHeight: 1.4, marginTop: msg.fileUrl ? 8 : 0 }}>{msg.text}</p>;
+                                    })()}
                                 </div>
                                 <span style={{
                                     fontSize: 10,
@@ -2939,10 +3162,11 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                                                         padding: '12px 4px', borderRadius: 14, border: 'none',
                                                         background: 'transparent', cursor: 'pointer',
+                                                        opacity: hasMeetingRequest ? 1 : 0.5,
                                                     }}
                                                 >
                                                     <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-                                                        <MapPin size={24} color="#22C55E" strokeWidth={1.8} />
+                                                        <MapPin size={24} color={hasMeetingRequest ? '#22C55E' : '#9CA3AF'} strokeWidth={1.8} />
                                                     </div>
                                                     <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Location</span>
                                                 </button>
@@ -2954,10 +3178,11 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                                                         padding: '12px 4px', borderRadius: 14, border: 'none',
                                                         background: 'transparent', cursor: 'pointer',
+                                                        opacity: hasMeetingRequest ? 1 : 0.5,
                                                     }}
                                                 >
                                                     <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-                                                        <UserCircle size={24} color="#6B7280" strokeWidth={1.8} />
+                                                        <UserCircle size={24} color={hasMeetingRequest ? '#8B5CF6' : '#9CA3AF'} strokeWidth={1.8} />
                                                     </div>
                                                     <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Contact</span>
                                                 </button>
@@ -2979,17 +3204,27 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
                                                 {/* Meeting */}
                                                 <button
-                                                    onClick={() => { setShowAttachMenu(false); setShowMeetingModal(true); }}
+                                                    onClick={() => {
+                                                        setShowAttachMenu(false);
+                                                        if (activeMeeting) {
+                                                            showToast('⚠️ A meeting is already in progress. Check the banner above.', 'info');
+                                                            return;
+                                                        }
+                                                        setShowMeetingModal(true);
+                                                    }}
+                                                    disabled={!!activeMeeting}
                                                     style={{
                                                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                                                         padding: '12px 4px', borderRadius: 14, border: 'none',
-                                                        background: 'transparent', cursor: 'pointer',
+                                                        background: 'transparent',
+                                                        cursor: activeMeeting ? 'default' : 'pointer',
+                                                        opacity: activeMeeting ? 0.4 : 1,
                                                     }}
                                                 >
                                                     <div style={{ width: 52, height: 52, borderRadius: 14, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-                                                        <Calendar size={24} color="#EF4444" strokeWidth={1.8} />
+                                                        <Calendar size={24} color={activeMeeting ? 'var(--text-muted)' : '#EF4444'} strokeWidth={1.8} />
                                                     </div>
-                                                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Meeting</span>
+                                                    <span style={{ fontSize: 11, fontWeight: 500, color: activeMeeting ? 'var(--text-muted)' : 'var(--text-secondary)' }}>{activeMeeting ? 'Meeting Set' : 'Meeting'}</span>
                                                 </button>
                                             </div>
                                         </motion.div>
@@ -3266,8 +3501,16 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                 </div>
                             </div>
 
-                            {/* Show device contacts list when available */}
-                            {deviceContacts.length > 0 ? (
+                            {/* Loading state */}
+                            {contactsLoading ? (
+                                <div style={{
+                                    flex: 1, display: 'flex', flexDirection: 'column',
+                                    alignItems: 'center', justifyContent: 'center', gap: 12,
+                                }}>
+                                    <Loader2 size={36} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
+                                    <p style={{ fontSize: 15, color: 'var(--text-muted)', fontWeight: 500 }}>Loading contacts...</p>
+                                </div>
+                            ) : deviceContacts.length > 0 ? (
                                 <>
                                     {/* Search bar */}
                                     <div style={{
@@ -3317,15 +3560,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                         flex: 1, overflow: 'auto',
                                         paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
                                     }}>
-                                        {contactsLoading ? (
-                                            <div style={{
-                                                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                                                justifyContent: 'center', padding: 60, gap: 12,
-                                            }}>
-                                                <Loader2 size={32} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
-                                                <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Loading contacts...</p>
-                                            </div>
-                                        ) : filteredContacts.length === 0 ? (
+                                        {filteredContacts.length === 0 ? (
                                             <div style={{
                                                 display: 'flex', flexDirection: 'column', alignItems: 'center',
                                                 justifyContent: 'center', padding: 60, gap: 8,
@@ -3406,75 +3641,349 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                     </div>
                                 </>
                             ) : (
-                                /* Manual entry fallback — when no native contact access */
-                                <div style={{
-                                    padding: '24px 16px',
-                                    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
-                                }}>
-                                    <div style={{
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center',
-                                        padding: '24px 0 20px', gap: 8,
-                                    }}>
+                                /* No contacts available — permission denied or unsupported */
+                                (() => {
+                                    // The device-contacts picker needs the NATIVE bridge (window.PlyshipContacts),
+                                    // which only exists in the Android/iOS app build — not on web.
+                                    const hasBridge = !!window.PlyshipContacts || !!window.webkit?.messageHandlers?.getContacts;
+                                    const isNativeWebView = hasBridge || !!window.PlyshipPush || /; wv[);]/.test(navigator.userAgent);
+                                    const _inNativeApp = isNativeWebView; // kept for the Retry button condition below
+                                    // Determine title and message for the empty state.
+                                    let emptyTitle = 'Contacts Not Available';
+                                    let emptyMsg = 'Open Plyship in the app to pick from your device contacts — or add one manually below.';
+                                    if (contactsPermissionDenied) {
+                                        emptyTitle = 'Contacts Access Denied';
+                                        emptyMsg = 'Allow contacts access in your device settings and tap Retry — or just add a contact manually below.';
+                                    } else if (isNativeWebView && !hasBridge) {
+                                        // In the app, but the native contacts bridge is missing → app is out of date.
+                                        emptyTitle = 'Update your app';
+                                        emptyMsg = 'This version of the app can’t read device contacts yet. Please update to the latest Plyship app to pick from your contacts. Meanwhile, you can add a contact manually below.';
+                                    } else if (hasBridge) {
+                                        emptyTitle = 'No contacts found';
+                                        emptyMsg = 'No contacts with a phone number were found on this device. Tap Retry, or add a contact manually below.';
+                                    }
+                                    const sendManual = () => {
+                                        const n = manualName.trim();
+                                        const p = manualPhone.trim();
+                                        if (!n && !p) { showToast('Enter a name or phone number', 'warning'); return; }
+                                        handleSelectDeviceContact({ name: n || p, phone: p });
+                                        setManualName(''); setManualPhone('');
+                                    };
+                                    return (
                                         <div style={{
-                                            width: 64, height: 64, borderRadius: '50%',
-                                            background: 'var(--pastel-green)',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            flex: 1, display: 'flex', flexDirection: 'column',
+                                            alignItems: 'center', justifyContent: 'flex-start',
+                                            padding: '32px 24px', gap: 14, textAlign: 'center',
+                                            overflow: 'auto',
                                         }}>
-                                            <UserCircle size={32} color="var(--primary)" />
+                                            <div style={{
+                                                width: 64, height: 64, borderRadius: '50%',
+                                                background: 'var(--pastel-green)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                            }}>
+                                                <UserCircle size={32} color="var(--primary)" />
+                                            </div>
+                                            <div>
+                                                <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+                                                    {emptyTitle}
+                                                </p>
+                                                <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                                    {emptyMsg}
+                                                </p>
+                                            </div>
+                                            {(_inNativeApp || contactsPermissionDenied) && (
+                                                <motion.button
+                                                    onClick={async () => {
+                                                        setContactsLoading(true);
+                                                        const contacts = await fetchDeviceContacts();
+                                                        if (!contacts || contacts.length === 0) {
+                                                            setContactsLoading(false);
+                                                        }
+                                                    }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                    style={{
+                                                        padding: '10px 28px', borderRadius: 12,
+                                                        background: 'var(--bg-secondary)', border: '1px solid var(--border-light)',
+                                                        color: 'var(--text-primary)', fontSize: 14, fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    Retry
+                                                </motion.button>
+                                            )}
+
+                                            {/* Manual entry — always works, regardless of the device picker */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', maxWidth: 340, marginTop: 8 }}>
+                                                <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
+                                                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>ADD MANUALLY</span>
+                                                <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
+                                            </div>
+                                            <div style={{ width: '100%', maxWidth: 340, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Contact name"
+                                                    value={manualName}
+                                                    onChange={(e) => setManualName(e.target.value)}
+                                                    style={{
+                                                        width: '100%', padding: '12px 14px', borderRadius: 12,
+                                                        border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                                                        fontSize: 15, color: 'var(--text-primary)', outline: 'none',
+                                                    }}
+                                                />
+                                                <input
+                                                    type="tel"
+                                                    inputMode="tel"
+                                                    placeholder="Phone number"
+                                                    value={manualPhone}
+                                                    onChange={(e) => setManualPhone(e.target.value)}
+                                                    onKeyDown={(e) => { if (e.key === 'Enter') sendManual(); }}
+                                                    style={{
+                                                        width: '100%', padding: '12px 14px', borderRadius: 12,
+                                                        border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                                                        fontSize: 15, color: 'var(--text-primary)', outline: 'none',
+                                                    }}
+                                                />
+                                                <motion.button
+                                                    onClick={sendManual}
+                                                    whileTap={{ scale: 0.97 }}
+                                                    style={{
+                                                        width: '100%', padding: '12px 16px', borderRadius: 12,
+                                                        background: 'var(--gradient-primary)', border: 'none',
+                                                        color: 'white', fontSize: 15, fontWeight: 700,
+                                                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                                                    }}
+                                                >
+                                                    <Send size={16} /> Send Contact
+                                                </motion.button>
+                                            </div>
                                         </div>
-                                        <p style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
-                                            Enter the contact details to share
-                                        </p>
-                                    </div>
-
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-                                        <input
-                                            type="text"
-                                            placeholder="Contact Name"
-                                            value={contactName}
-                                            onChange={(e) => setContactName(e.target.value)}
-                                            style={{
-                                                width: '100%', padding: '14px 16px', borderRadius: 12,
-                                                border: '1px solid var(--border)', fontSize: 15, outline: 'none',
-                                                background: 'var(--bg-secondary)',
-                                            }}
-                                        />
-                                        <input
-                                            type="tel"
-                                            inputMode="numeric"
-                                            placeholder="Phone Number"
-                                            value={contactPhone}
-                                            onChange={(e) => setContactPhone(e.target.value)}
-                                            style={{
-                                                width: '100%', padding: '14px 16px', borderRadius: 12,
-                                                border: '1px solid var(--border)', fontSize: 15, outline: 'none',
-                                                background: 'var(--bg-secondary)',
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div style={{ display: 'flex', gap: 10 }}>
-                                        <button
-                                            onClick={() => setShowContactModal(false)}
-                                            style={{
-                                                flex: 1, padding: '14px', borderRadius: 12,
-                                                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                                                fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer',
-                                            }}
-                                        >Cancel</button>
-                                        <button
-                                            onClick={handleSendManualContact}
-                                            style={{
-                                                flex: 1, padding: '14px', borderRadius: 12,
-                                                background: 'var(--gradient-primary)', border: 'none',
-                                                fontSize: 15, fontWeight: 600, color: 'white', cursor: 'pointer',
-                                            }}
-                                        >Share</button>
-                                    </div>
-                                </div>
+                                    );
+                                })()
                             )}
                         </motion.div>
                     </>
+                )}
+            </AnimatePresence>
+
+            {/* ── Fullscreen File Preview Overlay ──
+                Opens images/PDFs inline (90% of screen) instead of navigating away.
+                Works on all devices: PWA, Android WebView, iOS WebView.
+                Press X, tap backdrop, or hit Escape/Back to close.
+            */}
+            <AnimatePresence>
+                {filePreview && (
+                    <>
+                        {/* Dark backdrop */}
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setFilePreview(null)}
+                            style={{
+                                position: 'fixed', inset: 0,
+                                background: 'rgba(0,0,0,0.85)',
+                                zIndex: 200000,
+                            }}
+                        />
+                        {/* Preview container — 90% of viewport */}
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.92 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.92 }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                            style={{
+                                position: 'fixed',
+                                top: '5%', left: '5%',
+                                width: '90%', height: '90%',
+                                zIndex: 200001,
+                                display: 'flex', flexDirection: 'column',
+                                borderRadius: 16,
+                                overflow: 'hidden',
+                                background: '#111',
+                                boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Header bar with file name and close (X) button */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '12px 16px',
+                                paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+                                background: 'rgba(0,0,0,0.6)',
+                                backdropFilter: 'blur(10px)',
+                                WebkitBackdropFilter: 'blur(10px)',
+                                flexShrink: 0,
+                            }}>
+                                <p style={{
+                                    fontSize: 14, fontWeight: 600, color: 'white',
+                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    flex: 1, marginRight: 12,
+                                }}>
+                                    {filePreview.name || 'File'}
+                                </p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    {/* Download / open externally button */}
+                                    <motion.a
+                                        href={filePreview.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        whileTap={{ scale: 0.85 }}
+                                        style={{
+                                            width: 36, height: 36, borderRadius: '50%',
+                                            background: 'rgba(255,255,255,0.15)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: 'pointer', textDecoration: 'none', border: 'none',
+                                            flexShrink: 0,
+                                        }}
+                                        title="Open in new tab"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                            <polyline points="15 3 21 3 21 9" />
+                                            <line x1="10" y1="14" x2="21" y2="3" />
+                                        </svg>
+                                    </motion.a>
+                                    {/* Close (X) button */}
+                                    <motion.button
+                                        onClick={() => setFilePreview(null)}
+                                        whileTap={{ scale: 0.85 }}
+                                        style={{
+                                            width: 36, height: 36, borderRadius: '50%',
+                                            background: 'rgba(255,255,255,0.2)',
+                                            border: 'none',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: 'pointer', flexShrink: 0,
+                                        }}
+                                    >
+                                        <X size={20} color="white" />
+                                    </motion.button>
+                                </div>
+                            </div>
+
+                            {/* Content area */}
+                            <div style={{
+                                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                overflow: 'auto', padding: 8,
+                                WebkitOverflowScrolling: 'touch',
+                            }}>
+                                {filePreview.type === 'image' ? (
+                                    <img
+                                        src={filePreview.url}
+                                        alt={filePreview.name || 'Preview'}
+                                        style={{
+                                            maxWidth: '100%', maxHeight: '100%',
+                                            objectFit: 'contain',
+                                            borderRadius: 8,
+                                            userSelect: 'none',
+                                            WebkitUserSelect: 'none',
+                                        }}
+                                    />
+                                ) : (
+                                    /* PDF / Document — use iframe for both PWA and native WebViews.
+                                       On native WebViews, the raw PDF URL won't render in an iframe,
+                                       so we route through Google Docs Viewer which renders it as HTML. */
+                                    (() => {
+                                        const pdfUrl = _isNativeWebView
+                                            ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(filePreview.url)}`
+                                            : filePreview.url;
+                                        // Google Docs Viewer requires no sandbox restrictions to render.
+                                        // Only sandbox direct PDF URLs (PWA path).
+                                        const sandboxProps = _isNativeWebView
+                                            ? {}
+                                            : { sandbox: 'allow-same-origin allow-scripts allow-popups' };
+                                        return (
+                                            <iframe
+                                                src={pdfUrl}
+                                                title={filePreview.name || 'Document Preview'}
+                                                style={{
+                                                    width: '100%', height: '100%',
+                                                    border: 'none', borderRadius: 8,
+                                                    background: 'white',
+                                                }}
+                                                {...sandboxProps}
+                                            />
+                                        );
+                                    })()
+                                )}
+                            </div>
+                        </motion.div>
+
+                        {/* Keyboard handler — Escape to close, also handle back button on mobile */}
+                        <FilePreviewKeyHandler onClose={() => setFilePreview(null)} />
+                    </>
+                )}
+            </AnimatePresence>
+
+            {/* ── In-app Map Preview popup (PDF-popup style, ~90% of screen) ──
+                Opens the location on an interactive map inside the chat instead of
+                launching the external Google Maps app. X / backdrop / Escape closes. */}
+            <AnimatePresence>
+                {mapPreview && (
+                    <>
+                        <motion.div
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            onClick={() => setMapPreview(null)}
+                            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200000 }}
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.92 }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                position: 'fixed', top: '5%', left: '5%', width: '90%', height: '90%',
+                                zIndex: 200001, display: 'flex', flexDirection: 'column',
+                                borderRadius: 16, overflow: 'hidden', background: '#111',
+                                boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                            }}
+                        >
+                            <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '12px 16px', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+                                background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', flexShrink: 0,
+                            }}>
+                                <p style={{ fontSize: 14, fontWeight: 600, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <MapPin size={16} color="#22C55E" style={{ flexShrink: 0 }} /> {mapPreview.address || 'Location'}
+                                </p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <motion.a
+                                        href={mapPreview.coords ? `https://www.google.com/maps/search/?api=1&query=${mapPreview.coords}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapPreview.address || '')}`}
+                                        target="_blank" rel="noopener noreferrer" whileTap={{ scale: 0.85 }}
+                                        style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textDecoration: 'none', flexShrink: 0 }}
+                                        title="Open in Google Maps"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                    </motion.a>
+                                    <motion.button onClick={() => setMapPreview(null)} whileTap={{ scale: 0.85 }}
+                                        style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                                        <X size={20} color="white" />
+                                    </motion.button>
+                                </div>
+                            </div>
+                            <div style={{ flex: 1, background: 'white' }}>
+                                <iframe
+                                    title="Location map"
+                                    src={mapPreview.coords
+                                        ? `https://maps.google.com/maps?q=${mapPreview.coords}&z=16&output=embed`
+                                        : `https://maps.google.com/maps?q=${encodeURIComponent(mapPreview.address || '')}&z=16&output=embed`}
+                                    style={{ width: '100%', height: '100%', border: 'none' }}
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer-when-downgrade"
+                                />
+                            </div>
+                        </motion.div>
+                        <FilePreviewKeyHandler onClose={() => setMapPreview(null)} />
+                    </>
+                )}
+            </AnimatePresence>
+
+            {/* ── Location Picker (opened from the "+" menu) — send current location or pin on the map ── */}
+            <AnimatePresence>
+                {showLocationPicker && (
+                    <LocationPicker
+                        title="Share Location"
+                        onClose={() => setShowLocationPicker(false)}
+                        onSelect={handleLocationSelected}
+                    />
                 )}
             </AnimatePresence>
         </div>

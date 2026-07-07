@@ -2,27 +2,30 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Helper ──────────────────────────────────────────────
+    // ── Helpers ─────────────────────────────────────────────
     function isAuth() {
       return request.auth != null;
     }
     function isOwner(uid) {
       return isAuth() && request.auth.uid == uid;
     }
+    function isAdmin() {
+      return isAuth() && request.auth.token.phone_number == '+918465834152';
+    }
 
     // ── User profiles ───────────────────────────────────────
     match /seekers/{userId} {
       allow read: if isAuth();
       allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     match /companies/{userId} {
       allow read: if isAuth();
       allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     // ── Usernames ───────────────────────────────────────────
@@ -30,26 +33,45 @@ service cloud.firestore {
       allow read: if isAuth();
       allow create: if isAuth();
       allow update: if isAuth() && resource.data.userId == request.auth.uid;
-      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+      allow delete: if (isAuth() && resource.data.userId == request.auth.uid) || isAdmin();
     }
 
     // ── Likes ───────────────────────────────────────────────
+    // Top-level likes documents (legacy/admin queries)
+    match /likes/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    // Sub-collection likes (likes/{userId}/outgoing/{docId}, likes/{userId}/incoming/{docId})
     match /likes/{userId}/{sub}/{docId} {
       allow read: if isAuth();
       allow write: if isAuth();
     }
 
     // ── Passes ──────────────────────────────────────────────
+    // Top-level passes documents (legacy/admin queries)
+    match /passes/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    // Sub-collection passes (passes/{userId}/passed/{docId})
     match /passes/{userId}/{sub}/{docId} {
-      allow read: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
       allow write: if isAuth();
     }
 
     // ── Matches ─────────────────────────────────────────────
+    // Top-level matches documents (legacy/admin queries)
+    match /matches/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    // Sub-collection matches (matches/{userId}/matched/{docId})
     match /matches/{userId}/{sub}/{docId} {
       allow read: if isAuth();
       allow write: if isAuth();
     }
+
 
     // ── Chats ───────────────────────────────────────────────
     match /chats/{chatId} {
@@ -79,7 +101,7 @@ service cloud.firestore {
       allow read: if isAuth();
       allow create: if isOwner(userId);
       allow update: if isAuth();
-      allow delete: if isOwner(userId);
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     // ── Transactions ────────────────────────────────────────
@@ -87,6 +109,7 @@ service cloud.firestore {
       allow read: if isAuth();
       allow create: if isAuth();
       allow update: if isAuth();
+      allow delete: if isAdmin();
     }
 
     // ── Withdrawals ─────────────────────────────────────────
@@ -94,6 +117,7 @@ service cloud.firestore {
       allow read: if isAuth();
       allow create: if isAuth();
       allow update: if isAuth();
+      allow delete: if isAdmin();
     }
 
     // ── Projects ────────────────────────────────────────────
@@ -109,6 +133,7 @@ service cloud.firestore {
       allow read: if isAuth();
       allow create: if isAuth();
       allow update: if isAuth();
+      allow delete: if isAdmin();
     }
 
     // ── Notifications ───────────────────────────────────────
@@ -119,8 +144,16 @@ service cloud.firestore {
         allow read: if isAuth();
         allow create: if isAuth();
         allow update: if isAuth();
-        allow delete: if isOwner(userId);
+        allow delete: if isOwner(userId) || isAdmin();
       }
+    }
+
+    // ── Delete Requests ─────────────────────────────────────
+    match /deleteRequests/{requestId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     // ── FCM Tokens ──────────────────────────────────────────
@@ -128,7 +161,8 @@ service cloud.firestore {
       allow read: if isAuth();
       allow create: if isOwner(userId);
       allow update: if isOwner(userId);
-      allow delete: if isOwner(userId);
+      allow delete: if isOwner(userId) || isAdmin();
     }
   }
 }
+

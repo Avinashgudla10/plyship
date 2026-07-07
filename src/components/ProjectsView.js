@@ -272,6 +272,9 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
     const { showToast } = useToast();
     const [loading, setLoading] = useState(false);
     const [showPaymentForm, setShowPaymentForm] = useState(false);
+    const [projectValue, setProjectValue] = useState('');
+    const commissionPreview = Math.round((Number(projectValue) || 0) * 0.04);      // 4% total the company pays
+    const seekerRewardPreview = Math.round((Number(projectValue) || 0) * 0.03);    // 3% of it goes to the seeker
 
     const handleAccept = async () => {
         setLoading(true);
@@ -288,8 +291,13 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
     };
 
     const handleConfirmAdvance = async () => {
+        const value = Number(projectValue) || 0;
+        if (value <= 0) {
+            showToast('Please enter the total project value', 'error');
+            return;
+        }
         setLoading(true);
-        const result = await confirmAdvancePayment(project.id);
+        const result = await confirmAdvancePayment(project.id, value);
         setLoading(false);
 
         if (result.success) {
@@ -467,6 +475,26 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
                                     View Payment Proof →
                                 </a>
                             )}
+                        </div>
+
+                        {/* Total project value → 4% commission (1% platform + 3% seeker), settled at next top-up */}
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                                Total Project Value (₹)
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                                <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 16 }}>₹</span>
+                                <input
+                                    type="number"
+                                    value={projectValue}
+                                    onChange={(e) => setProjectValue(e.target.value)}
+                                    placeholder="e.g. 1000000"
+                                    style={{ width: '100%', padding: '14px 14px 14px 32px', borderRadius: 12, border: '1px solid var(--border)', fontSize: 16, fontWeight: 600 }}
+                                />
+                            </div>
+                            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+                                4% commission: <strong style={{ color: 'var(--primary)' }}>₹{commissionPreview.toLocaleString('en-IN')}</strong> (1% platform + 3% <strong>₹{seekerRewardPreview.toLocaleString('en-IN')}</strong> to the seeker) — added to your commission due and collected on your next wallet top-up.
+                            </p>
                         </div>
 
                         <motion.button

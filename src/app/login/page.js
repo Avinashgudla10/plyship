@@ -134,6 +134,23 @@ export default function Login() {
 
         if (result.success) {
             if (result.isNewUser) {
+                // Double-check: make sure this phone isn't already used by another account
+                try {
+                    const formattedPhone = `+91${phone.replace(/\s/g, '')}`;
+                    const { getDocs: gd, query: q, collection: col, where: w } = await import('firebase/firestore');
+                    const { db } = await import('../../lib/firebase');
+                    const [seekerSnap, companySnap] = await Promise.all([
+                        gd(q(col(db, 'seekers'), w('phone', '==', formattedPhone))),
+                        gd(q(col(db, 'companies'), w('phone', '==', formattedPhone))),
+                    ]);
+                    if (!seekerSnap.empty || !companySnap.empty) {
+                        setError('This phone number is already registered with another account. Please contact support.');
+                        return;
+                    }
+                } catch (checkErr) {
+                    console.error('Phone duplicate check error:', checkErr);
+                    // Continue — don't block if the check itself fails
+                }
                 // New user — show role selection to complete signup
                 setShowRoleSelection(true);
             } else {
@@ -161,6 +178,7 @@ export default function Login() {
             router.replace('/profile-setup');
         }, 300);
     };
+
 
     const handleResendOTP = async () => {
         if (countdown > 0) return;

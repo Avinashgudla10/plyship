@@ -245,6 +245,13 @@ export default function AppShell({ children }) {
 
     // ---- Pull to Refresh ----
     const handleTouchStart = useCallback((e) => {
+        // Skip pull-to-refresh for views that opt out (e.g. chat)
+        let el = e.target;
+        while (el && el !== document.body) {
+            if (el.dataset && el.dataset.noPullRefresh !== undefined) return;
+            el = el.parentElement;
+        }
+
         // Only enable pull-to-refresh when at top of page
         // Check multiple scroll containers
         const target = e.target;

@@ -46,7 +46,7 @@ function loadGoogleMaps() {
 }
 
 // Full-screen WhatsApp-style location picker using Google Maps
-export default function LocationPicker({ onSelect, onClose }) {
+export default function LocationPicker({ onSelect, onClose, title = 'Meeting Location' }) {
     const [mapReady, setMapReady] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
@@ -360,7 +360,7 @@ export default function LocationPicker({ onSelect, onClose }) {
                     <X size={20} color="#374151" />
                 </motion.button>
                 <h2 style={{ flex: 1, fontSize: 17, fontWeight: 700, color: '#111827', textAlign: 'center' }}>
-                    Meeting Location
+                    {title}
                 </h2>
                 <div style={{ width: 36 }} />
             </div>

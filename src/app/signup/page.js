@@ -8,8 +8,6 @@ import { Phone, ArrowRight, ArrowLeft, Shield, CheckCircle } from 'lucide-react'
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 import Image from 'next/image';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 
 export default function Signup() {
     const router = useRouter();
@@ -52,24 +50,13 @@ export default function Signup() {
 
         setIsLoading(true);
 
-        // Check if phone number already exists in seekers or companies
-        try {
-            const formattedPhone = `+91${cleanPhone}`;
-            const [seekerSnap, companySnap] = await Promise.all([
-                getDocs(query(collection(db, 'seekers'), where('phone', '==', formattedPhone))),
-                getDocs(query(collection(db, 'companies'), where('phone', '==', formattedPhone))),
-            ]);
-
-            if (!seekerSnap.empty || !companySnap.empty) {
-                setIsLoading(false);
-                setExistingAccount(true);
-                setError('This phone number is already registered.');
-                return;
-            }
-        } catch (err) {
-            console.error('Error checking phone:', err);
-            // Continue with signup even if check fails
-        }
+        // NOTE: We intentionally do NOT query seekers/companies for an existing
+        // phone here. Those collections require an authenticated read (Firestore
+        // rules: `allow read: if isAuth()`), but at this point the user has not
+        // signed in yet, so the query always fails with permission-denied and was
+        // silently swallowed — the "already registered" guard never actually ran
+        // and it spammed the console on every signup. A duplicate number simply
+        // signs the user back into their existing account after OTP verification.
 
         const result = await sendOTP(cleanPhone, 'recaptcha-container');
         setIsLoading(false);

@@ -12,6 +12,18 @@ import {
     RefreshCw, Check, Ban, Wallet, CreditCard
 } from 'lucide-react';
 
+// ── Scheduling guards: prevent selecting a past date/time (local time) ──
+const _pad2 = (n) => String(n).padStart(2, '0');
+const localTodayStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`;
+};
+const isPastDateTime = (dateStr, timeStr) => {
+    if (!dateStr || !timeStr) return false;
+    const dt = new Date(`${dateStr}T${timeStr}`);
+    return !isNaN(dt.getTime()) && dt.getTime() < Date.now();
+};
+
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
     const { user, getMeetings, confirmMeeting, acceptMeeting, declineMeeting, cancelMeeting, denyMeeting, topUpWallet, acceptAndScheduleMeeting, requestRescheduleMeeting, counterProposeMeeting, acceptProposedMeeting } = useAuth();
@@ -1209,6 +1221,10 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
             showToast('Please select date and time', 'warning');
             return;
         }
+        if (!isCompany && isPastDateTime(date, time)) {
+            showToast('Meeting time must be in the future', 'warning');
+            return;
+        }
         // Seekers must provide a location
         if (!isCompany && !location) {
             showToast('Please select the meeting location on the map', 'warning');
@@ -1344,8 +1360,8 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                         <input
                             type="date"
                             value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            min={new Date().toISOString().split('T')[0]}
+                            onChange={(e) => { setDate(e.target.value); if (time && isPastDateTime(e.target.value, time)) setTime(''); }}
+                            min={localTodayStr()}
                             style={{
                                 width: '100%',
                                 padding: 12,
@@ -1366,7 +1382,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                         <input
                             type="time"
                             value={time}
-                            onChange={(e) => setTime(e.target.value)}
+                            onChange={(e) => { if (isPastDateTime(date, e.target.value)) { showToast('Please pick a time later than now', 'warning'); return; } setTime(e.target.value); }}
                             style={{
                                 width: '100%',
                                 padding: 12,
@@ -1560,6 +1576,10 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
             showToast('Please select date and time', 'warning');
             return;
         }
+        if (isPastDateTime(date, time)) {
+            showToast('Meeting time must be in the future', 'warning');
+            return;
+        }
 
         const scheduledAt = new Date(`${date}T${time}`).toISOString();
 
@@ -1638,8 +1658,8 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
                     <input
                         type="date"
                         value={date}
-                        onChange={(e) => setDate(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]}
+                        onChange={(e) => { setDate(e.target.value); if (time && isPastDateTime(e.target.value, time)) setTime(''); }}
+                        min={localTodayStr()}
                         style={{
                             width: '100%',
                             padding: 12,
@@ -1658,7 +1678,7 @@ function RescheduleMeetingModal({ meeting, onClose, onScheduled }) {
                     <input
                         type="time"
                         value={time}
-                        onChange={(e) => setTime(e.target.value)}
+                        onChange={(e) => { if (isPastDateTime(date, e.target.value)) { showToast('Please pick a time later than now', 'warning'); return; } setTime(e.target.value); }}
                         style={{
                             width: '100%',
                             padding: 12,
@@ -1747,6 +1767,10 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
             showToast('Please select date and time', 'warning');
             return;
         }
+        if (isPastDateTime(date, time)) {
+            showToast('Meeting time must be in the future', 'warning');
+            return;
+        }
         if (!location) {
             showToast('Please select the meeting location on the map', 'warning');
             return;
@@ -1825,8 +1849,8 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
                         <input
                             type="date"
                             value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            min={new Date().toISOString().split('T')[0]}
+                            onChange={(e) => { setDate(e.target.value); if (time && isPastDateTime(e.target.value, time)) setTime(''); }}
+                            min={localTodayStr()}
                             style={{
                                 width: '100%', padding: 12, borderRadius: 10,
                                 border: '1px solid var(--border)', fontSize: 15,
@@ -1842,7 +1866,7 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
                         <input
                             type="time"
                             value={time}
-                            onChange={(e) => setTime(e.target.value)}
+                            onChange={(e) => { if (isPastDateTime(date, e.target.value)) { showToast('Please pick a time later than now', 'warning'); return; } setTime(e.target.value); }}
                             style={{
                                 width: '100%', padding: 12, borderRadius: 10,
                                 border: '1px solid var(--border)', fontSize: 15,
@@ -2012,6 +2036,10 @@ export function CounterProposeModal({ meeting, onClose, onProposed }) {
             showToast('Please select date and time', 'warning');
             return;
         }
+        if (isPastDateTime(date, time)) {
+            showToast('Meeting time must be in the future', 'warning');
+            return;
+        }
         if (!location) {
             showToast('Please select the meeting location on the map', 'warning');
             return;
@@ -2087,8 +2115,8 @@ export function CounterProposeModal({ meeting, onClose, onProposed }) {
                         <input
                             type="date"
                             value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            min={new Date().toISOString().split('T')[0]}
+                            onChange={(e) => { setDate(e.target.value); if (time && isPastDateTime(e.target.value, time)) setTime(''); }}
+                            min={localTodayStr()}
                             style={{
                                 width: '100%', padding: 12, borderRadius: 10,
                                 border: '1px solid var(--border)', fontSize: 15,
@@ -2104,7 +2132,7 @@ export function CounterProposeModal({ meeting, onClose, onProposed }) {
                         <input
                             type="time"
                             value={time}
-                            onChange={(e) => setTime(e.target.value)}
+                            onChange={(e) => { if (isPastDateTime(date, e.target.value)) { showToast('Please pick a time later than now', 'warning'); return; } setTime(e.target.value); }}
                             style={{
                                 width: '100%', padding: 12, borderRadius: 10,
                                 border: '1px solid var(--border)', fontSize: 15,

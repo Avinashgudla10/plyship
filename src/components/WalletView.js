@@ -25,14 +25,31 @@ export default function WalletView({ onBack }) {
 
 // ============ TOP UP MODAL ============
 export function TopUpModal({ onClose, onSuccess }) {
-    const { user, topUpWallet, recoverPendingPayments } = useAuth();
+    const { user, topUpWallet, recoverPendingPayments, getWallet } = useAuth();
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [commissionOwed, setCommissionOwed] = useState(0);
     // Track pending order for iOS recovery
     const pendingOrderRef = React.useRef(null);
 
-    const presetAmounts = [500, 1000, 2000, 5000];
+    // Load any project commission the company still owes — top-ups must cover it.
+    React.useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const w = await getWallet?.();
+                if (active && w) setCommissionOwed(w.commissionOwed || 0);
+            } catch (e) { /* ignore */ }
+        })();
+        return () => { active = false; };
+    }, [getWallet]);
+
+    // Minimum usable top-up (₹500) plus any owed commission that gets settled.
+    const minTopUp = commissionOwed > 0 ? commissionOwed + 500 : 500;
+    const presetAmounts = commissionOwed > 0
+        ? [minTopUp, minTopUp + 500, minTopUp + 2000, minTopUp + 5000]
+        : [500, 1000, 2000, 5000];
 
     // ── iOS Recovery: check if a pending payment completed ──
     // On iOS WKWebView, when the user switches to a UPI app and back,
@@ -103,8 +120,10 @@ export function TopUpModal({ onClose, onSuccess }) {
 
     const handlePayment = async () => {
         const numAmount = parseInt(amount);
-        if (!numAmount || numAmount < 500) {
-            setError('Minimum top-up amount is ₹500');
+        if (!numAmount || numAmount < minTopUp) {
+            setError(commissionOwed > 0
+                ? `Minimum ₹${minTopUp.toLocaleString('en-IN')} — ₹${commissionOwed.toLocaleString('en-IN')} project commission due + ₹500 minimum.`
+                : 'Minimum top-up amount is ₹500');
             return;
         }
 
@@ -257,6 +276,13 @@ export function TopUpModal({ onClose, onSuccess }) {
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 16, padding: '8px 10px', background: '#F0FDF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
                     Wallet funds are a refundable deposit used only for confirmed offline interior consultation meetings. Not used for digital goods.
                 </p>
+
+                {/* Owed project commission — must be covered by this top-up */}
+                {commissionOwed > 0 && (
+                    <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.5, marginBottom: 16, padding: '10px 12px', background: '#FFFBEB', borderRadius: 8, border: '1px solid #FDE68A' }}>
+                        You have <strong>₹{commissionOwed.toLocaleString('en-IN')}</strong> project commission due. Add at least <strong>₹{minTopUp.toLocaleString('en-IN')}</strong> (₹{commissionOwed.toLocaleString('en-IN')} commission + ₹500 minimum). The commission is settled on payment; the rest is added to your balance.
+                    </div>
+                )}
 
                 {/* Preset Amounts */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
