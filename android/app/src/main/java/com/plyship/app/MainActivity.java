@@ -81,6 +81,9 @@ public class MainActivity extends BridgeActivity {
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean isConnected = true;
     private boolean didFailToLoad = false;
+    // Guards the one-time reload that guarantees the JS bridges (PlyshipContacts/
+    // PlyshipPush) are exposed to the loaded page. See ensureBridgesExposed().
+    private boolean bridgeReloadDone = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // File upload callback from WebChromeClient
@@ -239,9 +242,48 @@ public class MainActivity extends BridgeActivity {
             registerPushBridge();
             injectPullToRefreshScript();
             startNetworkMonitoring();
+            ensureBridgesExposed();
         } catch (Exception e) {
             mainHandler.postDelayed(this::setupAfterBridgeReady, 500);
         }
+    }
+
+    /**
+     * addJavascriptInterface() only exposes the injected object to the page on its
+     * NEXT (re)load. On fast devices plyship.com finishes loading before we register
+     * the bridges (registration is delayed to let the Capacitor bridge initialise),
+     * so window.PlyshipContacts / window.PlyshipPush end up undefined on the already-
+     * loaded page and the web app shows "Update your app / can't read device contacts".
+     *
+     * Here we ask the page whether the bridge is visible; if it isn't, we reload once
+     * (guarded by bridgeReloadDone) so Android re-injects the interfaces into the fresh
+     * page load. On slower devices where the bridge is already visible, no reload happens.
+     */
+    private void ensureBridgesExposed() {
+        if (bridgeReloadDone) return;
+        final WebView webView = getBridge().getWebView();
+        if (webView == null) return;
+        // Ask the page for BOTH its load state and whether the bridge is visible.
+        webView.evaluateJavascript(
+            "JSON.stringify([document.readyState, typeof window.PlyshipContacts])",
+            value -> {
+                if (bridgeReloadDone) return;
+                boolean present = value != null && value.contains("object");    // bridge visible
+                boolean complete = value != null && value.contains("complete"); // page done loading
+                if (present) {
+                    // Bridge already reached the page (slow load registered it in time) — done.
+                    bridgeReloadDone = true;
+                } else if (complete) {
+                    // Page finished loading before the bridge was registered (fast devices):
+                    // addJavascriptInterface only takes effect on the next load → reload once.
+                    bridgeReloadDone = true;
+                    webView.reload();
+                } else {
+                    // Still loading: the bridge was registered before load completion and will
+                    // appear when it finishes, so re-check shortly instead of reloading.
+                    mainHandler.postDelayed(this::ensureBridgesExposed, 700);
+                }
+            });
     }
 
     // ==================== Status Bar ====================
@@ -370,6 +412,37 @@ public class MainActivity extends BridgeActivity {
                     return true;
                 }
 
+                // Google Maps HTTPS links (top-level navigations only) open externally.
+                // Otherwise .google.com is treated as internal (needed for reCAPTCHA /
+                // Firebase Auth) and map links load OVER the app with no way back to chat.
+                // isForMainFrame guard keeps embedded map iframes (in-chat map popup) working.
+                if (request.isForMainFrame() && scheme != null && (scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("http"))) {
+                    String host = url.getHost();
+                    if (host != null) {
+                        String h = host.toLowerCase();
+                        String p = url.getPath() != null ? url.getPath().toLowerCase() : "";
+                        boolean isMapsLink =
+                            h.equals("maps.google.com") || h.endsWith(".maps.google.com") ||
+                            h.equals("maps.app.goo.gl") ||
+                            (h.equals("goo.gl") && p.startsWith("/maps")) ||
+                            ((h.equals("google.com") || h.equals("www.google.com")) && p.startsWith("/maps"));
+                        if (isMapsLink) {
+                            try {
+                                Intent mapIntent = new Intent(Intent.ACTION_VIEW, url);
+                                mapIntent.setPackage("com.google.android.apps.maps");
+                                if (mapIntent.resolveActivity(getPackageManager()) != null) {
+                                    startActivity(mapIntent);
+                                } else {
+                                    startActivity(new Intent(Intent.ACTION_VIEW, url));
+                                }
+                            } catch (Exception e) {
+                                try { startActivity(new Intent(Intent.ACTION_VIEW, url)); } catch (Exception ignored) {}
+                            }
+                            return true;
+                        }
+                    }
+                }
+
                 if (isInternalURL(url)) {
                     return false;
                 } else {
@@ -384,6 +457,10 @@ public class MainActivity extends BridgeActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 didFailToLoad = false;
+                // A successful page load is definitive proof of connectivity, so any
+                // offline UI shown due to a cold-boot network callback race must clear.
+                isConnected = true;
+                hideOfflineBanner();
                 hideOfflineFullScreen();
                 injectPullToRefreshScript();
             }
@@ -456,10 +533,12 @@ public class MainActivity extends BridgeActivity {
                             cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, cameraPhotoUri);
                             fileChooserLauncher.launch(cameraIntent);
                         } else {
-                            fileUploadCallback.onReceiveValue(null);
-                            fileUploadCallback = null;
+                            // No camera app available (e.g. blocked by Android 11+ package
+                            // visibility) — fall back to the gallery/file picker instead of
+                            // resolving the callback AND returning false, which crashes the
+                            // WebView with "Duplicate showFileChooser result".
                             cameraPhotoUri = null;
-                            return false;
+                            fileChooserLauncher.launch(fileChooserParams.createIntent());
                         }
                     } else {
                         // "Photo Library" or other file types — use gallery/file picker
@@ -494,9 +573,15 @@ public class MainActivity extends BridgeActivity {
                         }
                     }
                 } catch (Exception e) {
-                    fileUploadCallback = null;
+                    // Resolve the callback as cancelled and report handled (true), so the
+                    // WebView does not re-invoke its own chooser on the same callback
+                    // (which would crash with "Duplicate showFileChooser result").
+                    if (fileUploadCallback != null) {
+                        fileUploadCallback.onReceiveValue(null);
+                        fileUploadCallback = null;
+                    }
                     cameraPhotoUri = null;
-                    return false;
+                    return true;
                 }
                 return true;
             }
@@ -663,46 +748,15 @@ public class MainActivity extends BridgeActivity {
     }
 
     // ==================== Pull to Refresh ====================
+    // NOTE: Native injected pull-to-refresh is DISABLED.
+    // The React AppShell component (AppShell.js) provides its own pull-to-refresh
+    // implementation that correctly respects data-no-pull-refresh opt-out attributes.
+    // Having both the native injected JS and AppShell PTR running simultaneously
+    // caused two refresh indicators to appear on screen (one from each system).
+    // The AppShell PTR is the single source of truth for pull-to-refresh behavior.
 
     private void injectPullToRefreshScript() {
-        WebView webView = getBridge().getWebView();
-        if (webView == null) return;
-
-        String js = "(function(){" +
-            "if(window.__plyPTR)return;window.__plyPTR=true;" +
-            "var startY=0,pulling=false,el=null;" +
-            "function mkEl(){if(el)return;el=document.createElement('div');" +
-            "el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:999999;display:flex;" +
-            "justify-content:center;padding-top:env(safe-area-inset-top,24px);pointer-events:none;" +
-            "opacity:0;transition:opacity 0.2s;';" +
-            "var dot=document.createElement('div');" +
-            "dot.style.cssText='width:36px;height:36px;margin-top:8px;border-radius:50%;background:#fff;" +
-            "box-shadow:0 2px 12px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;';" +
-            "dot.innerHTML='<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" " +
-            "stroke=\"#22C55E\" stroke-width=\"2.5\" stroke-linecap=\"round\">" +
-            "<polyline points=\"23 4 23 10 17 10\"/>" +
-            "<path d=\"M20.49 15a9 9 0 1 1-2.12-9.36L23 10\"/></svg>';" +
-            "el.appendChild(dot);document.body.appendChild(el);}" +
-            "function atTop(){var t=document.elementFromPoint(window.innerWidth/2,100);" +
-            "while(t&&t!==document.body&&t!==document.documentElement){if(t.scrollTop>5)return false;" +
-            "t=t.parentElement;}return(document.documentElement.scrollTop||0)<=5;}" +
-            "document.addEventListener('touchstart',function(e){" +
-            "if(atTop()){startY=e.touches[0].clientY;pulling=true;}},{passive:true});" +
-            "document.addEventListener('touchmove',function(e){if(!pulling)return;" +
-            "var dy=e.touches[0].clientY-startY;if(dy>10){mkEl();var p=Math.min(dy/120,1);" +
-            "el.style.opacity=String(Math.min(p*1.5,1));var svg=el.querySelector('svg');" +
-            "if(svg)svg.style.transform='rotate('+(p*360)+'deg)';}else if(dy<-5){pulling=false;" +
-            "if(el)el.style.opacity='0';}},{passive:true});" +
-            "document.addEventListener('touchend',function(e){if(!pulling)return;pulling=false;" +
-            "var dy=(e.changedTouches[0]?e.changedTouches[0].clientY:0)-startY;" +
-            "if(dy>100){if(el){var svg=el.querySelector('svg');" +
-            "if(svg)svg.style.animation='spin 0.6s linear infinite';" +
-            "if(!document.getElementById('__ptr_style')){var s=document.createElement('style');" +
-            "s.id='__ptr_style';s.textContent='@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';" +
-            "document.head.appendChild(s);}}setTimeout(function(){window.location.reload();},300);" +
-            "}else{if(el)el.style.opacity='0';}},{passive:true});})();";
-
-        webView.evaluateJavascript(js, null);
+        // No-op: pull-to-refresh is handled by the React AppShell component
     }
 
     // ==================== Network Monitoring ====================
@@ -725,10 +779,13 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void onAvailable(@NonNull Network network) {
                 mainHandler.post(() -> {
-                    if (!isConnected) {
-                        isConnected = true;
-                        hideOfflineBanner();
-                        hideOfflineFullScreen();
+                    boolean wasOffline = !isConnected;
+                    isConnected = true;
+                    // Always clear the banner when a network is available — do not gate
+                    // on the previous state, which could leave a stale banner stuck.
+                    hideOfflineBanner();
+                    hideOfflineFullScreen();
+                    if (wasOffline) {
                         showOnlineToast();
                         if (didFailToLoad) {
                             didFailToLoad = false;
@@ -742,8 +799,15 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void onLost(@NonNull Network network) {
                 mainHandler.post(() -> {
-                    isConnected = false;
-                    showOfflineBanner();
+                    // Only show the offline banner if there is genuinely no active network
+                    // (onLost fires per-network; another may still be connected).
+                    android.net.Network active = connectivityManager != null ? connectivityManager.getActiveNetwork() : null;
+                    NetworkCapabilities caps = active != null ? connectivityManager.getNetworkCapabilities(active) : null;
+                    boolean stillOnline = caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+                    if (!stillOnline) {
+                        isConnected = false;
+                        showOfflineBanner();
+                    }
                 });
             }
         };

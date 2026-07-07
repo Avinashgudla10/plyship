@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -93,6 +93,12 @@
     <!-- Package visibility: needed on Android 11+ (API 30) to discover UPI apps
          for Razorpay's UPI intent flow. Without this, resolveActivity() returns null. -->
     <queries>
+        <!-- Camera: needed on Android 11+ so the camera app is discoverable for
+             photo capture in chat (otherwise resolveActivity() returns null and
+             the WebView file chooser crashes with "Duplicate showFileChooser result"). -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
         <!-- Maps: needed for meeting location deep links -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
