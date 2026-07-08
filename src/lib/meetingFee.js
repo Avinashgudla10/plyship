@@ -12,6 +12,21 @@
 
 export const DEFAULT_MEETING_FEE = 500;
 
+/**
+ * Pricing tiers in display order — the single source of truth for both the fee
+ * lookup and any UI that explains the pricing to users. Larger properties command
+ * a higher consultation fee because the interior scope (and the seeker's committed
+ * time) grows with the space.
+ */
+export const FEE_TIERS = [
+    { label: '1 BHK', fee: 500 },
+    { label: '2 BHK', fee: 1000 },
+    { label: '3 BHK', fee: 1500 },
+    { label: '4+ BHK', fee: 2000 },
+    { label: 'Villa', fee: 3000 },
+    { label: 'Office', fee: 3000 },
+];
+
 // Normalised property-type key → fee (INR).
 const FEE_TABLE = {
     '1 BHK': 500,

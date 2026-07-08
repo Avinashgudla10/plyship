@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { TopUpModal } from './WalletView';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
-import { getMeetingFee, DEFAULT_MEETING_FEE } from '../lib/meetingFee';
+import { getMeetingFee, DEFAULT_MEETING_FEE, FEE_TIERS } from '../lib/meetingFee';
 import {
     Calendar, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
     User, Building2, MapPin, ChevronRight, Plus, X, IndianRupee,
@@ -1176,7 +1176,7 @@ function ConfirmBadge({ label, confirmed }) {
 }
 
 // Schedule Meeting Modal
-export function ScheduleMeetingModal({ match, fee, onClose, onScheduled }) {
+export function ScheduleMeetingModal({ match, fee, propertyType, onClose, onScheduled }) {
     const { scheduleMeeting, user, getWallet, getMeetings } = useAuth();
     const { showToast } = useToast();
     const [date, setDate] = useState('');
@@ -1358,6 +1358,45 @@ export function ScheduleMeetingModal({ match, fee, onClose, onScheduled }) {
                                 {!hasEnoughBalance ? 'Add Service Deposit' : `Add ₹${MEETING_COST} for another slot`}
                             </motion.button>
                         )}
+                    </div>
+                )}
+
+                {/* Why this fee? — explains that the consultation fee scales with the
+                    seeker's property type (company only) */}
+                {isCompany && (
+                    <div style={{
+                        padding: 12,
+                        borderRadius: 10,
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border)',
+                        marginBottom: 16,
+                    }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                            Why ₹{MEETING_COST}?
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+                            The consultation fee is set by the seeker&apos;s property type
+                            {propertyType ? <> — this project is a <strong style={{ color: 'var(--text-secondary)' }}>{propertyType}</strong></> : null}.
+                            Larger spaces need more planning and the seeker&apos;s time, so the fee scales with the property.
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {FEE_TIERS.map((t) => {
+                                const isCurrent = t.fee === MEETING_COST;
+                                return (
+                                    <span key={t.label} style={{
+                                        fontSize: 10,
+                                        fontWeight: isCurrent ? 700 : 500,
+                                        padding: '3px 8px',
+                                        borderRadius: 999,
+                                        background: isCurrent ? 'var(--primary)' : 'var(--bg-primary)',
+                                        color: isCurrent ? 'white' : 'var(--text-muted)',
+                                        border: `1px solid ${isCurrent ? 'var(--primary)' : 'var(--border)'}`,
+                                    }}>
+                                        {t.label} · ₹{t.fee}
+                                    </span>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
 
