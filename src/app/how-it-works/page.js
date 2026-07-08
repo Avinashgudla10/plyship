@@ -59,7 +59,7 @@ export default function HowItWorksPage() {
                             { step: 1, icon: Users, title: 'Create Your Company Profile', desc: "Sign up and tell us about your company, the services you offer, and the type of interior projects you handle." },
                             { step: 2, icon: Heart, title: 'Browse & Match with Seekers', desc: "Swipe through seeker profiles. When you like someone, swipe right. If they like you back, it's a match!" },
                             { step: 3, icon: MessageCircle, title: 'Chat & Schedule Meetings', desc: 'Start a conversation with your matches. Schedule meetings directly in the app to discuss projects.' },
-                            { step: 4, icon: Wallet, title: 'Pay Per Meeting (₹500)', desc: 'Add funds to your wallet. ₹500 is automatically deducted when both parties confirm a meeting took place.' },
+                            { step: 4, icon: Wallet, title: 'Pay Per Meeting (₹500–₹3,000)', desc: "Add funds to your wallet. The meeting fee is based on the seeker's home size (₹500 for 1 BHK up to ₹3,000 for a villa or office) and is deducted only when both parties confirm the meeting took place." },
                             { step: 5, icon: CheckCircle, title: 'Start Your Project', desc: 'Found the right client? Start working together on their home interior project!' },
                         ].map((item, i) => (
                             <motion.div

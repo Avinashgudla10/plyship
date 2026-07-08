@@ -704,13 +704,17 @@ export default function AdminDashboard() {
             const user = users.find(u => u.id === userId);
             const role = user?.role || 'seeker';
 
-            // Delete from Firebase Auth via server API
-            const adminPhone = localStorage.getItem('userPhone');
+            // Delete from Firebase Auth via server API (authenticated with the
+            // admin's Firebase ID token — the server verifies it).
+            const idToken = await auth.currentUser?.getIdToken();
             try {
                 const res = await fetch('/api/admin/delete-user', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, adminPhone }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': idToken ? `Bearer ${idToken}` : '',
+                    },
+                    body: JSON.stringify({ userId }),
                 });
                 const result = await res.json();
                 if (!res.ok) {
@@ -945,12 +949,15 @@ export default function AdminDashboard() {
             if (newStatus === 'APPROVED') {
                 const request = deleteRequests.find(r => r.id === requestId);
                 if (request?.phone) {
-                    const adminPhone = localStorage.getItem('userPhone');
+                    const idToken = await auth.currentUser?.getIdToken();
                     try {
                         const res = await fetch('/api/admin/delete-user', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ phone: request.phone, adminPhone }),
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': idToken ? `Bearer ${idToken}` : '',
+                            },
+                            body: JSON.stringify({ phone: request.phone }),
                         });
                         const result = await res.json();
                         if (res.ok && result.deletedUid) {

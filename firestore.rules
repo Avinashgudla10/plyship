@@ -74,14 +74,21 @@ service cloud.firestore {
 
 
     // ── Chats ───────────────────────────────────────────────
+    // Reads are scoped to the chat's participants (or admin). Previously ANY
+    // authenticated user could read EVERY chat and message — a privacy leak, since
+    // phone numbers, addresses and project details are exchanged here. Every chat
+    // doc is created with a `participants` array, and the app only ever queries
+    // chats via `where('participants','array-contains', uid)`, so this is safe.
     match /chats/{chatId} {
-      allow read: if isAuth();
+      allow read: if isAdmin() || (isAuth() && request.auth.uid in resource.data.participants);
       allow create: if isAuth();
       allow update: if isAuth();
       allow delete: if isAuth();
 
       match /messages/{messageId} {
-        allow read: if isAuth();
+        // A message is readable only by participants of its parent chat (or admin).
+        allow read: if isAdmin() || (isAuth() &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
         allow create: if isAuth();
         allow update: if isAuth();
         allow delete: if isAuth();
@@ -89,6 +96,10 @@ service cloud.firestore {
     }
 
     // ── Meetings ────────────────────────────────────────────
+    // TODO(security): reads are still open to any authenticated user. Cannot scope to
+    // companyId/seekerId yet because company discovery runs a GLOBAL meetings query
+    // (where status in [...]) to deprioritise already-requested seekers. Tighten this
+    // once that query is moved server-side or reworked to be owner-scoped.
     match /meetings/{meetingId} {
       allow read: if isAuth();
       allow create: if isAuth();
@@ -97,6 +108,11 @@ service cloud.firestore {
     }
 
     // ── Wallets ─────────────────────────────────────────────
+    // TODO(security, P0): `update: if isAuth()` lets any signed-in user write ANY
+    // wallet balance, and top-ups are credited client-side — so a user can self-credit
+    // without paying. Cannot be fixed by rules alone (legit and malicious client writes
+    // are indistinguishable); requires moving all balance mutations to a trusted server
+    // that credits only after verifying the Razorpay payment. Tracked separately.
     match /wallets/{userId} {
       allow read: if isAuth();
       allow create: if isOwner(userId);
@@ -105,8 +121,11 @@ service cloud.firestore {
     }
 
     // ── Transactions ────────────────────────────────────────
+    // A user can read only their own transactions (userId == them). Admin reads all.
+    // Every transaction is written with userId = the wallet owner it affects, and the
+    // app queries with `where('userId','==', uid)`, so owner-scoped reads are safe.
     match /transactions/{txId} {
-      allow read: if isAuth();
+      allow read: if isAdmin() || (isAuth() && resource.data.userId == request.auth.uid);
       allow create: if isAuth();
       allow update: if isAuth();
       allow delete: if isAdmin();
@@ -121,8 +140,11 @@ service cloud.firestore {
     }
 
     // ── Projects ────────────────────────────────────────────
+    // Readable only by the two parties (company/seeker) or admin. The app always
+    // queries projects filtered by companyId or seekerId == the current user.
     match /projects/{projectId} {
-      allow read: if isAuth();
+      allow read: if isAdmin() || (isAuth() &&
+        (resource.data.companyId == request.auth.uid || resource.data.seekerId == request.auth.uid));
       allow create: if isAuth();
       allow update: if isAuth();
       allow delete: if isAuth();

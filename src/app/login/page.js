@@ -21,8 +21,10 @@ export default function Login() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [countdown, setCountdown] = useState(0);
+    const [resendCount, setResendCount] = useState(0);
     const [showRoleSelection, setShowRoleSelection] = useState(false);
     const otpRefs = useRef([]);
+    const MAX_RESENDS = 3;
 
     // Redirect if already logged in
     useEffect(() => {
@@ -182,12 +184,17 @@ export default function Login() {
 
     const handleResendOTP = async () => {
         if (countdown > 0) return;
+        if (resendCount >= MAX_RESENDS) {
+            setError('Too many OTP requests. Please wait a few minutes before trying again.');
+            return;
+        }
         setError('');
         setOtp(['', '', '', '', '', '']);
         setIsLoading(true);
         const result = await sendOTP(phone.replace(/\s/g, ''), 'recaptcha-container');
         setIsLoading(false);
         if (result.success) {
+            setResendCount(c => c + 1);
             setCountdown(30);
             otpRefs.current[0]?.focus();
         } else {
@@ -459,6 +466,10 @@ export default function Login() {
                             <div style={{ textAlign: 'center', fontSize: 14, color: 'var(--text-secondary)' }}>
                                 {countdown > 0 ? (
                                     <span>Resend OTP in <strong>{countdown}s</strong></span>
+                                ) : resendCount >= MAX_RESENDS ? (
+                                    <span style={{ color: 'var(--text-muted)' }}>
+                                        Too many attempts — please wait a few minutes
+                                    </span>
                                 ) : (
                                     <button
                                         onClick={handleResendOTP}

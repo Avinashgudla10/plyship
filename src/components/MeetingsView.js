@@ -423,7 +423,7 @@ export default function MeetingsView({ onBack }) {
                     <IndianRupee size={20} color="var(--primary)" />
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {isCompany
-                            ? '₹500 deposit is charged when both confirm the offline meeting happened'
+                            ? 'The meeting fee (₹500–₹3,000, based on the home size) is charged only when both parties confirm the offline meeting happened'
                             : `₹${mySeekerShare} is paid to you when both confirm the offline meeting happened`
                         }
                     </span>
@@ -1342,7 +1342,7 @@ export function ScheduleMeetingModal({ match, fee, propertyType, onClose, onSche
                                     Wallet balance
                                 </div>
                                 <div style={{ fontSize: 20, fontWeight: 800, color: hasEnoughBalance ? '#166534' : '#DC2626', lineHeight: 1.2 }}>
-                                    ₹{companyBalance}
+                                    ₹{companyBalance.toLocaleString('en-IN')}
                                 </div>
                             </div>
                             <div style={{
@@ -1356,7 +1356,7 @@ export function ScheduleMeetingModal({ match, fee, propertyType, onClose, onSche
                                     This meeting
                                 </div>
                                 <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--primary)', lineHeight: 1.2 }}>
-                                    ₹{MEETING_COST}
+                                    ₹{MEETING_COST.toLocaleString('en-IN')}
                                 </div>
                             </div>
                         </div>

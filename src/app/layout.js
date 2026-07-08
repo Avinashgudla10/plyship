@@ -16,10 +16,14 @@ export const metadata = {
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Allow pinch-zoom (accessibility / WCAG 1.4.4). Previously locked at 1x with
+  // userScalable:false, which blocks users who need to zoom.
+  maximumScale: 5,
+  userScalable: true,
   viewportFit: 'cover',
-  themeColor: '#FFFFFF',
+  // Brand green so the mobile status bar / PWA chrome matches the app instead of
+  // flashing white against the green splash and headers.
+  themeColor: '#16A34A',
 };
 
 export default function RootLayout({ children }) {

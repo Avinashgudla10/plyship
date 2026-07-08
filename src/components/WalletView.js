@@ -434,7 +434,13 @@ function CompanyWalletView({ onBack }) {
     }
 
     const balance = wallet?.balance || 0;
+    // "Up to" capacity based on the smallest possible fee (₹500 / 1 BHK). Actual fees
+    // scale with the seeker's home size (₹500–₹3,000), so this is a maximum, not exact.
     const meetingsAvailable = Math.floor(balance / 500);
+    // Actual meetings paid for — counted from real MEETING_FEE debits, not balance÷500.
+    const meetingsCompleted = (transactions || []).filter(
+        t => t.reason === 'MEETING_FEE' && t.type === 'DEBIT'
+    ).length;
     const isLowBalance = balance < 1000;
 
     return (
@@ -464,7 +470,7 @@ function CompanyWalletView({ onBack }) {
                         ₹{balance.toLocaleString('en-IN')}
                     </div>
                     <div style={{ fontSize: 13, opacity: 0.85 }}>
-                        {meetingsAvailable} meetings available
+                        Up to {meetingsAvailable} meetings • ₹500–₹3,000 each
                     </div>
                     <div style={{ fontSize: 11, opacity: 0.75, marginTop: 8, lineHeight: 1.4 }}>
                         Wallet funds are a refundable deposit for offline interior consultation meetings only.
@@ -586,7 +592,7 @@ function CompanyWalletView({ onBack }) {
                     <StatCard
                         icon={Building2}
                         label="Meetings"
-                        value={Math.floor((wallet?.totalSpent || 0) / 500)}
+                        value={meetingsCompleted}
                     />
                 </div>
 

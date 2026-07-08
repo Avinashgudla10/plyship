@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { APP_VERSION } from '../lib/appInfo';
 
 // Main Profile View with navigation
 // ============ SHARE PROFILE MODAL ============
@@ -522,7 +523,7 @@ export default function ProfileView({ onNavigate }) {
                     color: 'var(--text-muted)',
                     marginTop: 20,
                 }}>
-                    PLYSHIP v1.0.0
+                    PLYSHIP v{APP_VERSION}
                 </p>
             </div>
         </div>
@@ -1480,13 +1481,18 @@ export function SettingsView({ onBack }) {
                 <div style={{ background: 'white', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-light)', marginBottom: 20 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: '1px solid var(--border-light)' }}>
                         <span style={{ fontSize: 15, color: 'var(--text-primary)' }}>Version</span>
-                        <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>1.0.0</span>
+                        <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>{APP_VERSION}</span>
                     </div>
-                    <MenuItem label="Clear App Cache" onClick={() => {
-                        if (typeof window !== 'undefined' && window.caches) {
-                            caches.keys().then(names => names.forEach(name => caches.delete(name)));
-                        }
-                        showToast('Cache cleared successfully!', 'success');
+                    <MenuItem label="Clear App Cache" onClick={async () => {
+                        try {
+                            if (typeof window !== 'undefined' && window.caches) {
+                                const names = await caches.keys();
+                                await Promise.all(names.map(name => caches.delete(name)));
+                            }
+                        } catch (e) { /* ignore */ }
+                        showToast('Cache cleared — reloading…', 'success');
+                        // Reload so the cleared cache actually takes effect.
+                        setTimeout(() => window.location.reload(), 800);
                     }} isLast />
                 </div>
 

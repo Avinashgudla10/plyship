@@ -30,18 +30,35 @@ const ADMIN_PHONES = ['+918465834152'];
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { userId, phone, adminPhone } = body;
+        const { userId, phone } = body;
 
         if (!userId && !phone) {
             return Response.json({ error: 'userId or phone is required' }, { status: 400 });
         }
 
-        if (!adminPhone || !ADMIN_PHONES.includes(adminPhone)) {
-            return Response.json({ error: 'Unauthorized' }, { status: 403 });
-        }
-
         const app = getAdminApp();
         const authAdmin = admin.auth(app);
+
+        // ── Authorization ──
+        // The caller must present a valid Firebase ID token in the Authorization
+        // header. We verify it server-side and confirm the token's phone number is
+        // an admin. Never trust a phone number sent in the request body (that was
+        // spoofable — anyone could POST adminPhone and delete any account).
+        const authHeader = request.headers.get('authorization') || '';
+        const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!idToken) {
+            return Response.json({ error: 'Missing authentication token' }, { status: 401 });
+        }
+        let callerPhone;
+        try {
+            const decoded = await authAdmin.verifyIdToken(idToken);
+            callerPhone = decoded.phone_number;
+        } catch {
+            return Response.json({ error: 'Invalid authentication token' }, { status: 401 });
+        }
+        if (!callerPhone || !ADMIN_PHONES.includes(callerPhone)) {
+            return Response.json({ error: 'Unauthorized' }, { status: 403 });
+        }
 
         let targetUid = userId;
 

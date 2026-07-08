@@ -226,8 +226,9 @@ export default function AppShell({ children }) {
     useEffect(() => {
         // Wait for document to be fully interactive
         const handleLoad = () => {
-            // Small delay to ensure content renders
-            setTimeout(() => setIsLoading(false), 800);
+            // Brief delay just to avoid a flash of unstyled content; hide as soon as
+            // the page is interactive (was 800ms, which needlessly held the splash).
+            setTimeout(() => setIsLoading(false), 250);
         };
 
         if (document.readyState === 'complete') {

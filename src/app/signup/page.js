@@ -21,7 +21,9 @@ export default function Signup() {
     const [error, setError] = useState('');
     const [existingAccount, setExistingAccount] = useState(false);
     const [countdown, setCountdown] = useState(0);
+    const [resendCount, setResendCount] = useState(0);
     const otpRefs = useRef([]);
+    const MAX_RESENDS = 3;
 
     useEffect(() => {
         if (!loading && user) {
@@ -146,6 +148,10 @@ export default function Signup() {
 
     const handleResendOTP = async () => {
         if (countdown > 0) return;
+        if (resendCount >= MAX_RESENDS) {
+            setError('Too many OTP requests. Please wait a few minutes before trying again.');
+            return;
+        }
         setError('');
         setOtp(['', '', '', '', '', '']);
         setIsLoading(true);
@@ -153,6 +159,7 @@ export default function Signup() {
         const result = await sendOTP(cleanPhone, 'recaptcha-container');
         setIsLoading(false);
         if (result.success) {
+            setResendCount(c => c + 1);
             setCountdown(30);
             otpRefs.current[0]?.focus();
         } else {
@@ -351,7 +358,7 @@ export default function Signup() {
                                 display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
                                 gap: 10, marginTop: 8
                             }}>
-                                {['Free to use', 'Verified companies', 'Secure'].map((feature) => (
+                                {['Free to use', 'Trusted companies', 'Secure'].map((feature) => (
                                     <div key={feature} style={{
                                         display: 'flex', alignItems: 'center', gap: 6,
                                         padding: '8px 14px', borderRadius: 20,
@@ -463,6 +470,10 @@ export default function Signup() {
                             <div style={{ textAlign: 'center', fontSize: 14, color: 'var(--text-secondary)' }}>
                                 {countdown > 0 ? (
                                     <span>Resend OTP in <strong>{countdown}s</strong></span>
+                                ) : resendCount >= MAX_RESENDS ? (
+                                    <span style={{ color: 'var(--text-muted)' }}>
+                                        Too many attempts — please wait a few minutes
+                                    </span>
                                 ) : (
                                     <button
                                         onClick={handleResendOTP}
