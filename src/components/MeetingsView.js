@@ -1329,8 +1329,39 @@ export function ScheduleMeetingModal({ match, fee, propertyType, onClose, onSche
                                 }
                             </span>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: hasEnoughBalance && hasAvailableSlot ? 0 : 10 }}>
-                            Wallet: ₹{companyBalance} • Active meetings: {activeMeetingCount} • ₹{MEETING_COST}/meeting
+                        {/* Prominent numbers: wallet balance + this meeting's charge */}
+                        <div style={{ display: 'flex', gap: 8, marginBottom: hasEnoughBalance && hasAvailableSlot ? 0 : 10 }}>
+                            <div style={{
+                                flex: 1,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                background: 'white',
+                                border: '1px solid #E5E7EB',
+                            }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                                    Wallet balance
+                                </div>
+                                <div style={{ fontSize: 20, fontWeight: 800, color: hasEnoughBalance ? '#166534' : '#DC2626', lineHeight: 1.2 }}>
+                                    ₹{companyBalance}
+                                </div>
+                            </div>
+                            <div style={{
+                                flex: 1,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                background: 'white',
+                                border: '1px solid #E5E7EB',
+                            }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                                    This meeting
+                                </div>
+                                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--primary)', lineHeight: 1.2 }}>
+                                    ₹{MEETING_COST}
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: hasEnoughBalance && hasAvailableSlot ? 0 : 10, marginTop: 6 }}>
+                            Active meetings: {activeMeetingCount}
                         </div>
                         {(!hasEnoughBalance || !hasAvailableSlot) && (
                             <motion.button
