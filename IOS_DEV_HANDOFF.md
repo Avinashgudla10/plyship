@@ -38,7 +38,7 @@ In Xcode:
 ## Firebase + native phone auth (the critical iOS-specific setup)
 See also the repo's **`NATIVE_PHONE_AUTH_SETUP.md`**. For iOS specifically:
 1. **`GoogleService-Info.plist`**: download it from Firebase Console → Project settings → the `com.agxfactor.plyship` iOS app → add it into `ios/App/App/` (and to the Xcode target). Do NOT commit it if it contains secrets you don't want in git (check current `.gitignore`).
-2. **APNs auth key**: create an APNs key in the Apple Developer portal and **upload it to Firebase → Project settings → Cloud Messaging**. iOS phone auth verifies the device via a **silent push**, so this is required or OTP will fail / fall back to reCAPTCHA.
+2. **APNs auth key — ALREADY DONE ✅** (2026-07-07): APNs auth key **`C66GK278PF`** (Team ID **`724CZLMJJ5`**) is already uploaded to Firebase → Cloud Messaging for both Development and Production. No action needed here. (The `.p8` private key is a secret — keep it out of git. Using an auth **key**, so no APNs certificate is required.) **Apple Team ID = `724CZLMJJ5`** — use it for Xcode signing and the Universal Links AASA file.
 3. **URL scheme = `REVERSED_CLIENT_ID`**: copy `REVERSED_CLIENT_ID` from `GoogleService-Info.plist` → Xcode → App target → **Info → URL Types** → add a URL scheme with that value. (reCAPTCHA/silent-push fallback path for Firebase phone auth.)
 4. **Capabilities** (Signing & Capabilities → +Capability): **Push Notifications** and **Background Modes → Remote notifications**.
 5. Firebase Auth → Phone sign-in is already enabled; keep the **test numbers** `1111111111`–`1111111119` (OTP `000000`) for QA.
