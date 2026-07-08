@@ -969,14 +969,17 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
         try {
             // Enhanced audio constraints for maximum recording quality & volume
-            // AGC (Auto Gain Control) boosts quiet voices, noise suppression
-            // cleans up background hiss, echo cancellation prevents feedback.
+            // Noise suppression cleans up background hiss; echo cancellation prevents
+            // feedback. AGC (Auto Gain Control) is intentionally DISABLED: it continuously
+            // ramps the mic gain up and down mid-recording, which makes a single voice note
+            // pump loud→quiet→loud. With it off the capture holds a steady level, and the
+            // player applies a fixed gain boost for consistent loudness.
             // sampleRate / channelCount ensure high-fidelity capture.
             const audioConstraints = {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true,
+                    autoGainControl: false,
                     sampleRate: { ideal: 48000 },
                     sampleSize: { ideal: 16 },
                     channelCount: { ideal: 1 },
