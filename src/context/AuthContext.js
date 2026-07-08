@@ -1421,163 +1421,43 @@ export const AuthProvider = ({ children }) => {
         }
     }, []);
 
-    // Top up wallet after successful Razorpay payment
+    // Top up wallet after successful Razorpay payment.
+    // Crediting is SERVER-AUTHORITATIVE: /api/wallet/credit verifies the Razorpay
+    // order is paid and credits the balance via the Admin SDK (amount taken from the
+    // paid order, not the client). The client can no longer write its own balance —
+    // this is what stops a tampered client from self-crediting. `amount`/`paymentId`
+    // are kept in the signature for existing callers but the server derives both from
+    // the order; only `orderId` is required. Idempotent per order.
     const topUpWallet = useCallback(async (amount, paymentId, orderId) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
+        if (!orderId) {
+            return { success: false, error: 'Missing order reference for wallet credit' };
+        }
 
         try {
-            // ── Idempotency guard: prevent double-crediting ──
-            // If both the Razorpay handler AND the iOS recovery fire for the
-            // same payment, this check ensures only the first one credits.
-            if (paymentId) {
-                const existingTxnSnap = await getDocs(query(
-                    collection(db, 'transactions'),
-                    where('paymentId', '==', paymentId),
-                    where('userId', '==', user.id)
-                ));
-                if (!existingTxnSnap.empty) {
-                    // Already credited — return success without double-crediting
-                    const walletSnap = await getDoc(doc(db, 'wallets', user.id));
-                    const currentBalance = walletSnap.exists() ? (walletSnap.data().balance || 0) : 0;
-                    return { success: true, newBalance: currentBalance, alreadyCredited: true };
-                }
-            }
+            const idToken = await auth.currentUser?.getIdToken();
+            if (!idToken) return { success: false, error: 'Not authenticated' };
 
-            const walletRef = doc(db, 'wallets', user.id);
-            const walletSnap = await getDoc(walletRef);
-
-            let currentBalance = 0;
-            let commissionOwed = 0;
-            if (walletSnap.exists()) {
-                currentBalance = walletSnap.data().balance || 0;
-                commissionOwed = walletSnap.data().commissionOwed || 0;
-            }
-
-            // Settle any owed project commission first; the remainder is usable balance.
-            const settledCommission = Math.min(commissionOwed, amount);
-            const netCredit = amount - settledCommission;
-            const newBalance = currentBalance + netCredit;
-
-            // Update wallet balance + reduce owed commission
-            await setDoc(walletRef, {
-                balance: newBalance,
-                commissionOwed: commissionOwed - settledCommission,
-                updatedAt: new Date().toISOString(),
-                lastTopUp: {
-                    amount,
-                    paymentId,
-                    orderId,
-                    timestamp: new Date().toISOString(),
+            const res = await fetch('/api/wallet/credit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`,
                 },
-            }, { merge: true });
-
-            // Record the gross top-up transaction (carries paymentId for idempotency)
-            await addDoc(collection(db, 'transactions'), {
-                userId: user.id,
-                type: 'CREDIT',
-                amount,
-                reason: 'TOP_UP',
-                paymentId,
-                orderId,
-                status: 'COMPLETED',
-                createdAt: new Date().toISOString(),
+                body: JSON.stringify({ orderId }),
             });
-
-            // Settle the owed commission now that the company has paid it:
-            //   • 1% → admin (platform)
-            //   • 3% → each project's seeker (credited HERE, never at confirmation)
-            // The top-up minimum always covers the FULL owed commission.
-            if (settledCommission > 0) {
-                try {
-                    const pendingProjSnap = await getDocs(query(
-                        collection(db, 'projects'),
-                        where('companyId', '==', user.id),
-                        where('commissionStatus', '==', 'PENDING')
-                    ));
-
-                    let adminShareTotal = 0;
-
-                    for (const d of pendingProjSnap.docs) {
-                        const p = d.data();
-                        const total = p.commissionAmount || 0;
-                        // Legacy projects (pre-4% split) only have commissionAmount → all to admin.
-                        const seekerShare = (p.seekerCommission != null) ? p.seekerCommission : 0;
-                        const adminShare = (p.adminCommission != null) ? p.adminCommission : total;
-                        adminShareTotal += adminShare;
-
-                        // Credit the seeker's 3% NOW — only because the company has just paid.
-                        if (seekerShare > 0 && p.seekerId) {
-                            const sRef = doc(db, 'wallets', p.seekerId);
-                            const sSnap = await getDoc(sRef);
-                            const sBal = sSnap.exists() ? (sSnap.data().balance || 0) : 0;
-                            const sEarn = sSnap.exists() ? (sSnap.data().totalEarnings || 0) : 0;
-                            await setDoc(sRef, {
-                                balance: sBal + seekerShare,
-                                totalEarnings: sEarn + seekerShare,
-                                updatedAt: new Date().toISOString(),
-                            }, { merge: true });
-                            await addDoc(collection(db, 'transactions'), {
-                                userId: p.seekerId, type: 'CREDIT', amount: seekerShare,
-                                reason: 'PROJECT_COMMISSION_REWARD', relatedProjectId: d.id,
-                                relatedUserId: user.id, status: 'COMPLETED',
-                                createdAt: new Date().toISOString(),
-                            });
-                            createNotification(p.seekerId, {
-                                type: 'wallet_credit',
-                                title: '🎉 Project reward credited!',
-                                message: `₹${seekerShare} project reward has been added to your wallet.`,
-                                data: { amount: seekerShare, projectId: d.id },
-                            });
-                        }
-
-                        await updateDoc(d.ref, {
-                            commissionStatus: 'COLLECTED',
-                            commissionCollectedAt: new Date().toISOString(),
-                        });
-                    }
-
-                    // Admin receives only its 1% share (fallback to the full settled amount
-                    // for legacy data that has no per-project split recorded).
-                    const adminCredit = adminShareTotal > 0 ? adminShareTotal : settledCommission;
-                    const adminRef = doc(db, 'wallets', 'admin_wallet');
-                    const adminSnap = await getDoc(adminRef);
-                    const adminBalance = adminSnap.exists() ? (adminSnap.data().balance || 0) : 0;
-                    const adminEarnings = adminSnap.exists() ? (adminSnap.data().totalEarnings || 0) : 0;
-                    await setDoc(adminRef, {
-                        userId: 'admin_wallet',
-                        type: 'ADMIN',
-                        balance: adminBalance + adminCredit,
-                        totalEarnings: adminEarnings + adminCredit,
-                        updatedAt: new Date().toISOString(),
-                    }, { merge: true });
-
-                    // Company paid the full 4% (settledCommission); admin keeps its 1% share.
-                    await addDoc(collection(db, 'transactions'), {
-                        userId: user.id, type: 'DEBIT', amount: settledCommission,
-                        reason: 'PROJECT_COMMISSION', paymentId, status: 'COMPLETED',
-                        createdAt: new Date().toISOString(),
-                    });
-                    await addDoc(collection(db, 'transactions'), {
-                        userId: 'admin_wallet', type: 'CREDIT', amount: adminCredit,
-                        reason: 'PROJECT_COMMISSION', relatedUserId: user.id, status: 'COMPLETED',
-                        createdAt: new Date().toISOString(),
-                    });
-                } catch (e) { console.error('Commission settlement failed:', e); }
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || 'Failed to credit wallet' };
             }
-
-            // Notify user about successful top-up
-            createNotification(user.id, {
-                type: 'wallet_credit',
-                title: '💰 Wallet Topped Up!',
-                message: settledCommission > 0
-                    ? `₹${amount} received — ₹${settledCommission} settled as project commission, ₹${netCredit} added to your balance.`
-                    : `₹${amount} added to your wallet. New balance: ₹${newBalance}`,
-                data: { amount, newBalance, settledCommission },
-            });
-
-            return { success: true, newBalance, settledCommission };
+            return {
+                success: true,
+                newBalance: data.newBalance,
+                settledCommission: data.settledCommission,
+                alreadyCredited: data.alreadyCredited,
+            };
         } catch (error) {
             return { success: false, error: error.message };
         }
