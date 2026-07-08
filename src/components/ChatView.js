@@ -3350,6 +3350,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                 {showMeetingModal && !showRescheduleModal && (
                     <ScheduleMeetingModal
                         match={{ id: otherUserId, name }}
+                        fee={MEETING_FEE}
                         onClose={() => setShowMeetingModal(false)}
                         onScheduled={async () => {
                             setShowMeetingModal(false);
@@ -3368,6 +3369,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                 {showRescheduleModal && !showMeetingModal && (
                     <ScheduleMeetingModal
                         match={{ id: otherUserId, name }}
+                        fee={MEETING_FEE}
                         onClose={() => setShowRescheduleModal(false)}
                         onScheduled={async () => {
                             setShowRescheduleModal(false);

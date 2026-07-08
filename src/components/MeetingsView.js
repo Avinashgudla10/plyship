@@ -1176,7 +1176,7 @@ function ConfirmBadge({ label, confirmed }) {
 }
 
 // Schedule Meeting Modal
-export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
+export function ScheduleMeetingModal({ match, fee, onClose, onScheduled }) {
     const { scheduleMeeting, user, getWallet, getMeetings } = useAuth();
     const { showToast } = useToast();
     const [date, setDate] = useState('');
@@ -1206,7 +1206,9 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
     }, []);
 
     const isCompany = user?.role === 'COMPANY';
-    const MEETING_COST = 500;
+    // Fee for THIS seeker's property type (passed from the chat, where the seeker's
+    // profile is known). Falls back to the default only if not supplied.
+    const MEETING_COST = fee || DEFAULT_MEETING_FEE;
 
     useEffect(() => {
         const fetchData = async () => {
@@ -1328,7 +1330,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                             </span>
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: hasEnoughBalance && hasAvailableSlot ? 0 : 10 }}>
-                            Wallet: ₹{companyBalance} • Active meetings: {activeMeetingCount} • ₹500/meeting
+                            Wallet: ₹{companyBalance} • Active meetings: {activeMeetingCount} • ₹{MEETING_COST}/meeting
                         </div>
                         {(!hasEnoughBalance || !hasAvailableSlot) && (
                             <motion.button
@@ -1353,7 +1355,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                                 }}
                             >
                                 <Wallet size={16} />
-                                {!hasEnoughBalance ? 'Add Service Deposit' : `Add ₹500 for another slot`}
+                                {!hasEnoughBalance ? 'Add Service Deposit' : `Add ₹${MEETING_COST} for another slot`}
                             </motion.button>
                         )}
                     </div>
@@ -1500,7 +1502,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                 {/* Info */}
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
                     {isCompany
-                        ? 'Payment is required only for confirmed interior consultation. ₹500 will be charged when both parties confirm the offline meeting.'
+                        ? `Payment is required only for confirmed interior consultation. ₹${MEETING_COST} will be charged when both parties confirm the offline meeting.`
                         : `You'll earn ₹${mySeekerShare} when both parties confirm the offline interior consultation meeting.`
                     }
                 </p>
