@@ -1692,9 +1692,13 @@ export const AuthProvider = ({ children }) => {
                 where('seekerId', '==', companyId)
             ));
             const allExisting = [...existingSnap1.docs, ...existingSnap2.docs];
+            const guardNowMs = Date.now();
             const hasActiveMeeting = allExisting.some(d => {
-                const s = d.data().status;
-                return ['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED'].includes(s);
+                const m = d.data();
+                if (!['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED'].includes(m.status)) return false;
+                if (m.rescheduledTo) return false; // superseded by a reschedule
+                if (m.scheduledAt && new Date(m.scheduledAt).getTime() < guardNowMs) return false; // expired
+                return true;
             });
             if (hasActiveMeeting) {
                 return { success: false, error: 'There is already an active meeting request with this user.' };
@@ -1713,12 +1717,30 @@ export const AuthProvider = ({ children }) => {
             }
             const MEETING_COST = getMeetingFee(seekerPropertyType);
 
-            // 1. Get company's wallet balance
+            // 1. Company wallet balance + budget already committed to active meetings.
             const walletSnap = await getDoc(doc(db, 'wallets', companyId));
             const companyBalance = walletSnap.exists() ? (walletSnap.data().balance || 0) : 0;
-            const maxMeetingSlots = Math.floor(companyBalance / MEETING_COST);
 
-            if (maxMeetingSlots < 1) {
+            // The wallet is a BUDGET CAP: the sum of fees across the company's active
+            // meetings must not exceed the balance (e.g. ₹1000 → one ₹1000 meeting, or two
+            // ₹500s). Exclude meetings that no longer hold budget — superseded reschedules
+            // (rescheduledTo) and EXPIRED ones (scheduledAt already passed). Counting expired
+            // meetings is exactly what wrongly asked a company to deposit again to reschedule.
+            const nowMs = Date.now();
+            const companyMeetingsSnap = await getDocs(query(collection(db, 'meetings'), where('companyId', '==', companyId)));
+            const committedMeetings = companyMeetingsSnap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .filter(m => {
+                    if (!['REQUESTED', 'PROPOSED', 'PENDING_ACCEPTANCE', 'SCHEDULED'].includes(m.status)) return false;
+                    if (m.rescheduledTo) return false;
+                    if (m.scheduledAt && new Date(m.scheduledAt).getTime() < nowMs) return false;
+                    return true;
+                });
+            const committed = committedMeetings.reduce((sum, m) => sum + (m.meetingFee || DEFAULT_MEETING_FEE), 0);
+            const available = companyBalance - committed;
+
+            // This meeting's fee must fit in the FREE (uncommitted) wallet budget.
+            if (MEETING_COST > available) {
                 if (!isCompany) {
                     try {
                         const seekerName = user.profile?.name || user.name || 'A seeker';
@@ -1749,26 +1771,13 @@ export const AuthProvider = ({ children }) => {
                 }
                 return {
                     success: false,
-                    error: `You need at least ₹${MEETING_COST} in your wallet to request a meeting. Please top up your service deposit.`,
-                    insufficientBalance: true, requiredAmount: MEETING_COST, currentBalance: companyBalance,
-                };
-            }
-
-            // 2. Count active meetings
-            const activeMeetingsSnap = await getDocs(query(collection(db, 'meetings'), where('companyId', '==', companyId)));
-            const activeMeetingCount = activeMeetingsSnap.docs.filter(d => {
-                const s = d.data().status;
-                return s === 'REQUESTED' || s === 'PROPOSED' || s === 'PENDING_ACCEPTANCE' || s === 'SCHEDULED';
-            }).length;
-
-            if (activeMeetingCount >= maxMeetingSlots) {
-                return {
-                    success: false,
-                    error: isCompany
-                        ? `You have ${activeMeetingCount} active meeting${activeMeetingCount > 1 ? 's' : ''} and ₹${companyBalance} in your wallet. Each meeting requires ₹${MEETING_COST}. Please add more or cancel an existing meeting.`
-                        : 'This company has reached their maximum meeting slots. Please try again later.',
-                    meetingLimitReached: true, activeMeetings: activeMeetingCount,
-                    maxSlots: maxMeetingSlots, currentBalance: companyBalance,
+                    error: committed > 0
+                        ? `This meeting costs ₹${MEETING_COST}, but only ₹${Math.max(0, available)} of your ₹${companyBalance} wallet is free — ₹${committed} is committed to ${committedMeetings.length} active meeting${committedMeetings.length !== 1 ? 's' : ''}. Add funds, or finish/cancel an active meeting.`
+                        : `You need ₹${MEETING_COST} in your wallet to request this meeting. Please top up your service deposit.`,
+                    insufficientBalance: true,
+                    meetingLimitReached: committed > 0,
+                    requiredAmount: MEETING_COST, currentBalance: companyBalance,
+                    committed, available: Math.max(0, available),
                 };
             }
 
@@ -2655,6 +2664,10 @@ export const AuthProvider = ({ children }) => {
                 seekerDenied: false,
                 paymentStatus: 'PENDING',
                 rescheduledFrom: meetingId,
+                // Carry over the property-based fee so a reschedule keeps the same price
+                // (otherwise it would silently fall back to the ₹500 default).
+                propertyType: meeting.propertyType || '',
+                meetingFee: meeting.meetingFee || DEFAULT_MEETING_FEE,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             };
