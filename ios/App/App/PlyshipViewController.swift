@@ -28,6 +28,9 @@ class PlyshipViewController: CAPBridgeViewController {
     private let monitorQueue = DispatchQueue(label: "com.plyship.network")
     private var isConnected = true
     private var didFailToLoad = false
+    // Debounces offline transitions so brief NWPathMonitor flaps (common on the
+    // simulator / when switching interfaces) don't blink the banner online↔offline.
+    private var offlineWorkItem: DispatchWorkItem?
 
     // Offline UI
     private var offlineBanner: UIView?
@@ -128,19 +131,31 @@ class PlyshipViewController: CAPBridgeViewController {
             let connected = path.status == .satisfied
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                let wasConnected = self.isConnected
-                self.isConnected = connected
+                // A fresh signal arrived — drop any pending offline transition.
+                self.offlineWorkItem?.cancel()
+                self.offlineWorkItem = nil
 
-                if !connected && wasConnected {
-                    self.showOfflineBanner()
-                } else if connected && !wasConnected {
-                    self.hideOfflineBanner()
-                    self.hideOfflineFullScreen()
-                    // Auto-reload if previous load failed
-                    if self.didFailToLoad {
-                        self.didFailToLoad = false
-                        self.webView?.reload()
+                if connected {
+                    // Apply "online" immediately.
+                    if !self.isConnected {
+                        self.isConnected = true
+                        self.hideOfflineBanner()
+                        self.hideOfflineFullScreen()
+                        if self.didFailToLoad {
+                            self.didFailToLoad = false
+                            self.webView?.reload()
+                        }
                     }
+                } else {
+                    // Debounce "offline": only act if we STAY offline for ~2s, so a brief
+                    // flap doesn't blink the banner. A returning signal cancels this.
+                    let work = DispatchWorkItem { [weak self] in
+                        guard let self = self, self.isConnected else { return }
+                        self.isConnected = false
+                        self.showOfflineBanner()
+                    }
+                    self.offlineWorkItem = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
                 }
             }
         }
@@ -371,6 +386,18 @@ extension PlyshipViewController: WKNavigationDelegate {
             return
         }
 
+        // Handle communication schemes — hand off to the system dialer / mail / SMS.
+        // These are NOT loadable pages; letting the WebView navigate to them fails with
+        // NSURLErrorUnsupportedURL, which previously tripped the "No Internet Connection"
+        // screen when the in-chat Call button set window.location.href = 'tel:...'.
+        if ["tel", "mailto", "sms", "facetime", "facetime-audio"].contains(scheme) {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+            decisionHandler(.cancel)
+            return
+        }
+
         // Handle Maps URL schemes — open in Apple Maps or Google Maps app.
         // geo: is the standard cross-platform scheme; maps: and comgooglemaps: are
         // Apple Maps and Google Maps deep-link schemes respectively.
@@ -400,12 +427,21 @@ extension PlyshipViewController: WKNavigationDelegate {
             return
         }
 
-        // Handle Google Maps HTTPS links — open in Google Maps app if installed,
-        // otherwise fall through to Apple Maps
+        // Handle Google/Apple Maps HTTPS links — open externally, but ONLY for top-level
+        // navigations. Embedded map iframes (the in-chat "view location" popup loads
+        // maps.google.com/maps?...&output=embed) must render IN-APP — this mirrors the
+        // Android isForMainFrame guard. Without it, opening a shared location hijacks the
+        // whole popup into Apple/Google Maps and the in-app map never appears.
         if scheme == "https" || scheme == "http" {
             let host = url.host?.lowercased() ?? ""
-            if host.contains("maps.google.com") || host.contains("maps.apple.com")
-                || host == "goo.gl" || host == "maps.app.goo.gl" {
+            let path = url.path.lowercased()
+            let isMapsLink = host == "maps.google.com" || host.hasSuffix(".maps.google.com")
+                || host.contains("maps.apple.com")
+                || host == "maps.app.goo.gl"
+                || (host == "goo.gl" && path.hasPrefix("/maps"))
+                || ((host == "google.com" || host == "www.google.com") && path.hasPrefix("/maps"))
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            if isMapsLink && isMainFrame {
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
                 decisionHandler(.cancel)
                 return
@@ -457,8 +493,12 @@ extension PlyshipViewController: WKNavigationDelegate {
 
     private func handleLoadError(_ error: Error) {
         let nsError = error as NSError
-        // NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut, NSURLErrorCannotFindHost, etc.
-        if nsError.domain == NSURLErrorDomain {
+        // Only real network failures should show the offline screen. Ignore user-cancelled
+        // loads and unsupported-scheme errors (tel:/mailto:/etc. are handled by opening
+        // externally, not by loading a page) so they don't trip "No Internet Connection".
+        if nsError.domain == NSURLErrorDomain
+            && nsError.code != NSURLErrorCancelled
+            && nsError.code != NSURLErrorUnsupportedURL {
             didFailToLoad = true
             showOfflineFullScreen()
         }
