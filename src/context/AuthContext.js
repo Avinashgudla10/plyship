@@ -1701,7 +1701,18 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'There is already an active meeting request with this user.' };
             }
 
-            const MEETING_COST = 500;
+            // Meeting fee for THIS seeker (property-type based) — the company must hold it
+            // in their wallet to book a slot. Derived from the seeker's profile.
+            let seekerPropertyType = '';
+            if (isCompany) {
+                try {
+                    const seekerSnap = await getDoc(doc(db, 'seekers', seekerId));
+                    if (seekerSnap.exists()) seekerPropertyType = seekerSnap.data()?.profile?.propertyType || '';
+                } catch (e) { /* ignore */ }
+            } else {
+                seekerPropertyType = user.profile?.propertyType || '';
+            }
+            const MEETING_COST = getMeetingFee(seekerPropertyType);
 
             // 1. Get company's wallet balance
             const walletSnap = await getDoc(doc(db, 'wallets', companyId));
@@ -1762,19 +1773,14 @@ export const AuthProvider = ({ children }) => {
                 };
             }
 
-            // Fetch target name + (for pricing) the seeker's property type.
+            // Fetch target name (seekerPropertyType was already resolved above for pricing).
             let targetName = '';
-            // The meeting fee is based on the SEEKER's property type. If the current user
-            // is the seeker, read it from their own profile; if the company is requesting,
-            // read it from the target seeker's profile.
-            let seekerPropertyType = isCompany ? '' : (user.profile?.propertyType || '');
             try {
                 const targetRole = isCompany ? 'seekers' : 'companies';
                 const targetSnap = await getDoc(doc(db, targetRole, targetUserId));
                 if (targetSnap.exists()) {
                     const td = targetSnap.data();
                     targetName = td.profile?.name || td.profile?.companyName || td.name || '';
-                    if (isCompany) seekerPropertyType = td.profile?.propertyType || '';
                 }
             } catch (e) { /* ignore */ }
 
@@ -1796,7 +1802,7 @@ export const AuthProvider = ({ children }) => {
                 // Meeting fee (INR) derived from the seeker's property type — split 50/50
                 // seeker/admin. Stored here so it stays fixed for the whole lifecycle.
                 propertyType: seekerPropertyType || '',
-                meetingFee: getMeetingFee(seekerPropertyType),
+                meetingFee: MEETING_COST,
                 createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
             };
 
