@@ -82,12 +82,11 @@ export const AuthProvider = ({ children }) => {
     const isOnboarding = useRef(false);
     const confirmationResultRef = useRef(null);
     // Native (Capacitor) phone auth stores a verificationId instead of a confirmationResult
-    const nativeVerificationIdRef = useRef(null);
-    const recaptchaVerifierRef = useRef(null);
-    // Holds the verificationId returned by the NATIVE phone-auth bridge (iOS).
+    // Holds the verificationId returned by the NATIVE phone-auth bridge (iOS/Android).
     // When set, verifyOTP completes sign-in via the JS SDK credential instead of
     // the web reCAPTCHA confirmationResult.
     const nativeVerificationIdRef = useRef(null);
+    const recaptchaVerifierRef = useRef(null);
     const [isImpersonating, setIsImpersonating] = useState(false);
     const adminUserRef = useRef(null);
 
