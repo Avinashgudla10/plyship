@@ -8,7 +8,9 @@ import {
     signOut,
     onAuthStateChanged,
     RecaptchaVerifier,
-    signInWithPhoneNumber
+    signInWithPhoneNumber,
+    PhoneAuthProvider,
+    signInWithCredential
 } from 'firebase/auth';
 import {
     doc,
@@ -67,6 +69,10 @@ export const AuthProvider = ({ children }) => {
     const isOnboarding = useRef(false);
     const confirmationResultRef = useRef(null);
     const recaptchaVerifierRef = useRef(null);
+    // Holds the verificationId returned by the NATIVE phone-auth bridge (iOS).
+    // When set, verifyOTP completes sign-in via the JS SDK credential instead of
+    // the web reCAPTCHA confirmationResult.
+    const nativeVerificationIdRef = useRef(null);
     const [isImpersonating, setIsImpersonating] = useState(false);
     const adminUserRef = useRef(null);
 
@@ -206,8 +212,58 @@ export const AuthProvider = ({ children }) => {
         return recaptchaVerifierRef.current;
     };
 
+    // ── Native phone auth (iOS) ──
+    // The native shell exposes window.webkit.messageHandlers.phoneAuthVerify.
+    // When present, the app verifies via the native Firebase SDK (silent APNs
+    // push / test numbers) — NO reCAPTCHA — and returns a verificationId.
+    const isNativePhoneAuthAvailable = () =>
+        typeof window !== 'undefined' &&
+        !!window.webkit?.messageHandlers?.phoneAuthVerify;
+
+    const sendOTPNative = (phoneNumber) => new Promise((resolve) => {
+        const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            resolve({ success: false, error: 'Verification timed out. Please try again.' });
+        }, 60000);
+
+        // Native code calls this global with a JSON payload string.
+        window.__plyship_phoneauth_callback = (payloadStr) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try {
+                const p = typeof payloadStr === 'string' ? JSON.parse(payloadStr) : payloadStr;
+                if (p && p.success && p.verificationId) {
+                    nativeVerificationIdRef.current = p.verificationId;
+                    console.log('[OTP][native] verificationId received');
+                    resolve({ success: true });
+                } else {
+                    resolve({ success: false, error: (p && p.error) || 'Verification failed. Please try again.' });
+                }
+            } catch (e) {
+                resolve({ success: false, error: 'Verification failed. Please try again.' });
+            }
+        };
+
+        try {
+            console.log('[OTP][native] Verifying:', formattedPhone);
+            window.webkit.messageHandlers.phoneAuthVerify.postMessage(formattedPhone);
+        } catch (e) {
+            settled = true;
+            clearTimeout(timer);
+            resolve({ success: false, error: 'Native verification unavailable.' });
+        }
+    });
+
     // Send OTP to phone number
     const sendOTP = async (phoneNumber, buttonId = 'recaptcha-container') => {
+        // NATIVE path (iOS app): verify with the Firebase native SDK — no reCAPTCHA.
+        if (isNativePhoneAuthAvailable()) {
+            return await sendOTPNative(phoneNumber);
+        }
         try {
             const appVerifier = setupRecaptcha(buttonId);
             const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
@@ -241,6 +297,15 @@ export const AuthProvider = ({ children }) => {
     // Verify OTP code
     const verifyOTP = async (otpCode) => {
         try {
+            // NATIVE path (iOS): the app was verified natively (no reCAPTCHA) and
+            // returned a verificationId. Build a credential and sign in via the JS
+            // SDK so the rest of the app (Firestore auth state) works unchanged.
+            if (nativeVerificationIdRef.current) {
+                const credential = PhoneAuthProvider.credential(nativeVerificationIdRef.current, otpCode);
+                const result = await signInWithCredential(auth, credential);
+                nativeVerificationIdRef.current = null;
+                return { success: true, user: result.user };
+            }
             if (!confirmationResultRef.current) {
                 return { success: false, error: 'No OTP request found. Please send OTP again.' };
             }

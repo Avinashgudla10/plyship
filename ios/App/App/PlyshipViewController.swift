@@ -6,6 +6,7 @@ import CoreLocation
 import Contacts
 import FirebaseCore
 import FirebaseMessaging
+import FirebaseAuth
 
 /// Custom Capacitor WebView controller for PLYSHIP.
 /// Features:
@@ -47,19 +48,38 @@ class PlyshipViewController: CAPBridgeViewController {
 
     // MARK: - Lifecycle
 
+    /// Register native ↔ JS message-handler bridges on the WKWebView configuration
+    /// that Capacitor uses to build the web view. This is the reliable place to add
+    /// WKScriptMessageHandlers: adding them to `webView.configuration.userContentController`
+    /// AFTER creation does not consistently expose `window.webkit.messageHandlers.*`
+    /// to remotely-loaded content (server.url), which previously left the push,
+    /// contacts, and phone-auth bridges unavailable.
+    override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
+        let ucc = configuration.userContentController
+        ucc.add(self, name: "getContacts")
+        ucc.add(self, name: "getPushToken")
+        ucc.add(self, name: "phoneAuthVerify")
+        return super.webView(with: frame, configuration: configuration)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         // Configure Firebase SDK (required for FCM push tokens)
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
+        #if targetEnvironment(simulator)
+        // Simulators have no APNs, so native phone-auth app verification cannot
+        // use a silent push. Disable app verification FOR THE SIMULATOR ONLY so
+        // Firebase console test numbers verify without APNs or reCAPTCHA. This is
+        // compiled out of device/App Store builds, which use real APNs verification.
+        Auth.auth().settings?.isAppVerificationDisabledForTesting = true
+        #endif
         Messaging.messaging().delegate = self
         webView?.navigationDelegate = self
         webView?.uiDelegate = self
         startNetworkMonitoring()
         requestNativeLocationPermission()
-        registerContactsBridge()
-        registerPushBridge()
     }
 
     /// Request native location authorization. This ensures the OS-level
@@ -379,19 +399,30 @@ class PlyshipViewController: CAPBridgeViewController {
         return false
     }
 
-    // MARK: - Contacts Bridge
+    // MARK: - Native ↔ JS Bridges
+    //
+    // The message handlers (getContacts, getPushToken, phoneAuthVerify) are
+    // registered in `webView(with:configuration:)` above, before the web view is
+    // created. The phoneAuthVerify bridge drives NATIVE Firebase phone auth:
+    //   window.webkit.messageHandlers.phoneAuthVerify.postMessage("+91XXXXXXXXXX")
+    // → native PhoneAuthProvider verify (silent APNs push, NO reCAPTCHA) →
+    //   window.__plyship_phoneauth_callback('{"success":true,"verificationId":"..."}').
+    // The WebView then completes sign-in with the JS SDK credential so the rest of
+    // the app (Firestore auth state) keeps working unchanged.
 
-    /// Register a script message handler so the WebView can request contacts
-    /// via window.webkit.messageHandlers.getContacts.postMessage('fetch').
-    private func registerContactsBridge() {
-        webView?.configuration.userContentController.add(self, name: "getContacts")
-    }
-
-    /// Register a script message handler so the WebView can request the FCM push token
-    /// via window.webkit.messageHandlers.getPushToken.postMessage('fetch').
-    /// The token is returned via window.__plyship_push_callback(token).
-    private func registerPushBridge() {
-        webView?.configuration.userContentController.add(self, name: "getPushToken")
+    /// Send a JSON payload back to the WebView's phone-auth callback.
+    fileprivate func sendPhoneAuthResult(_ payload: [String: Any]) {
+        let jsonData = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)
+        let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
+        let escaped = jsonString
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        DispatchQueue.main.async { [weak self] in
+            self?.webView?.evaluateJavaScript(
+                "if(window.__plyship_phoneauth_callback) window.__plyship_phoneauth_callback('\(escaped)');",
+                completionHandler: nil
+            )
+        }
     }
 }
 
@@ -613,6 +644,26 @@ extension PlyshipViewController: WKScriptMessageHandler {
     /// Called when JavaScript sends a message via window.webkit.messageHandlers.getContacts.postMessage('fetch').
     /// Reads device contacts using CNContactStore and calls back into JS with JSON data.
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        // Handle NATIVE phone-auth verification request (reCAPTCHA-free).
+        if message.name == "phoneAuthVerify" {
+            let phone = (message.body as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !phone.isEmpty else {
+                sendPhoneAuthResult(["success": false, "error": "Missing phone number"])
+                return
+            }
+            // uiDelegate: nil → never present a reCAPTCHA web challenge. Verification
+            // happens via silent APNs push (real device) or instantly for Firebase
+            // console test numbers.
+            PhoneAuthProvider.provider().verifyPhoneNumber(phone, uiDelegate: nil) { [weak self] verificationID, error in
+                if let error = error {
+                    self?.sendPhoneAuthResult(["success": false, "error": error.localizedDescription])
+                } else {
+                    self?.sendPhoneAuthResult(["success": true, "verificationId": verificationID ?? ""])
+                }
+            }
+            return
+        }
+
         // Handle push token request
         if message.name == "getPushToken" {
             Messaging.messaging().token { [weak self] token, error in
