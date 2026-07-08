@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useRouter } from 'next/navigation';
 import { db, auth, uploadImage, uploadImages, deleteUserStorage } from '../lib/firebase';
 import { requestAndSaveFCMToken, cleanupFCMToken, setupForegroundMessaging, setupNativeTokenRefresh } from '../lib/fcm';
+import { getMeetingFee, getSeekerShare, getAdminShare, DEFAULT_MEETING_FEE } from '../lib/meetingFee';
 import {
     signOut,
     onAuthStateChanged,
@@ -1761,14 +1762,19 @@ export const AuthProvider = ({ children }) => {
                 };
             }
 
-            // Fetch target name
+            // Fetch target name + (for pricing) the seeker's property type.
             let targetName = '';
+            // The meeting fee is based on the SEEKER's property type. If the current user
+            // is the seeker, read it from their own profile; if the company is requesting,
+            // read it from the target seeker's profile.
+            let seekerPropertyType = isCompany ? '' : (user.profile?.propertyType || '');
             try {
                 const targetRole = isCompany ? 'seekers' : 'companies';
                 const targetSnap = await getDoc(doc(db, targetRole, targetUserId));
                 if (targetSnap.exists()) {
                     const td = targetSnap.data();
                     targetName = td.profile?.name || td.profile?.companyName || td.name || '';
+                    if (isCompany) seekerPropertyType = td.profile?.propertyType || '';
                 }
             } catch (e) { /* ignore */ }
 
@@ -1787,6 +1793,10 @@ export const AuthProvider = ({ children }) => {
                 companyConfirmed: false, seekerConfirmed: false,
                 companyDenied: false, seekerDenied: false,
                 paymentStatus: 'PENDING',
+                // Meeting fee (INR) derived from the seeker's property type — split 50/50
+                // seeker/admin. Stored here so it stays fixed for the whole lifecycle.
+                propertyType: seekerPropertyType || '',
+                meetingFee: getMeetingFee(seekerPropertyType),
                 createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
             };
 
@@ -1848,8 +1858,8 @@ export const AuthProvider = ({ children }) => {
             if (meeting.seekerId !== user.id) return { success: false, error: 'Only the seeker can respond to this request' };
             if (meeting.status !== 'REQUESTED') return { success: false, error: 'This meeting has already been responded to' };
 
-            // Check company wallet
-            const MEETING_FEE = 500;
+            // Check company wallet (fee from the seeker's property type; 500 fallback)
+            const MEETING_FEE = meeting.meetingFee || DEFAULT_MEETING_FEE;
             const companyWalletSnap = await getDoc(doc(db, 'wallets', meeting.companyId));
             if (!companyWalletSnap.exists() || (companyWalletSnap.data().balance || 0) < MEETING_FEE) {
                 return { success: false, error: 'Cannot accept — the company has insufficient funds.' };
@@ -1991,8 +2001,8 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'The proposed meeting time has already passed. Please suggest a new time.' };
             }
 
-            // Check company wallet
-            const MEETING_FEE = 500;
+            // Check company wallet (fee from the seeker's property type; 500 fallback)
+            const MEETING_FEE = meeting.meetingFee || DEFAULT_MEETING_FEE;
             const companyWalletSnap = await getDoc(doc(db, 'wallets', meeting.companyId));
             if (!companyWalletSnap.exists() || (companyWalletSnap.data().balance || 0) < MEETING_FEE) {
                 return { success: false, error: 'Cannot finalize — the company has insufficient funds.' };
@@ -2264,8 +2274,8 @@ export const AuthProvider = ({ children }) => {
                 }
             }
 
-            // Check if company has sufficient funds (₹500 required for meeting)
-            const MEETING_FEE = 500;
+            // Company needs the meeting fee (from the seeker's property type; 500 fallback)
+            const MEETING_FEE = meeting.meetingFee || DEFAULT_MEETING_FEE;
             const companyId = meeting.companyId;
             const companyWalletRef = doc(db, 'wallets', companyId);
             const companyWalletSnap = await getDoc(companyWalletRef);
@@ -2679,9 +2689,12 @@ export const AuthProvider = ({ children }) => {
 
     // Process ₹500 payment from company — ₹250 to seeker, ₹250 to admin wallet (atomic transaction)
     const processMeetingPayment = useCallback(async (meetingId, companyId, seekerId) => {
-        const MEETING_FEE = 500;
-        const SEEKER_SHARE = 250;
-        const ADMIN_SHARE = 250;
+        // Fee + 50/50 split are derived from the meeting's stored fee (set from the
+        // seeker's property type at creation), read inside the transaction below.
+        // Defaults cover any legacy meeting without a stored fee.
+        let MEETING_FEE = DEFAULT_MEETING_FEE;
+        let SEEKER_SHARE = getSeekerShare(MEETING_FEE);
+        let ADMIN_SHARE = getAdminShare(MEETING_FEE);
         const ADMIN_WALLET_ID = 'admin_wallet';
 
         try {
@@ -2695,6 +2708,12 @@ export const AuthProvider = ({ children }) => {
                 const companyWalletSnap = await transaction.get(companyWalletRef);
                 const seekerWalletSnap = await transaction.get(seekerWalletRef);
                 const adminWalletSnap = await transaction.get(adminWalletRef);
+                const meetingSnap = await transaction.get(meetingRef);
+
+                // Derive the fee + 50/50 split from the meeting (property-type based; 500 fallback).
+                MEETING_FEE = (meetingSnap.exists() && meetingSnap.data().meetingFee) || DEFAULT_MEETING_FEE;
+                SEEKER_SHARE = getSeekerShare(MEETING_FEE);
+                ADMIN_SHARE = getAdminShare(MEETING_FEE);
 
                 if (!companyWalletSnap.exists()) {
                     throw new Error('Company wallet not found. Please contact support.');

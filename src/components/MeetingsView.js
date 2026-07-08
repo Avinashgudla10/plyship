@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { TopUpModal } from './WalletView';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
+import { getMeetingFee, DEFAULT_MEETING_FEE } from '../lib/meetingFee';
 import {
     Calendar, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
     User, Building2, MapPin, ChevronRight, Plus, X, IndianRupee,
@@ -37,7 +38,12 @@ export default function MeetingsView({ onBack }) {
     const [counterProposeModal, setCounterProposeModal] = useState(null);  // For counter-proposing meeting details
 
     const isCompany = user?.role === 'COMPANY';
-    const MEETING_FEE = 500;
+    // Generic fallback fee; the real per-meeting fee comes from meeting.meetingFee
+    // (seeker's property type) and is used wherever a specific meeting is in scope.
+    const MEETING_FEE = DEFAULT_MEETING_FEE;
+    // For a signed-in seeker, half of the fee their own property type commands — used in
+    // the "you'll earn ₹X" copy shown before a specific meeting exists.
+    const mySeekerShare = Math.floor(getMeetingFee(user?.profile?.propertyType) / 2);
 
     useEffect(() => {
         let isMounted = true;
@@ -67,11 +73,13 @@ export default function MeetingsView({ onBack }) {
     // Pay & Accept: inline Razorpay payment then auto-accept
     const handlePayAndAccept = async (meetingId) => {
         setActionId(meetingId);
+        // Fee for THIS meeting (from the seeker's property type; 500 fallback).
+        const fee = meetings.find(m => m.id === meetingId)?.meetingFee || DEFAULT_MEETING_FEE;
         try {
             const orderRes = await fetch('/api/razorpay/create-order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ amount: MEETING_FEE, userId: user.id }),
+                body: JSON.stringify({ amount: fee, meetingId, userId: user.id }),
             });
             const orderData = await orderRes.json();
             if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
@@ -80,7 +88,7 @@ export default function MeetingsView({ onBack }) {
             try {
                 localStorage.setItem(`plyship_pending_order_${user.id}`, JSON.stringify({
                     orderId: orderData.orderId,
-                    amount: MEETING_FEE,
+                    amount: fee,
                     createdAt: Date.now(),
                 }));
             } catch (e) { /* localStorage may be unavailable */ }
@@ -105,7 +113,7 @@ export default function MeetingsView({ onBack }) {
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature,
                                 userId: user.id,
-                                amount: MEETING_FEE,
+                                amount: fee,
                             }),
                         });
                         const verifyData = await verifyRes.json();
@@ -115,7 +123,7 @@ export default function MeetingsView({ onBack }) {
                             return;
                         }
 
-                        const topUpResult = await topUpWallet(MEETING_FEE, response.razorpay_payment_id, response.razorpay_order_id);
+                        const topUpResult = await topUpWallet(fee, response.razorpay_payment_id, response.razorpay_order_id);
                         // Clear pending order from localStorage
                         try { localStorage.removeItem(`plyship_pending_order_${user.id}`); } catch (e) {}
                         if (!topUpResult.success) {
@@ -156,7 +164,7 @@ export default function MeetingsView({ onBack }) {
         } else if (result.insufficientFunds) {
             // Offer inline payment
             const payNow = await showConfirm(
-                `Insufficient wallet balance (₹${result.current}). Pay ₹${MEETING_FEE} now to accept this meeting?`,
+                `Insufficient wallet balance (₹${result.current}). Pay ₹${result.required || MEETING_FEE} now to accept this meeting?`,
                 'Pay & Accept'
             );
             if (payNow) {
@@ -416,7 +424,7 @@ export default function MeetingsView({ onBack }) {
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {isCompany
                             ? '₹500 deposit is charged when both confirm the offline meeting happened'
-                            : '₹250 is paid to you when both confirm the offline meeting happened'
+                            : `₹${mySeekerShare} is paid to you when both confirm the offline meeting happened`
                         }
                     </span>
                 </div>
@@ -641,7 +649,7 @@ function MeetingCard({
                         fontWeight: 600,
                     }}>
                         <CheckCircle size={14} />
-                        ₹{isCompany ? '500' : '250'} {isCompany ? 'paid' : 'earned'}
+                        ₹{isCompany ? (meeting.meetingFee || 500) : Math.floor((meeting.meetingFee || 500) / 2)} {isCompany ? 'paid' : 'earned'}
                     </span>
                 )}
             </div>
@@ -1493,7 +1501,7 @@ export function ScheduleMeetingModal({ match, onClose, onScheduled }) {
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
                     {isCompany
                         ? 'Payment is required only for confirmed interior consultation. ₹500 will be charged when both parties confirm the offline meeting.'
-                        : 'You\'ll earn ₹250 when both parties confirm the offline interior consultation meeting.'
+                        : `You'll earn ₹${mySeekerShare} when both parties confirm the offline interior consultation meeting.`
                     }
                 </p>
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
@@ -1950,7 +1958,7 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
                         The company will review your proposal and can accept or suggest changes.
                     </p>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
-                        You'll earn ₹250 when both parties confirm the offline meeting happened.
+                        You'll earn ₹{mySeekerShare} when both parties confirm the offline meeting happened.
                     </p>
 
                     {/* Submit */}

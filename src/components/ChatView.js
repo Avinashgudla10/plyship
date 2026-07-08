@@ -6,6 +6,7 @@ import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock,
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { subscribeToMessages, uploadFile } from '../lib/firebase';
+import { getMeetingFee, DEFAULT_MEETING_FEE } from '../lib/meetingFee';
 import { StartProjectModal } from './ProjectsView';
 import { ScheduleMeetingModal, AcceptAndScheduleModal, CounterProposeModal } from './MeetingsView';
 import ReviewModal from './ReviewModal';
@@ -1121,7 +1122,8 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
 
     const isSeeker = user?.role === 'SEEKER';
     const isCompanyUser = user?.role === 'COMPANY';
-    const MEETING_FEE = 500;
+    // Meeting fee is defined below, once `activeMeeting` is known (it's derived from the
+    // meeting's stored fee, which comes from the seeker's property type). See MEETING_FEE.
 
     const isBroadcast = chat?.isBroadcast || chat?.matchedUserId === 'plyship-admin';
 
@@ -1181,6 +1183,11 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
         ['CANCELLED', 'DECLINED'].includes(m.status)
     );
     const hasMeetingRequest = meetings.length > 0; // Any meeting = phone visible
+    // Meeting fee (INR) for the active meeting — the company tops up / pays this exact
+    // amount. Derived from the meeting's stored fee (seeker's property type); 500 fallback.
+    const MEETING_FEE = activeMeeting?.meetingFee
+        || getMeetingFee(profile?.propertyType || chat?.matchedUserProfile?.propertyType)
+        || DEFAULT_MEETING_FEE;
     const otherUserPhone = chat?.matchedUserPhone || profile?.phone || null;
     const activeProject = projects.find(p => p.status === 'PENDING_ACCEPTANCE');
     const hasAcceptedProject = projects.some(p => p.status === 'ACCEPTED');
@@ -1963,7 +1970,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                 const orderRes = await fetch('/api/razorpay/create-order', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ amount: MEETING_FEE, userId: user.id }),
+                                    body: JSON.stringify({ amount: MEETING_FEE, meetingId: activeMeeting?.id, userId: user.id }),
                                 });
                                 const orderData = await orderRes.json();
                                 if (!orderData.success) throw new Error(orderData.error || 'Failed to create order');
