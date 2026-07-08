@@ -55,15 +55,16 @@
 	<!-- ATS: Strict HTTPS enforcement (default). No exceptions needed.
 	     plyship.com uses HTTPS. WebView content inherits default ATS. -->
 
-	<!-- URL Schemes: Required for Firebase Phone Auth reCAPTCHA redirect -->
+	<!-- URL Schemes: the encoded Firebase app ID is REQUIRED by Firebase Phone Auth
+	     (PhoneAuthProvider crashes without it). Value = GOOGLE_APP_ID from
+	     GoogleService-Info.plist with ':' replaced by '-', prefixed with 'app-'. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.plyship.app</string>
-				<!-- TODO: Add your REVERSED_CLIENT_ID from GoogleService-Info.plist here -->
-				<!-- Example: <string>com.googleusercontent.apps.109538013062-XXXXXXXXXXXX</string> -->
+				<string>com.agxfactor.plyship</string>
+				<string>app-1-109538013062-ios-2847dfd71ec3b1535a8607</string>
 			</array>
 		</dict>
 	</array>

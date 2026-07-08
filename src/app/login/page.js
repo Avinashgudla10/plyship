@@ -207,7 +207,7 @@ export default function Login() {
             flexDirection: 'column',
             overflow: 'hidden'
         }}>
-            {/* reCAPTCHA container */}
+            {/* reCAPTCHA container (web/PWA fallback only; native iOS skips it) */}
             <div id="recaptcha-container"></div>
 
             {/* Decorative */}

@@ -83,6 +83,10 @@ export const AuthProvider = ({ children }) => {
     // Native (Capacitor) phone auth stores a verificationId instead of a confirmationResult
     const nativeVerificationIdRef = useRef(null);
     const recaptchaVerifierRef = useRef(null);
+    // Holds the verificationId returned by the NATIVE phone-auth bridge (iOS).
+    // When set, verifyOTP completes sign-in via the JS SDK credential instead of
+    // the web reCAPTCHA confirmationResult.
+    const nativeVerificationIdRef = useRef(null);
     const [isImpersonating, setIsImpersonating] = useState(false);
     const adminUserRef = useRef(null);
 
@@ -222,11 +226,62 @@ export const AuthProvider = ({ children }) => {
         return recaptchaVerifierRef.current;
     };
 
+    // ── Native phone auth (iOS) ──
+    // The native shell exposes window.webkit.messageHandlers.phoneAuthVerify.
+    // When present, the app verifies via the native Firebase SDK (silent APNs
+    // push / test numbers) — NO reCAPTCHA — and returns a verificationId.
+    const isNativePhoneAuthAvailable = () =>
+        typeof window !== 'undefined' &&
+        !!window.webkit?.messageHandlers?.phoneAuthVerify;
+
+    const sendOTPNative = (phoneNumber) => new Promise((resolve) => {
+        const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            resolve({ success: false, error: 'Verification timed out. Please try again.' });
+        }, 60000);
+
+        // Native code calls this global with a JSON payload string.
+        window.__plyship_phoneauth_callback = (payloadStr) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try {
+                const p = typeof payloadStr === 'string' ? JSON.parse(payloadStr) : payloadStr;
+                if (p && p.success && p.verificationId) {
+                    nativeVerificationIdRef.current = p.verificationId;
+                    console.log('[OTP][native] verificationId received');
+                    resolve({ success: true });
+                } else {
+                    resolve({ success: false, error: (p && p.error) || 'Verification failed. Please try again.' });
+                }
+            } catch (e) {
+                resolve({ success: false, error: 'Verification failed. Please try again.' });
+            }
+        };
+
+        try {
+            console.log('[OTP][native] Verifying:', formattedPhone);
+            window.webkit.messageHandlers.phoneAuthVerify.postMessage(formattedPhone);
+        } catch (e) {
+            settled = true;
+            clearTimeout(timer);
+            resolve({ success: false, error: 'Native verification unavailable.' });
+        }
+    });
+
     // Send OTP to phone number
     const sendOTP = async (phoneNumber, buttonId = 'recaptcha-container') => {
         const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
 
-        // ── Native (Android/iOS): verify the phone via the native SDK — no web reCAPTCHA ──
+        // ── iOS native bridge: custom Swift phoneAuthVerify handler (silent APNs push) — no reCAPTCHA ──
+        if (isNativePhoneAuthAvailable()) {
+            return await sendOTPNative(phoneNumber);
+        }
+
+        // ── Android native: Capacitor FirebaseAuthentication plugin (Play Integrity) — no reCAPTCHA ──
         // Guard with isPluginAvailable so OLD app builds (without the plugin compiled in)
         // safely fall through to the web reCAPTCHA flow instead of erroring.
         if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication')) {
@@ -306,17 +361,19 @@ export const AuthProvider = ({ children }) => {
     // Verify OTP code
     const verifyOTP = async (otpCode) => {
         try {
-            // ── Native: build a credential from the stored verificationId + code ──
-            if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication')) {
-                if (!nativeVerificationIdRef.current) {
-                    // Android auto-verification may already have signed the user in
-                    if (auth.currentUser) return { success: true, user: auth.currentUser };
-                    return { success: false, error: 'No OTP request found. Please send OTP again.' };
-                }
+            // ── Native (iOS bridge OR Android plugin): both store a verificationId in
+            // nativeVerificationIdRef. Build a credential from it + the code and sign in
+            // via the JS SDK so the rest of the app (Firestore auth state) is unchanged. ──
+            if (nativeVerificationIdRef.current) {
                 const credential = PhoneAuthProvider.credential(nativeVerificationIdRef.current, otpCode);
                 const result = await signInWithCredential(auth, credential);
                 nativeVerificationIdRef.current = null;
                 return { success: true, user: result.user };
+            }
+
+            // Android instant-verification may have already signed the user in (no stored id).
+            if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication') && auth.currentUser) {
+                return { success: true, user: auth.currentUser };
             }
 
             // ── Web ──
