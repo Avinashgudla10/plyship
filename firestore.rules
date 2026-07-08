@@ -108,15 +108,18 @@ service cloud.firestore {
     }
 
     // ── Wallets ─────────────────────────────────────────────
-    // TODO(security, P0): `update: if isAuth()` lets any signed-in user write ANY
-    // wallet balance, and top-ups are credited client-side — so a user can self-credit
-    // without paying. Cannot be fixed by rules alone (legit and malicious client writes
-    // are indistinguishable); requires moving all balance mutations to a trusted server
-    // that credits only after verifying the Razorpay payment. Tracked separately.
+    // Balance/lockedBalance mutations are SERVER-AUTHORITATIVE: all money moves (top-up,
+    // meeting settlement, project unlock, advance confirmation) run in /api/wallet/*
+    // via the Admin SDK, which bypasses these rules. Clients can no longer write wallet
+    // balances — this is what closes the self-crediting hole. A user may still CREATE
+    // their own EMPTY (zero-balance) wallet at signup; all balance changes go through the
+    // server, and admin retains manual edit access.
     match /wallets/{userId} {
       allow read: if isAuth();
-      allow create: if isOwner(userId);
-      allow update: if isAuth();
+      allow create: if isAdmin() || (isOwner(userId)
+                      && request.resource.data.balance == 0
+                      && (!('lockedBalance' in request.resource.data) || request.resource.data.lockedBalance == 0));
+      allow update: if isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
     }
 

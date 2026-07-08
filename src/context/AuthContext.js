@@ -2585,185 +2585,40 @@ export const AuthProvider = ({ children }) => {
         }
     }, [user, getChatId]);
 
-    // Process ₹500 payment from company — ₹250 to seeker, ₹250 to admin wallet (atomic transaction)
-    const processMeetingPayment = useCallback(async (meetingId, companyId, seekerId) => {
-        // Fee + 50/50 split are derived from the meeting's stored fee (set from the
-        // seeker's property type at creation), read inside the transaction below.
-        // Defaults cover any legacy meeting without a stored fee.
-        let MEETING_FEE = DEFAULT_MEETING_FEE;
-        let SEEKER_SHARE = getSeekerShare(MEETING_FEE);
-        let ADMIN_SHARE = getAdminShare(MEETING_FEE);
-        const ADMIN_WALLET_ID = 'admin_wallet';
-
+    // Settle a confirmed meeting: debit company fee, credit seeker (locked) + admin.
+    // SERVER-AUTHORITATIVE — the split runs in /api/wallet/internal via the Admin SDK,
+    // which re-validates the meeting is confirmed (both parties, or the seeker's OTP)
+    // before moving money. The client can no longer write wallet balances directly.
+    // `companyId`/`seekerId` are kept for callers but re-derived server-side; `otp` is
+    // passed on the OTP-verification path.
+    const processMeetingPayment = useCallback(async (meetingId, companyId, seekerId, otp) => {
         try {
-            const result = await runTransaction(db, async (transaction) => {
-                // ===== ALL READS FIRST =====
-                const companyWalletRef = doc(db, 'wallets', companyId);
-                const seekerWalletRef = doc(db, 'wallets', seekerId);
-                const adminWalletRef = doc(db, 'wallets', ADMIN_WALLET_ID);
-                const meetingRef = doc(db, 'meetings', meetingId);
+            const idToken = await auth.currentUser?.getIdToken();
+            if (!idToken) return { success: false, error: 'Not authenticated' };
 
-                const companyWalletSnap = await transaction.get(companyWalletRef);
-                const seekerWalletSnap = await transaction.get(seekerWalletRef);
-                const adminWalletSnap = await transaction.get(adminWalletRef);
-                const meetingSnap = await transaction.get(meetingRef);
-
-                // Derive the fee + 50/50 split from the meeting (property-type based; 500 fallback).
-                MEETING_FEE = (meetingSnap.exists() && meetingSnap.data().meetingFee) || DEFAULT_MEETING_FEE;
-                SEEKER_SHARE = getSeekerShare(MEETING_FEE);
-                ADMIN_SHARE = getAdminShare(MEETING_FEE);
-
-                if (!companyWalletSnap.exists()) {
-                    throw new Error('Company wallet not found. Please contact support.');
-                }
-
-                const companyWallet = companyWalletSnap.data();
-
-                if (companyWallet.balance < MEETING_FEE) {
-                    throw new Error('Insufficient balance');
-                }
-
-                const seekerWallet = seekerWalletSnap.exists()
-                    ? seekerWalletSnap.data()
-                    : { balance: 0, lockedBalance: 0, totalEarnings: 0 };
-
-                const adminWallet = adminWalletSnap.exists()
-                    ? adminWalletSnap.data()
-                    : { balance: 0, totalEarnings: 0 };
-
-                // ===== ALL WRITES AFTER =====
-
-                // Create seeker wallet if it doesn't exist
-                if (!seekerWalletSnap.exists()) {
-                    transaction.set(seekerWalletRef, {
-                        userId: seekerId,
-                        type: 'SEEKER',
-                        balance: 0,
-                        lockedBalance: SEEKER_SHARE,
-                        totalEarnings: SEEKER_SHARE,
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                    });
-                } else {
-                    // Credit seeker ₹250 (LOCKED)
-                    transaction.update(seekerWalletRef, {
-                        lockedBalance: (seekerWallet.lockedBalance || 0) + SEEKER_SHARE,
-                        totalEarnings: (seekerWallet.totalEarnings || 0) + SEEKER_SHARE,
-                        updatedAt: new Date().toISOString(),
-                    });
-                }
-
-                // Create admin wallet if it doesn't exist
-                if (!adminWalletSnap.exists()) {
-                    transaction.set(adminWalletRef, {
-                        userId: ADMIN_WALLET_ID,
-                        type: 'ADMIN',
-                        balance: ADMIN_SHARE,
-                        totalEarnings: ADMIN_SHARE,
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                    });
-                } else {
-                    // Credit admin wallet ₹250
-                    transaction.update(adminWalletRef, {
-                        balance: (adminWallet.balance || 0) + ADMIN_SHARE,
-                        totalEarnings: (adminWallet.totalEarnings || 0) + ADMIN_SHARE,
-                        updatedAt: new Date().toISOString(),
-                    });
-                }
-
-                // Debit company (full ₹500)
-                transaction.update(companyWalletRef, {
-                    balance: companyWallet.balance - MEETING_FEE,
-                    totalSpent: (companyWallet.totalSpent || 0) + MEETING_FEE,
-                    updatedAt: new Date().toISOString(),
-                });
-
-                // Update meeting status
-                transaction.update(meetingRef, {
-                    status: 'CONFIRMED',
-                    paymentStatus: 'PROCESSED',
-                    confirmedAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                });
-
-                return { success: true };
+            const res = await fetch('/api/wallet/internal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                body: JSON.stringify({ op: 'settle-meeting', meetingId, otp }),
             });
-
-            // Log transactions in parallel (independent writes, no need to wait sequentially)
-            const now = new Date().toISOString();
-            await Promise.all([
-                addDoc(collection(db, 'transactions'), {
-                    userId: companyId,
-                    type: 'DEBIT',
-                    amount: MEETING_FEE,
-                    reason: 'MEETING_FEE',
-                    relatedMeetingId: meetingId,
-                    relatedUserId: seekerId,
-                    status: 'COMPLETED',
-                    createdAt: now,
-                }),
-                addDoc(collection(db, 'transactions'), {
-                    userId: seekerId,
-                    type: 'LOCK',
-                    amount: SEEKER_SHARE,
-                    reason: 'MEETING_EARNINGS',
-                    relatedMeetingId: meetingId,
-                    relatedUserId: companyId,
-                    status: 'COMPLETED',
-                    createdAt: now,
-                }),
-                addDoc(collection(db, 'transactions'), {
-                    userId: ADMIN_WALLET_ID,
-                    type: 'CREDIT',
-                    amount: ADMIN_SHARE,
-                    reason: 'ADMIN_COMMISSION',
-                    relatedMeetingId: meetingId,
-                    relatedUserId: companyId,
-                    status: 'COMPLETED',
-                    createdAt: now,
-                }),
-            ]);
-
-            // Sync CONFIRMED status to chat doc
-            const chatId = getChatId(companyId, seekerId);
-            await setDoc(doc(db, 'chats', chatId), { meetingStatus: 'CONFIRMED', meetingId }, { merge: true });
-            await addDoc(collection(db, 'chats', chatId, 'messages'), {
-                senderId: 'system', senderName: 'PlyShip',
-                text: '✅ Meeting confirmed! Payment has been processed.',
-                type: 'meeting_update', createdAt: serverTimestamp(),
-            });
-
-            // Notify both about payment
-            createNotification(companyId, {
-                type: 'wallet_debit',
-                title: '💳 Meeting Payment',
-                message: `₹${MEETING_FEE} debited for confirmed meeting`,
-                data: { meetingId },
-            });
-            createNotification(seekerId, {
-                type: 'wallet_credit',
-                title: '💰 Earnings Received!',
-                message: `₹${SEEKER_SHARE} added to your locked balance for the meeting`,
-                data: { meetingId },
-            });
-
-            return { success: true, bothConfirmed: true, paymentProcessed: true };
-        } catch (error) {
-            // Mark payment as failed
-            await updateDoc(doc(db, 'meetings', meetingId), {
-                paymentStatus: 'FAILED',
-                paymentError: error.message,
-                updatedAt: new Date().toISOString(),
-            });
-
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                return {
+                    success: false,
+                    error: data.error || 'Payment failed',
+                    insufficientBalance: !!data.insufficientBalance,
+                };
+            }
             return {
-                success: false,
-                error: error.message,
-                insufficientBalance: error.message === 'Insufficient balance'
+                success: true,
+                bothConfirmed: true,
+                paymentProcessed: true,
+                alreadyProcessed: data.alreadyProcessed,
             };
+        } catch (error) {
+            return { success: false, error: error.message };
         }
-    }, [getChatId]);
+    }, []);
 
     // Confirm meeting happened (called by either party)
     const confirmMeeting = useCallback(async (meetingId) => {
@@ -2848,8 +2703,9 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: 'Incorrect OTP. Please check the code with the seeker.', wrongOTP: true };
             }
 
-            // OTP matches! Process payment
-            const paymentResult = await processMeetingPayment(meetingId, meeting.companyId, meeting.seekerId);
+            // OTP matches! Process payment (pass the OTP so the server can authorize
+            // settlement on the OTP path, where the confirm flags may not both be set).
+            const paymentResult = await processMeetingPayment(meetingId, meeting.companyId, meeting.seekerId, enteredOTP);
             return paymentResult;
         } catch (error) {
             return { success: false, error: error.message };
@@ -3045,61 +2901,28 @@ export const AuthProvider = ({ children }) => {
         return unsubscribe;
     }, [user, initializeWallet]);
 
-    // Accept a project request (non-requester accepts)
+    // Accept a project request (non-requester accepts). The project status update AND
+    // the seeker wallet unlock run SERVER-SIDE in /api/wallet/internal (Admin SDK), so
+    // the client can no longer write wallet balances. The server re-validates that the
+    // caller is a party, isn't the requester, and the project is pending.
     const acceptProject = useCallback(async (projectId) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
 
         try {
-            const projectRef = doc(db, 'projects', projectId);
-            const projectSnap = await getDoc(projectRef);
+            const idToken = await auth.currentUser?.getIdToken();
+            if (!idToken) return { success: false, error: 'Not authenticated' };
 
-            if (!projectSnap.exists()) {
-                return { success: false, error: 'Project not found' };
-            }
-
-            const project = projectSnap.data();
-
-            // Check if user is part of this project
-            if (project.companyId !== user.id && project.seekerId !== user.id) {
-                return { success: false, error: 'You are not part of this project' };
-            }
-
-            // Can't accept your own request
-            if (project.requestedBy === user.id) {
-                return { success: false, error: 'Cannot accept your own request' };
-            }
-
-            if (project.status !== 'PENDING_ACCEPTANCE') {
-                return { success: false, error: 'Project is not pending acceptance' };
-            }
-
-            // Update project status and unlock seeker wallet for withdrawals
-            await updateDoc(projectRef, {
-                status: 'ACCEPTED',
-                acceptedBy: user.id,
-                acceptedAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+            const res = await fetch('/api/wallet/internal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                body: JSON.stringify({ op: 'unlock-project', projectId }),
             });
-
-            // Unlock seeker's wallet for withdrawals - move lockedBalance to balance
-            const seekerWalletRef = doc(db, 'wallets', project.seekerId);
-            const seekerWalletSnap = await getDoc(seekerWalletRef);
-            if (seekerWalletSnap.exists()) {
-                const walletData = seekerWalletSnap.data();
-                const lockedAmount = walletData.lockedBalance || 0;
-                const currentBalance = walletData.balance || 0;
-
-                await updateDoc(seekerWalletRef, {
-                    isLocked: false,
-                    balance: currentBalance + lockedAmount, // Move locked funds to available
-                    lockedBalance: 0, // Clear locked balance
-                    unlockedAt: new Date().toISOString(),
-                    unlockedBy: projectId,
-                });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || 'Failed to accept project' };
             }
-
             return { success: true };
         } catch (error) {
             return { success: false, error: error.message };
@@ -3192,107 +3015,34 @@ export const AuthProvider = ({ children }) => {
     }, [user]);
 
     // Company confirms receiving advance payment (triggers unlock)
+    // Company confirms the advance payment → unlock the seeker's earnings and accrue the
+    // 4% commission the company owes. SERVER-AUTHORITATIVE: runs in /api/wallet/internal
+    // (Admin SDK), which re-validates the caller owns the project and it's in the right
+    // state. The client no longer writes wallet balances.
     const confirmAdvancePayment = useCallback(async (projectId, projectValue = 0) => {
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }
-
         if (user.role !== 'COMPANY') {
             return { success: false, error: 'Only companies can confirm advance payments' };
         }
-
-        // Total project value the company enters — a 4% commission (1% platform + 3% seeker)
-        // is charged on this and settled on the company's next wallet top-up.
-        const value = Math.round(Number(projectValue) || 0);
-        if (value <= 0) {
+        if (Math.round(Number(projectValue) || 0) <= 0) {
             return { success: false, error: 'Please enter the total project value' };
         }
-        const commission = Math.round(value * PROJECT_COMMISSION_RATE);      // 4% total — owed by the company
-        const adminCommission = Math.round(value * ADMIN_COMMISSION_RATE);   // 1% — platform share
-        const seekerCommission = Math.max(0, commission - adminCommission);  // remaining ~3% — the seeker's share
 
         try {
-            const projectRef = doc(db, 'projects', projectId);
-            const projectSnap = await getDoc(projectRef);
+            const idToken = await auth.currentUser?.getIdToken();
+            if (!idToken) return { success: false, error: 'Not authenticated' };
 
-            if (!projectSnap.exists()) {
-                return { success: false, error: 'Project not found' };
-            }
-
-            const project = projectSnap.data();
-            if (project.companyId !== user.id) {
-                return { success: false, error: 'This project is not assigned to you' };
-            }
-
-            if (project.status !== 'ADVANCE_RECORDED') {
-                return { success: false, error: 'Advance payment must be recorded first' };
-            }
-
-            // Use transaction to update project and unlock earnings atomically.
-            // NOTE: Firestore transactions require ALL reads before ANY writes,
-            // so we must read the wallets first, then perform the updates.
-            const seekerId = project.seekerId;
-            const seekerWalletRef = doc(db, 'wallets', seekerId);
-            const companyWalletRef = doc(db, 'wallets', user.id);
-            await runTransaction(db, async (transaction) => {
-                // ── ALL READS FIRST ──
-                const seekerWalletSnap = await transaction.get(seekerWalletRef);
-                const companyWalletSnap = await transaction.get(companyWalletRef);
-
-                // ── THEN ALL WRITES ──
-                // Update project status + record its value and commission owed
-                transaction.update(projectRef, {
-                    status: 'CONFIRMED',
-                    companyConfirmedAdvance: true,
-                    projectValue: value,
-                    commissionAmount: commission,          // 4% total the company owes
-                    adminCommission: adminCommission,      // 1% → platform
-                    seekerCommission: seekerCommission,    // 3% → seeker (credited only at settlement)
-                    // PENDING until the company pays the 4% on its next top-up. Only THEN is
-                    // the seeker's 3% credited — never at confirmation.
-                    commissionStatus: commission > 0 ? 'PENDING' : 'NONE',
-                    confirmedAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                });
-
-                // Unlock seeker's earnings — move all locked balance to available
-                if (seekerWalletSnap.exists()) {
-                    const seekerWallet = seekerWalletSnap.data();
-                    const lockedBalance = seekerWallet.lockedBalance || 0;
-
-                    transaction.update(seekerWalletRef, {
-                        balance: (seekerWallet.balance || 0) + lockedBalance,
-                        lockedBalance: 0,
-                        updatedAt: new Date().toISOString(),
-                    });
-                }
-
-                // Accrue the full 4% commission the company now owes (1% platform + 3% seeker).
-                // Settled on the company's next wallet top-up; the seeker's 3% is paid out then.
-                if (commission > 0 && companyWalletSnap.exists()) {
-                    const companyWallet = companyWalletSnap.data();
-                    transaction.update(companyWalletRef, {
-                        commissionOwed: (companyWallet.commissionOwed || 0) + commission,
-                        updatedAt: new Date().toISOString(),
-                    });
-                }
+            const res = await fetch('/api/wallet/internal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                body: JSON.stringify({ op: 'confirm-advance', projectId, projectValue }),
             });
-
-            // Log the unlock transaction with the actual unlocked amount
-            const project2 = (await getDoc(projectRef)).data();
-            const seekerWalletAfter = await getDoc(doc(db, 'wallets', project2.seekerId));
-            const unlockedAmount = seekerWalletAfter.exists() ? (seekerWalletAfter.data().balance || 0) : 0;
-            await addDoc(collection(db, 'transactions'), {
-                userId: project2.seekerId,
-                type: 'UNLOCK',
-                amount: unlockedAmount,
-                reason: 'PROJECT_CONFIRMED',
-                relatedProjectId: projectId,
-                relatedUserId: user.id,
-                status: 'COMPLETED',
-                createdAt: new Date().toISOString(),
-            });
-
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || 'Failed to confirm advance payment' };
+            }
             return { success: true, earningsUnlocked: true };
         } catch (error) {
             return { success: false, error: error.message };
