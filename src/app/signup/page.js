@@ -399,7 +399,7 @@ export default function Signup() {
                                     textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4,
                                     display: 'block', marginBottom: 12
                                 }}>Enter 6-digit OTP</label>
-                                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                                     {otp.map((digit, i) => (
                                         <input
                                             key={i}
@@ -413,7 +413,10 @@ export default function Signup() {
                                             onKeyDown={(e) => handleOTPKeyDown(i, e)}
                                             onPaste={handlePaste}
                                             style={{
-                                                width: 48, height: 56, textAlign: 'center',
+                                                // Fluid width so all 6 boxes + gaps fit inside the
+                                                // card on 320–360px phones (fixed 48px overflowed).
+                                                flex: '1 1 0', minWidth: 0, maxWidth: 52,
+                                                height: 56, textAlign: 'center',
                                                 fontSize: 22, fontWeight: 700, borderRadius: 14,
                                                 border: `2px solid ${digit ? 'var(--primary)' : 'var(--border)'}`,
                                                 background: digit ? 'var(--pastel-green)' : 'var(--bg-secondary)',

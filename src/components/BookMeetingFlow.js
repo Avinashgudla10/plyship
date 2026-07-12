@@ -476,7 +476,7 @@ export default function BookMeetingFlow({ company, onClose }) {
                                                 <input key={i} ref={el=>otpRefs.current[i]=el} type="tel" inputMode="numeric"
                                                     autoComplete={i===0?'one-time-code':'off'} maxLength={i===0?6:1} value={d}
                                                     onChange={e=>handleOTPChange(i,e.target.value)} onKeyDown={e=>handleOTPKey(i,e)}
-                                                    style={{ width:44,height:52,textAlign:'center',fontSize:20,fontWeight:700,borderRadius:12,
+                                                    style={{ flex:'1 1 0',minWidth:0,maxWidth:48,height:52,textAlign:'center',fontSize:20,fontWeight:700,borderRadius:12,
                                                         border: d ? '2px solid #22C55E' : '1px solid #D1D5DB', background: d ? '#F0FDF4' : '#F9FAFB', outline:'none', color:'#111827' }} />
                                             ))}
                                         </div>
