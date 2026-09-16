@@ -62,3 +62,7 @@ next-env.d.ts
 generate-icons.cjs
 plyship_prd.md.resolved
 *.jks
+
+# Investor deck working files (presenter copy has private negotiation notes)
+pitch-deck/private/
+pitch-deck/source/node_modules/
