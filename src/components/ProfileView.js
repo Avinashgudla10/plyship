@@ -1690,7 +1690,7 @@ function ProfileListItem({ profile }) {
 }
 
 // ============ GPS LOCATION DETECTOR (Profile Settings) ============
-const GOOGLE_MAPS_API_KEY = 'AIzaSyCncjupkxXNL-AwNpyMSuEdfRSOHNZf-so';
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 function LocationDetector({ city, locality, onUpdate }) {
     const [locStatus, setLocStatus] = useState(city ? 'success' : 'idle'); // idle|detecting|refining|success|error|denied

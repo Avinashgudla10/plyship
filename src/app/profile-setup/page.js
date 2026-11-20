@@ -645,7 +645,7 @@ function SeekerBasicInfo({ data, setData, errors }) {
 
     const reverseGeocode = async (lat, lng) => {
         const res = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCncjupkxXNL-AwNpyMSuEdfRSOHNZf-so&language=en`
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&language=en`
         );
         const geo = await res.json();
         if (geo.status === 'OK' && geo.results?.length > 0) {
@@ -973,7 +973,7 @@ function CompanyBasicInfo({ data, setData, errors }) {
 
     const reverseGeocode = async (lat, lng) => {
         const res = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCncjupkxXNL-AwNpyMSuEdfRSOHNZf-so&language=en`
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&language=en`
         );
         const geo = await res.json();
         if (geo.status === 'OK' && geo.results?.length > 0) {
