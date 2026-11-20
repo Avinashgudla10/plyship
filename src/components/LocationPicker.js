@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Navigation, MapPin, Loader2, LocateFixed } from 'lucide-react';
 
-const GOOGLE_MAPS_API_KEY = 'AIzaSyCncjupkxXNL-AwNpyMSuEdfRSOHNZf-so';
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 // Load Google Maps script once
 let googleMapsPromise = null;
