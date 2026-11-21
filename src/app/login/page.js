@@ -8,6 +8,7 @@ import { Phone, ArrowRight, ArrowLeft, Shield } from 'lucide-react';
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 import Image from 'next/image';
+import { rememberNext, hasNext, goAfterLogin } from '../../lib/afterLogin';
 
 const ADMIN_PHONES = ['+918465834152'];
 
@@ -26,15 +27,21 @@ export default function Login() {
     const otpRefs = useRef([]);
     const MAX_RESENDS = 3;
 
+    // Came from the Marketplace (?next=/marketplace/...)? Remember it for after login.
+    useEffect(() => { rememberNext(); }, []);
+
     // Redirect if already logged in
     useEffect(() => {
         if (!loading && user) {
-            if (ADMIN_PHONES.includes(user.phone)) {
+            if (ADMIN_PHONES.includes(user.phone) && !hasNext()) {
                 router.replace('/admin');
                 return;
             }
             if (user.profileComplete) {
-                router.replace('/');
+                goAfterLogin(router, '/');
+            } else if (hasNext() && !user.role) {
+                // Signed in but never finished signing up, and sent here by the Marketplace: finish it now.
+                setShowRoleSelection(true);
             }
         }
     }, [user, loading, router]);
@@ -158,10 +165,10 @@ export default function Login() {
             } else {
                 setTimeout(() => {
                     const formattedPhone = `+91${phone.replace(/\s/g, '')}`;
-                    if (ADMIN_PHONES.includes(formattedPhone)) {
+                    if (ADMIN_PHONES.includes(formattedPhone) && !hasNext()) {
                         router.replace('/admin');
                     } else {
-                        router.replace('/');
+                        goAfterLogin(router, '/');
                     }
                 }, 1000);
             }

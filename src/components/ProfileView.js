@@ -956,6 +956,18 @@ export function EditProfileView({ onBack }) {
                             }))}
                         />
 
+                        {/* How far they take projects — the Marketplace offers leads to the nearest firms first */}
+                        <div style={{ marginBottom: 24 }}>
+                            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>How far do you take projects?</label>
+                            <select
+                                value={[10, 25, 50, 100].includes(Number(profile.serviceRadius)) ? Number(profile.serviceRadius) : 50}
+                                onChange={(e) => setProfile({ ...profile, serviceRadius: Number(e.target.value) })}
+                                style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 16, fontWeight: 500, outline: 'none', appearance: 'auto' }}
+                            >
+                                {[10, 25, 50, 100].map((km) => <option key={km} value={km}>Within {km} km</option>)}
+                            </select>
+                        </div>
+
                         <SectionTitle>Service Areas</SectionTitle>
                         <ServiceAreasPicker profile={profile} toggleArrayItem={toggleArrayItem} setProfile={setProfile} />
 

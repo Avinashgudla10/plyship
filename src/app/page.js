@@ -276,8 +276,9 @@ export default function Home() {
     { id: 'explore', icon: Compass, label: 'Explore', badge: 0 },
     { id: 'matches', icon: Users, label: 'Find Connections', badge: 0 },
     { id: 'messages', icon: MessageCircle, label: 'Chat', badge: 0 },
-    // Opens the lead marketplace (plyship.com/marketplace, a separate app served through src/proxy.js)
-    { id: 'marketplace', icon: Store, label: 'Marketplace', badge: 0, href: '/marketplace' },
+    // Opens the lead marketplace (plyship.com/marketplace, a separate app served through src/proxy.js).
+    // Via its /login hand-off page, so the PlyShip login carries over (one sign-in for plyship.com).
+    { id: 'marketplace', icon: Store, label: 'Marketplace', badge: 0, href: '/marketplace/login?next=%2F' },
     { id: 'profile', icon: User, label: 'Profile', badge: 0 },
   ];
 

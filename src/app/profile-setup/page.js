@@ -12,6 +12,7 @@ import {
     Loader2, Upload, CloudUpload
 } from 'lucide-react';
 import Image from 'next/image';
+import { goAfterLogin } from '../../lib/afterLogin';
 
 // ============ SEEKER FORM DATA ============
 const SEEKER_STEPS = [
@@ -276,8 +277,9 @@ export default function ProfileSetup() {
                     console.log('✅ Profile saved to Firebase, navigating to home');
                     // Let the success animation play briefly
                     await new Promise(r => setTimeout(r, 1200));
-                    // Use replace so back button doesn't go through onboarding flow
-                    router.replace('/');
+                    // Use replace so back button doesn't go through onboarding flow.
+                    // Sent here by the Marketplace? Go back there (one sign-in for plyship.com).
+                    goAfterLogin(router, '/');
                 } else {
                     console.error('❌ Failed to save profile:', result?.error);
                     showToast('Failed to save profile: ' + (result?.error || 'Unknown error'), 'error');
@@ -1158,10 +1160,30 @@ function CompanyBasicInfo({ data, setData, errors }) {
                     {errors?.city && <p style={errorTextStyle}>{errors.city}</p>}
                 </div>
 
-
+                <ServiceRadiusField value={data.serviceRadius} onChange={(km) => setData({ ...data, serviceRadius: km })} />
 
                 <InputField label="Years in Business" value={data.yearsInBusiness} onChange={(v) => setData({ ...data, yearsInBusiness: v })} placeholder="e.g., 5" type="number" />
             </div>
+        </div>
+    );
+}
+
+// How far the company takes projects from its office. The Marketplace uses it to offer each homeowner
+// lead to the nearest firms first (same choices as the Marketplace).
+const SERVICE_RADII = [10, 25, 50, 100];
+function ServiceRadiusField({ value, onChange }) {
+    const current = SERVICE_RADII.includes(Number(value)) ? Number(value) : 50;
+    return (
+        <div>
+            <label style={labelStyle}>How far do you take projects?</label>
+            <select
+                value={current}
+                onChange={(e) => onChange(Number(e.target.value))}
+                style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 16, fontWeight: 500, outline: 'none', appearance: 'auto' }}
+            >
+                {SERVICE_RADII.map((km) => <option key={km} value={km}>Within {km} km</option>)}
+            </select>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 2px 0' }}>From your office. We send you clients within this distance first.</p>
         </div>
     );
 }

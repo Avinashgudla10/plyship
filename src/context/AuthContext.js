@@ -3307,6 +3307,8 @@ export const AuthProvider = ({ children }) => {
             if (user?.id) {
                 await cleanupFCMToken(user.id).catch(() => {});
             }
+            // One sign-in for plyship.com: also end the Marketplace (/marketplace) session.
+            await fetch('/marketplace/session/end', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
             await signOut(auth);
             setUser(null);
             router.push('/login');

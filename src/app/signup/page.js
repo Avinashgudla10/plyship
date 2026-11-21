@@ -8,6 +8,7 @@ import { Phone, ArrowRight, ArrowLeft, Shield, CheckCircle } from 'lucide-react'
 import RoleSelectionModal from '../../components/RoleSelectionModal';
 import Link from 'next/link';
 import Image from 'next/image';
+import { rememberNext, goAfterLogin } from '../../lib/afterLogin';
 
 export default function Signup() {
     const router = useRouter();
@@ -25,10 +26,13 @@ export default function Signup() {
     const otpRefs = useRef([]);
     const MAX_RESENDS = 3;
 
+    // Came from the Marketplace (?next=/marketplace/...)? Remember it for after sign-up.
+    useEffect(() => { rememberNext(); }, []);
+
     useEffect(() => {
         if (!loading && user) {
             if (user.profileComplete) {
-                router.replace('/');
+                goAfterLogin(router, '/');
             }
         }
     }, [user, loading, router]);
