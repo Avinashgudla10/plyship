@@ -52,6 +52,49 @@ function Stat({ icon: Icon, label, value, sub, color = '#16A34A' }) {
     );
 }
 
+/** The website AI's daily report for the whole platform (meetings + Marketplace). */
+export function AiReportCard({ summary }) {
+    const ai = summary?.ai;
+    if (!ai) return null;
+    const p = ai.platform || {};
+    const n = p.nudges || {};
+    const applied = Object.entries(ai.applied || {});
+    return (
+        <div style={{ ...card, marginBottom: 20, padding: 20, border: '1px solid #BBF7D0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={18} color="#16A34A" /> PlyShip AI — daily report</h3>
+                <span style={{ fontSize: 12, color: '#6B7280' }}>{new Date(ai.at || ai.day).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}{ai.by === 'rules' ? ' · rules only (AI unavailable)' : ''}</span>
+            </div>
+            <p style={{ fontSize: 14, color: '#111', lineHeight: 1.5, margin: '0 0 12px' }}>{ai.summary}</p>
+            {p.meetings_30d && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+                    <Stat icon={Building2} label="Meetings (30 days)" value={`${p.meetings_30d.completed}/${p.meetings_30d.created}`} sub={`completed · ${p.meetings_30d.cancelledOrDeclined} cancelled · ${p.meetings_30d.disputes} disputes`} color="#3B82F6" />
+                    <Stat icon={IndianRupee} label="PlyShip share (30 days)" value={rs(p.meetings_30d.plyshipShare)} sub={`of ${rs(p.meetings_30d.feesCollected)} meeting fees`} color="#059669" />
+                    <Stat icon={ClipboardCheck} label="Stuck / waiting" value={p.meetings_waiting_reply_48h ?? 0} sub={`meetings 48h+ without reply · ${p.companies_low_balance ?? 0} low wallets`} color={(p.meetings_waiting_reply_48h || 0) ? '#F97316' : '#16A34A'} />
+                    <Stat icon={MessageCircle} label="App nudges" value={n.sent_yesterday_or_today ?? 0} sub={`sent ${n.on || 'today'} · limit ${n.limit ?? '—'}/day`} color="#8B5CF6" />
+                </div>
+            )}
+            {(ai.actions || []).length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>For you to decide</div>
+                    {ai.actions.slice(0, 5).map((a, i) => (
+                        <div key={i} style={{ fontSize: 13, padding: '8px 10px', borderRadius: 10, background: '#F9FAFB', marginBottom: 6 }}><b>{a.action}</b><div style={{ color: '#6B7280', marginTop: 2 }}>{a.why}</div></div>
+                    ))}
+                </div>
+            )}
+            {(ai.insights || []).length > 0 && (
+                <details>
+                    <summary style={{ fontSize: 13, fontWeight: 600, color: '#15803D', cursor: 'pointer' }}>What the AI noticed{applied.length ? ` · ${applied.length} setting${applied.length === 1 ? '' : 's'} changed` : ''}</summary>
+                    <ul style={{ fontSize: 13, color: '#374151', margin: '8px 0 0', paddingLeft: 18 }}>
+                        {ai.insights.map((x, i) => <li key={i} style={{ marginBottom: 4 }}>{x}</li>)}
+                        {applied.map(([k, v]) => <li key={k} style={{ marginBottom: 4 }}>Changed <b>{k.replace(/_/g, ' ')}</b> → {String(v)}</li>)}
+                    </ul>
+                </details>
+            )}
+        </div>
+    );
+}
+
 /** Overview tab: both businesses together — meetings (this app) + Marketplace (leads). */
 export function PlatformRevenueCard({ meetingsRevenue, summary, error, onOpen }) {
     const leads = summary?.revenue || 0;

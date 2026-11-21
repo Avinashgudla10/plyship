@@ -17,7 +17,7 @@ import {
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth, deleteUserStorage } from '../../lib/firebase';
 import { Store } from 'lucide-react';
-import { useMarketplaceSummary, MarketplaceTab, PlatformRevenueCard } from '../../components/MarketplaceAdmin';
+import { useMarketplaceSummary, MarketplaceTab, PlatformRevenueCard, AiReportCard } from '../../components/MarketplaceAdmin';
 
 // Admin emails that have access
 const ADMIN_PHONES = ['+918465834152'];
@@ -1161,6 +1161,7 @@ export default function AdminDashboard() {
             }}>
                 {activeTab === 'overview' && (
                     <>
+                        <AiReportCard summary={marketplace.summary} />
                         <PlatformRevenueCard meetingsRevenue={stats?.totalRevenue || 0} summary={marketplace.summary} error={marketplace.error} onOpen={() => setActiveTab('marketplace')} />
                         <OverviewTab stats={stats} adminWallet={adminWallet} allWallets={allWallets} users={users} transactions={transactions} />
                     </>
