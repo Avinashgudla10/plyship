@@ -16,6 +16,8 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth, deleteUserStorage } from '../../lib/firebase';
+import { Store } from 'lucide-react';
+import { useMarketplaceSummary, MarketplaceTab, PlatformRevenueCard } from '../../components/MarketplaceAdmin';
 
 // Admin emails that have access
 const ADMIN_PHONES = ['+918465834152'];
@@ -301,6 +303,10 @@ export default function AdminDashboard() {
     const [isAdmin, setIsAdmin] = useState(false);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview');
+    useEffect(() => {
+        const t = new URLSearchParams(window.location.search).get('tab');
+        if (t) setActiveTab(t);
+    }, []);
     const [seekers, setSeekers] = useState([]);
     const [companies, setCompanies] = useState([]);
     const [meetings, setMeetings] = useState([]);
@@ -308,6 +314,7 @@ export default function AdminDashboard() {
     const [projects, setProjects] = useState([]);
 
     const [chats, setChats] = useState([]);
+    const marketplace = useMarketplaceSummary(isAdmin);
     const [searchTerm, setSearchTerm] = useState('');
     const [isLive, setIsLive] = useState(true);
     const [adminWallet, setAdminWallet] = useState({ balance: 0, totalEarnings: 0 });
@@ -906,6 +913,7 @@ export default function AdminDashboard() {
 
     const tabs = [
         { id: 'overview', label: 'Overview', icon: TrendingUp },
+        { id: 'marketplace', label: 'Marketplace', icon: Store, badge: (marketplace.summary?.reviewPending || 0) + (marketplace.summary?.replacementsOpen || 0) },
         { id: 'users', label: 'Users', icon: Users },
         { id: 'meetings', label: 'Meetings', icon: Calendar },
         { id: 'projects', label: 'Projects', icon: Building2 },
@@ -1052,7 +1060,7 @@ export default function AdminDashboard() {
                             <ArrowLeft size={20} />
                         </button>
                         <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111' }}>
-                            Admin Dashboard
+                            PlyShip Admin
                         </h1>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1077,6 +1085,7 @@ export default function AdminDashboard() {
                         </div>
                         <button
                             onClick={async () => {
+                                await fetch('/marketplace/session/end', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
                                 await signOut(auth);
                                 localStorage.removeItem('userPhone');
                                 localStorage.removeItem('userEmail');
@@ -1138,6 +1147,7 @@ export default function AdminDashboard() {
                         >
                             <tab.icon size={16} />
                             {tab.label}
+                            {tab.badge > 0 && <span style={{ minWidth: 18, padding: '1px 6px', borderRadius: 99, background: '#F97316', color: 'white', fontSize: 11, fontWeight: 700 }}>{tab.badge}</span>}
                         </button>
                     ))}
                 </div>
@@ -1149,7 +1159,13 @@ export default function AdminDashboard() {
                 width: '100%',
                 boxSizing: 'border-box',
             }}>
-                {activeTab === 'overview' && <OverviewTab stats={stats} adminWallet={adminWallet} allWallets={allWallets} users={users} transactions={transactions} />}
+                {activeTab === 'overview' && (
+                    <>
+                        <PlatformRevenueCard meetingsRevenue={stats?.totalRevenue || 0} summary={marketplace.summary} error={marketplace.error} onOpen={() => setActiveTab('marketplace')} />
+                        <OverviewTab stats={stats} adminWallet={adminWallet} allWallets={allWallets} users={users} transactions={transactions} />
+                    </>
+                )}
+                {activeTab === 'marketplace' && <MarketplaceTab summary={marketplace.summary} error={marketplace.error} reload={marketplace.reload} />}
                 {activeTab === 'users' && (
                     <UsersTab
                         users={users}
