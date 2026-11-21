@@ -16,6 +16,11 @@ service cloud.firestore {
     function isChatMember(chatId) {
       return isAuth() && request.auth.uid in chatId.split('_');
     }
+    // Public profiles never carry phone numbers (they live in contacts/{uid}).
+    function noPhone() {
+      return !request.resource.data.keys().hasAny(['phone', 'phoneNumber'])
+        && !(request.resource.data.get('profile', {}).keys().hasAny(['phone']));
+    }
     function isParty(data) {
       return isAuth() && (request.auth.uid == data.companyId || request.auth.uid == data.seekerId);
     }
@@ -23,15 +28,15 @@ service cloud.firestore {
     // ── User profiles ───────────────────────────────────────
     match /seekers/{userId} {
       allow read: if isAuth();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && noPhone();
+      allow update: if (isOwner(userId) && noPhone()) || isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
     }
 
     match /companies/{userId} {
       allow read: if isAuth();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && noPhone();
+      allow update: if (isOwner(userId) && noPhone()) || isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
     }
 
