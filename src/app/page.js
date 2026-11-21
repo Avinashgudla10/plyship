@@ -8,7 +8,7 @@ import SwipeDeck from '../components/SwipeDeck';
 import MatchOverlay from '../components/MatchOverlay';
 import ProfileDetail from '../components/ProfileDetail';
 import LandingPage from '../components/LandingPage';
-import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut } from 'lucide-react';
+import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut, Store } from 'lucide-react';
 
 // ── Lazy-loaded heavy views (code-split into separate chunks) ──
 const MatchesView = lazy(() => import('../components/MatchesView'));
@@ -276,6 +276,8 @@ export default function Home() {
     { id: 'explore', icon: Compass, label: 'Explore', badge: 0 },
     { id: 'matches', icon: Users, label: 'Find Connections', badge: 0 },
     { id: 'messages', icon: MessageCircle, label: 'Chat', badge: 0 },
+    // Opens the lead marketplace (plyship.com/marketplace, a separate app served through src/proxy.js)
+    { id: 'marketplace', icon: Store, label: 'Marketplace', badge: 0, href: '/marketplace' },
     { id: 'profile', icon: User, label: 'Profile', badge: 0 },
   ];
 
@@ -632,6 +634,7 @@ export default function Home() {
             <motion.button
               key={item.id}
               onClick={() => {
+                if (item.href) { window.location.href = item.href; return; }
                 setActiveTab(item.id);
                 if (item.id !== 'messages') setSelectedChat(null);
                 if (item.id !== 'profile') setProfileSubPage(null);
