@@ -51,6 +51,7 @@ export async function GET(request) {
             db.collection('withdrawals').where('status', '==', 'PENDING').get(), db.collection('deleteRequests').where('status', '==', 'PENDING').get(),
             db.collection('reviews').get(),
         ]);
+        const privatePhone = Object.fromEntries((await db.collection('contacts').get()).docs.map((d) => [d.id, d.data().phone]));
         const seekers = seekersSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.profileComplete !== false);
         const companies = companiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.profileComplete !== false);
         const meetings = meetingsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -89,10 +90,10 @@ export async function GET(request) {
         // Seekers 3+ days old who never had a meeting (candidates for free Marketplace quotes).
         const withMeetings = new Set(meetings.flatMap((m) => [m.seekerId, m.companyId]));
         const seekersIdle = seekers.filter((u) => now - ms(u.createdAt) > 3 * DAY && !withMeetings.has(u.id))
-            .map((u) => ({ id: u.id, phone: u.phone || '', city: u.profile?.city || '' })).slice(0, 2000);
+            .map((u) => ({ id: u.id, phone: privatePhone[u.id] || u.phone || '', city: u.profile?.city || '' })).slice(0, 2000);
 
         const companiesList = companies.map((u) => ({
-            id: u.id, phone: u.phone || '', name: u.profile?.companyName || u.name || '', city: u.profile?.city || '',
+            id: u.id, phone: privatePhone[u.id] || u.phone || '', name: u.profile?.companyName || u.name || '', city: u.profile?.city || '',
             lat: num(u.profile?.lat), lng: num(u.profile?.lng), radiusKm: num(u.profile?.serviceRadius) || 50,
             activeDaysAgo: u.lastActiveAt ? Math.round((now - ms(u.lastActiveAt)) / DAY) : null,
         })).slice(0, 2000);

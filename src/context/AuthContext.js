@@ -120,7 +120,7 @@ export const AuthProvider = ({ children }) => {
                     let userDoc = await getDoc(doc(db, 'seekers', firebaseUser.uid));
 
                     if (userDoc.exists()) {
-                        const userData = { id: firebaseUser.uid, ...userDoc.data() };
+                        const userData = { id: firebaseUser.uid, ...userDoc.data(), phone: firebaseUser.phoneNumber || userDoc.data().phone || null };
                         setUser(userData);
                         localStorage.setItem('userEmail', userData.email);
                         // Track activity (fire-and-forget)
@@ -130,7 +130,7 @@ export const AuthProvider = ({ children }) => {
                         userDoc = await getDoc(doc(db, 'companies', firebaseUser.uid));
 
                         if (userDoc.exists()) {
-                            const userData = { id: firebaseUser.uid, ...userDoc.data() };
+                            const userData = { id: firebaseUser.uid, ...userDoc.data(), phone: firebaseUser.phoneNumber || userDoc.data().phone || null };
                             setUser(userData);
                             localStorage.setItem('userEmail', userData.email);
                             // Track activity (fire-and-forget)
@@ -538,10 +538,9 @@ export const AuthProvider = ({ children }) => {
             cleanedProfile.portfolioImages = [];
         }
 
-        // Inject phone into profile sub-object so admin dashboard can read it
-        if (userPhone && !cleanedProfile.phone) {
-            cleanedProfile.phone = userPhone;
-        }
+        // Phone numbers are private: kept in contacts/{uid} (owner + admin only), never in the public profile
+        // that every signed-in user can read. The other party gets it via /api/contact after a meeting.
+        delete cleanedProfile.phone;
 
         // Generate username if not already set
         let username = user.username;
@@ -552,7 +551,6 @@ export const AuthProvider = ({ children }) => {
 
         const updatedUser = {
             email: user.email,
-            phone: userPhone,
             name: profileData.name || profileData.companyName || user.name,
             role: user.role,
             profileComplete: true,
@@ -567,8 +565,11 @@ export const AuthProvider = ({ children }) => {
             // Save to appropriate collection based on role
             const collectionName = user.role === 'SEEKER' ? 'seekers' : 'companies';
             await setDoc(doc(db, collectionName, user.id), updatedUser);
-            // Update local state
-            setUser({ id: user.id, ...updatedUser });
+            if (userPhone) {
+                await setDoc(doc(db, 'contacts', user.id), { phone: userPhone, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+            }
+            // Update local state (own phone kept locally from the login)
+            setUser({ id: user.id, ...updatedUser, phone: userPhone });
 
             // Initialize wallet document so user appears in admin dashboard immediately
             // (fire-and-forget — don't block profile completion)
@@ -1243,7 +1244,7 @@ export const AuthProvider = ({ children }) => {
                         matchedUserName: partnerName,
                         matchedUserRole: partnerRole,
                         matchedUserProfile: partnerProfile,
-                        matchedUserPhone: partner.phone || partnerProfile.phone || null,
+                        matchedUserPhone: null, // private — ChatView asks /api/contact once there is a meeting
                         lastMessage: chat.lastMessage || null,
                         lastMessageAt: chat.lastMessageAt || null,
                         meetingStatus: chat.meetingStatus || latestMeeting?.status || null,
@@ -2749,12 +2750,12 @@ export const AuthProvider = ({ children }) => {
                     companyId: user.id,
                     companyName: user.profile?.companyName || user.email || 'Unknown',
                     companyEmail: user.email || '',
-                    companyPhone: user.profile?.phone || '',
+                    companyPhone: user.phone || '',
                 } : {
                     seekerId: user.id,
                     seekerName: user.profile?.name || user.email || 'Unknown',
                     seekerEmail: user.email || '',
-                    seekerPhone: user.profile?.phone || '',
+                    seekerPhone: user.phone || '',
                 }),
                 amount,
                 walletBalance: wallet.balance || 0,

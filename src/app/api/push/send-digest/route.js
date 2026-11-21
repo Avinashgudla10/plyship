@@ -79,19 +79,21 @@ export async function GET(request) {
         };
 
         // 1. Get all users from both collections
-        const [seekersSnap, companiesSnap] = await Promise.all([
+        const [seekersSnap, companiesSnap, contactsSnap] = await Promise.all([
             db.collection('seekers').get(),
             db.collection('companies').get(),
+            db.collection('contacts').get(), // private phone numbers
         ]);
+        const privatePhone = Object.fromEntries(contactsSnap.docs.map((d) => [d.id, d.data().phone]));
 
         const allUsers = [];
         for (const doc of seekersSnap.docs) {
             const data = doc.data();
-            allUsers.push({ id: doc.id, phone: data.phone || data.phoneNumber, name: data.name || data.fullName || 'there' });
+            allUsers.push({ id: doc.id, phone: privatePhone[doc.id] || data.phone || data.phoneNumber, name: data.name || data.fullName || 'there' });
         }
         for (const doc of companiesSnap.docs) {
             const data = doc.data();
-            allUsers.push({ id: doc.id, phone: data.phone || data.phoneNumber, name: data.companyName || data.name || 'there' });
+            allUsers.push({ id: doc.id, phone: privatePhone[doc.id] || data.phone || data.phoneNumber, name: data.companyName || data.name || 'there' });
         }
 
         // 2. Get FCM tokens map

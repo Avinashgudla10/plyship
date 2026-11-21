@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, Send, ArrowLeft, Briefcase, User, Home, Calendar, Clock, Check, X, RefreshCw, AlertCircle, Wallet, Star, Lock, SlidersHorizontal, ChevronDown, Search, CreditCard, Mic, Plus, FileText, Image as ImageIcon, Square, Play, Pause, Loader2, Camera, Phone, MapPin, UserCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { subscribeToMessages, uploadFile } from '../lib/firebase';
+import { subscribeToMessages, uploadFile, auth } from '../lib/firebase';
 import { getMeetingFee, DEFAULT_MEETING_FEE } from '../lib/meetingFee';
 import { StartProjectModal } from './ProjectsView';
 import { ScheduleMeetingModal, AcceptAndScheduleModal, CounterProposeModal } from './MeetingsView';
@@ -1188,7 +1188,22 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
     const MEETING_FEE = activeMeeting?.meetingFee
         || getMeetingFee(profile?.propertyType || chat?.matchedUserProfile?.propertyType)
         || DEFAULT_MEETING_FEE;
-    const otherUserPhone = chat?.matchedUserPhone || profile?.phone || null;
+    // Phone numbers are private: asked from the server, which only answers when the two of you have a meeting.
+    const [otherUserPhone, setOtherUserPhone] = useState(null);
+    useEffect(() => {
+        if (!hasMeetingRequest || !otherUserId || isBroadcast) return;
+        let gone = false;
+        (async () => {
+            try {
+                const token = await auth.currentUser?.getIdToken();
+                if (!token) return;
+                const res = await fetch('/api/contact?userId=' + encodeURIComponent(otherUserId), { headers: { Authorization: 'Bearer ' + token } });
+                const j = await res.json();
+                if (!gone && j.ok) setOtherUserPhone(j.phone || null);
+            } catch { /* call button stays disabled */ }
+        })();
+        return () => { gone = true; };
+    }, [hasMeetingRequest, otherUserId, isBroadcast]);
     const activeProject = projects.find(p => p.status === 'PENDING_ACCEPTANCE');
     const hasAcceptedProject = projects.some(p => p.status === 'ACCEPTED');
 

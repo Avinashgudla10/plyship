@@ -238,12 +238,13 @@ export default function BookMeetingFlow({ company, onClose }) {
 
                 // New user: create seeker profile
                 const profileData = {
-                    name, phone: phoneNum, role: 'SEEKER', profileComplete: true,
+                    name, role: 'SEEKER', profileComplete: true, // phone is private: contacts/{uid}
                     username,
                     createdAt: serverTimestamp(), lastActiveAt: serverTimestamp(),
                     profile: { name, city, propertyType, budget, timeline, styles: ['residential'], rooms: ['full'] },
                 };
                 await setDoc(doc(db, 'seekers', uid), profileData);
+                await setDoc(doc(db, 'contacts', uid), { phone: phoneNum, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
             }
 
             // Create meeting request in chat

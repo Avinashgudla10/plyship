@@ -309,6 +309,7 @@ export default function AdminDashboard() {
     }, []);
     const [seekers, setSeekers] = useState([]);
     const [companies, setCompanies] = useState([]);
+    const [contacts, setContacts] = useState({});
     const [meetings, setMeetings] = useState([]);
     const [transactions, setTransactions] = useState([]);
     const [projects, setProjects] = useState([]);
@@ -337,8 +338,12 @@ export default function AdminDashboard() {
 
     // Combine users from both collections
     const users = useMemo(() => {
-        return [...seekers, ...companies];
-    }, [seekers, companies]);
+        // Phone numbers live in the private contacts/{uid} records; put them back for the admin's view.
+        return [...seekers, ...companies].map((u) => {
+            const phone = contacts[u.id]?.phone;
+            return phone ? { ...u, phone, profile: { ...(u.profile || {}), phone } } : u;
+        });
+    }, [seekers, companies, contacts]);
 
     // Calculate stats from data
     const stats = useMemo(() => {
@@ -399,6 +404,13 @@ export default function AdminDashboard() {
                     setCompanies(companiesData);
                 },
                 (error) => console.error('Companies listener error:', error)
+            ));
+
+            // Private phone numbers (contacts/{uid}) — readable by the admin only
+            firestoreUnsubs.push(onSnapshot(
+                collection(db, 'contacts'),
+                (snapshot) => setContacts(Object.fromEntries(snapshot.docs.map((d) => [d.id, d.data()]))),
+                (error) => console.error('Contacts listener error:', error)
             ));
 
             // Real-time meetings listener
@@ -505,7 +517,12 @@ export default function AdminDashboard() {
             const updateData = {};
             if (data.email !== undefined) updateData.email = data.email;
             if (data.profileComplete !== undefined) updateData.profileComplete = data.profileComplete;
-            if (data.profile) updateData.profile = data.profile;
+            if (data.profile) {
+                // Phone numbers stay private (contacts/{uid}), never in the public profile.
+                const { phone, ...profileRest } = data.profile;
+                updateData.profile = profileRest;
+                if (phone) await setDoc(doc(db, 'contacts', userId), { phone, updatedAt: new Date().toISOString() }, { merge: true });
+            }
 
             await updateDoc(userRef, updateData);
             showToast('User updated successfully');

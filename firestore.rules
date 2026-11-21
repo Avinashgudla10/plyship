@@ -203,6 +203,15 @@ service cloud.firestore {
       allow delete: if isOwner(userId) || isAdmin();
     }
 
+    // ── Private contact details (phone numbers) ─────────────
+    // Only the owner and the admin can read them. The other side of a meeting gets the number through
+    // /api/contact (server checks the meeting). Owners can only store their own verified login number.
+    match /contacts/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isAdmin() || (isOwner(userId) && request.resource.data.phone == request.auth.token.phone_number);
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
     // ── AI nudge log (server only: /api/ai/platform) ─────────
     match /aiNudges/{userId} {
       allow read, write: if isAdmin();

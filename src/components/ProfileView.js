@@ -855,7 +855,7 @@ export function EditProfileView({ onBack }) {
                         <SectionTitle>Basic Info</SectionTitle>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
                             <InputField label="Full Name" value={profile.name} onChange={(v) => setProfile({ ...profile, name: v })} />
-                            <InputField label="Phone" value={profile.phone} onChange={(v) => setProfile({ ...profile, phone: v })} />
+                            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>📱 {user?.phone || "Your login number"} · private — shown to the other person only after you have a meeting</div>
                         </div>
 
                         <SectionTitle>Location</SectionTitle>
@@ -941,7 +941,7 @@ export function EditProfileView({ onBack }) {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
                             <InputField label="Company Name" value={profile.companyName} onChange={(v) => setProfile({ ...profile, companyName: v })} />
                             <InputField label="Tagline" value={profile.tagline} onChange={(v) => setProfile({ ...profile, tagline: v })} />
-                            <InputField label="Phone" value={profile.phone} onChange={(v) => setProfile({ ...profile, phone: v })} />
+                            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>📱 {user?.phone || "Your login number"} · private — shown to the other person only after you have a meeting</div>
                             <InputField label="Years in Business" value={profile.yearsInBusiness} onChange={(v) => setProfile({ ...profile, yearsInBusiness: v })} />
                         </div>
 
