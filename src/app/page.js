@@ -13,6 +13,7 @@ import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut, St
 // ── Lazy-loaded heavy views (code-split into separate chunks) ──
 const MatchesView = lazy(() => import('../components/MatchesView'));
 const DashboardView = lazy(() => import('../components/DashboardView'));
+import { openMarketplace } from '../lib/marketplace';
 const WalletView = lazy(() => import('../components/WalletView'));
 const MeetingsView = lazy(() => import('../components/MeetingsView'));
 const ProjectsView = lazy(() => import('../components/ProjectsView'));
@@ -280,7 +281,7 @@ export default function Home() {
     { id: 'messages', icon: MessageCircle, label: 'Chat', badge: 0 },
     // Opens the lead marketplace (plyship.com/marketplace, a separate app served through src/proxy.js).
     // Via its /login hand-off page, so the PlyShip login carries over (one sign-in for plyship.com).
-    { id: 'marketplace', icon: Store, label: 'Marketplace', badge: 0, href: '/marketplace/login?next=%2F' },
+    { id: 'marketplace', icon: Store, label: 'Marketplace', badge: 0 },
     { id: 'profile', icon: User, label: 'Profile', badge: 0 },
   ];
 
@@ -644,7 +645,7 @@ export default function Home() {
             <motion.button
               key={item.id}
               onClick={() => {
-                if (item.href) { window.location.href = item.href; return; }
+                if (item.id === 'marketplace') { openMarketplace('/'); return; } // signed in already — no sign-in page
                 setActiveTab(item.id);
                 if (item.id !== 'messages') setSelectedChat(null);
                 if (item.id !== 'profile') setProfileSubPage(null);

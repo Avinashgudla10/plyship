@@ -13,9 +13,10 @@ import { CalendarClock, Wallet, Store, MessageCircle, Star, ArrowRight, MapPin, 
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
 import { getMeetingFee, getSeekerShare } from '../lib/meetingFee';
+import { openMarketplace, requestQuotes, enableLeadAlerts, QUOTES_CONSENT, ALERTS_CONSENT } from '../lib/marketplace';
 
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
-const mk = (path) => `/marketplace/login?next=${encodeURIComponent(path)}`; // Marketplace, signed in automatically
+const mk = (path) => '/marketplace' + (path === '/' ? '' : path); // opened via openMarketplace (already signed in)
 const when = (iso) => {
     if (!iso) return '';
     const d = new Date(iso);
@@ -36,6 +37,7 @@ const isUpcoming = (m) => ['SCHEDULED', 'CONFIRMED', 'ACCEPTED'].includes(m.stat
 
 function useMarketplaceMe(user) {
     const [data, setData] = useState(null);
+    const [n, setN] = useState(0);
     useEffect(() => {
         if (!user?.id) return;
         let gone = false;
@@ -49,8 +51,8 @@ function useMarketplaceMe(user) {
             } catch { /* the dashboard still shows everything else */ }
         })();
         return () => { gone = true; };
-    }, [user?.id]);
-    return data;
+    }, [user?.id, n]);
+    return [data, () => setN((x) => x + 1)];
 }
 
 const box = { background: 'white', borderRadius: 18, border: '1px solid var(--border-light, #E5E7EB)', padding: 16 };
@@ -103,7 +105,28 @@ export default function DashboardView({ onNavigate }) {
     const [wallet, setWallet] = useState(null);
     const [projects, setProjects] = useState([]);
     const [unread, setUnread] = useState(0);
-    const market = useMarketplaceMe(user);
+    const [market, reloadMarket] = useMarketplaceMe(user);
+    const [busy, setBusy] = useState('');
+    const [note, setNote] = useState('');
+    const quotes = async () => {
+        setBusy('quotes'); setNote('');
+        try { await requestQuotes(); setNote('Done — verified firms near you will call with quotes.'); reloadMarket(); }
+        catch (e) { setNote(e.message); }
+        setBusy('');
+    };
+    const alerts = async () => {
+        setBusy('alerts'); setNote('');
+        try { await enableLeadAlerts(); setNote('WhatsApp lead alerts are on.'); reloadMarket(); }
+        catch (e) { setNote(e.message); }
+        setBusy('');
+    };
+    // Any Marketplace link opens already signed in (no sign-in page).
+    const onClickCapture = (e) => {
+        const a = e.target.closest?.('a[href^="/marketplace"]');
+        if (!a) return;
+        e.preventDefault();
+        openMarketplace(a.getAttribute('href').replace(/^\/marketplace/, '') || '/');
+    };
     const isCompany = user?.role === 'COMPANY';
     const p = user?.profile || {};
     const me = user?.id;
@@ -133,18 +156,18 @@ export default function DashboardView({ onNavigate }) {
         if (due) actions.push({ icon: Star, tone: 'orange', title: `Rate ${due} lead${due === 1 ? '' : 's'} you bought`, text: 'Tell us if they picked up — bad leads are replaced free.', cta: 'Rate', href: mk('/account/orders') });
         const fee = getMeetingFee('2 BHK');
         if (balance < fee) actions.push({ icon: Wallet, tone: 'orange', title: 'Top up your wallet', text: `Meetings cost ${rs(getMeetingFee('1 BHK'))}–${rs(getMeetingFee('Villa'))}. Balance: ${rs(balance)}.`, cta: 'Top up', onClick: () => go('profile', 'wallet') });
-        if (market && !market.whatsappAlerts) actions.push({ icon: Bell, tone: 'blue', title: 'Get new leads on WhatsApp', text: 'Be the first firm to call new homeowners near you.', cta: 'Turn on', href: mk('/account/profile') });
+        if (market && !market.whatsappAlerts) actions.push({ icon: Bell, tone: 'blue', title: 'Get new leads on WhatsApp', text: ALERTS_CONSENT, cta: busy === 'alerts' ? 'Turning on…' : 'Turn on', onClick: alerts });
         if ((p.portfolioImages || []).length < 3) actions.push({ icon: ImageIcon, title: 'Add portfolio photos', text: 'Firms with 3+ project photos get more meetings.', cta: 'Add', onClick: () => go('profile', 'edit') });
     } else {
         const e = market?.enquiry;
         if (e?.toRate) actions.push({ icon: Star, tone: 'orange', title: `Rate the firm${e.toRate === 1 ? '' : 's'} that contacted you`, text: 'Not happy with any of them? We find you more.', cta: 'Rate', href: mk('/my-enquiry') });
-        if (market && !e) actions.push({ icon: Sparkles, title: 'Get free quotes from 3 verified firms', text: 'Share your requirement once — firms near you call with quotes.', cta: 'Start', href: mk('/my-enquiry') });
+        if (market && !e) actions.push({ icon: Sparkles, title: 'Get free quotes from 3 verified firms', text: 'One tap — we use your PlyShip profile, no form.', cta: 'See', onClick: () => document.getElementById('free-quotes')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) });
         if (!upcoming.length && !waiting.length) actions.push({ icon: Home, tone: 'blue', title: 'Meet interior companies near you', text: `Earn ${rs(getSeekerShare(getMeetingFee(p.propertyType)))} for each meeting you attend.`, cta: 'Explore', onClick: () => go('explore') });
         if (!p.avatar) actions.push({ icon: ImageIcon, title: 'Add a profile photo', text: 'Companies respond more to complete profiles.', cta: 'Add', onClick: () => go('profile', 'edit') });
     }
 
     return (
-        <div style={{ height: '100%', overflowY: 'auto', padding: '16px 16px 28px', background: 'var(--bg-secondary, #F8FAF9)' }}>
+        <div onClickCapture={onClickCapture} style={{ height: '100%', overflowY: 'auto', padding: '16px 16px 28px', background: 'var(--bg-secondary, #F8FAF9)' }}>
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'grid', gap: 14, maxWidth: 720, margin: '0 auto' }}>
                 {/* Hello */}
                 <div style={{ borderRadius: 20, padding: 18, color: 'white', background: 'radial-gradient(120% 140% at 100% 0%, rgba(34,197,94,.35) 0%, rgba(11,20,16,0) 55%), #0b1410' }}>
@@ -164,7 +187,7 @@ export default function DashboardView({ onNavigate }) {
                         <>
                             <Tile label="Meetings" value={upcoming.length} sub="upcoming" onClick={() => go('profile', 'meetings')} />
                             <Tile label="Wallet" value={rs(balance)} sub={`${rs(wallet?.totalSpent)} spent`} onClick={() => go('profile', 'wallet')} />
-                            <Tile label="Leads" value={market?.nearby?.count ?? '…'} sub="near you" onClick={() => { window.location.href = mk('/'); }} />
+                            <Tile label="Leads" value={market?.nearby?.count ?? '…'} sub="near you" onClick={() => openMarketplace('/')} />
                         </>
                     ) : (
                         <>
@@ -178,6 +201,7 @@ export default function DashboardView({ onNavigate }) {
                 {/* Next steps */}
                 <div style={box}>
                     <h3 style={h3}><Sparkles size={16} color="#16A34A" /> Next steps</h3>
+                    {note && <p role="status" style={{ ...muted, color: '#15803D', fontWeight: 600, marginBottom: 6 }}>{note}</p>}
                     {actions.length ? actions.slice(0, 5).map((a) => <Action key={a.title} {...a} />) : (
                         <p style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={16} color="#16A34A" /> You’re all caught up.</p>
                     )}
@@ -212,7 +236,13 @@ export default function DashboardView({ onNavigate }) {
                     <div style={box}>
                         <h3 style={h3}><Store size={16} color="#16A34A" /> Your free quotes</h3>
                         {!market ? <p style={muted}>Loading…</p> : !market.enquiry ? (
-                            <p style={muted}>Share your requirement once and up to 3 verified interior firms near you will call with quotes. Free for homeowners. <a href={mk('/my-enquiry')} style={{ color: '#15803D', fontWeight: 700 }}>Get quotes →</a></p>
+                            <div id="free-quotes">
+                                <p style={muted}>Up to 3 verified interior firms near you call with quotes — free for homeowners. We use the details in your PlyShip profile; no form to fill.</p>
+                                <button type="button" onClick={quotes} disabled={busy === 'quotes'} style={{ marginTop: 10, width: '100%', padding: '12px 16px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)', color: 'white', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
+                                    {busy === 'quotes' ? 'Sending…' : 'Get free quotes'}
+                                </button>
+                                <p style={{ fontSize: 11, color: 'var(--text-muted, #6B7280)', margin: '8px 0 0', lineHeight: 1.4 }}>{QUOTES_CONSENT}</p>
+                            </div>
                         ) : (
                             <>
                                 <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px', color: 'var(--text-primary, #111)' }}>{market.enquiry.title}</p>

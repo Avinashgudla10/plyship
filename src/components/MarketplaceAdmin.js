@@ -6,10 +6,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Store, IndianRupee, ShoppingBag, Home, Building2, ClipboardCheck, RefreshCw, MessageCircle, Bot, Megaphone, Settings, ListChecks, ExternalLink, AlertTriangle } from 'lucide-react';
 import { auth } from '../lib/firebase';
+import { openMarketplace } from '../lib/marketplace';
 
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 /** Link into the Marketplace admin, through its sign-in hand-off (reuses the PlyShip login). */
-export const marketplaceAdminUrl = (path = '/admin') => `/marketplace/login?next=${encodeURIComponent(path)}`;
+export const marketplaceAdminUrl = (path = '/admin') => '/marketplace' + path;
+// Marketplace links open already signed in (session started in the background — no sign-in page).
+const openMarketplaceLinks = (e) => {
+    const a = e.target.closest?.('a[href^="/marketplace"]');
+    if (!a || a.target === '_blank') return;
+    e.preventDefault();
+    openMarketplace(a.getAttribute('href').replace(/^\/marketplace/, '') || '/');
+};
 
 export function useMarketplaceSummary(enabled) {
     const [summary, setSummary] = useState(null);
@@ -134,7 +142,7 @@ export function AiTab() {
         </div>
     );
     return (
-        <div>
+        <div onClickCapture={openMarketplaceLinks}>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111', margin: '0 0 4px' }}>PlyShip AI</h2>
             <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 14px' }}>The website AI runs both businesses — meetings and the Marketplace — for profit and happy customers. It never changes meeting fees or moves money; those it recommends to you.</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -246,7 +254,7 @@ const TOOLS = [
 export function MarketplaceTab({ summary, error, reload }) {
     const s = summary;
     return (
-        <div>
+        <div onClickCapture={openMarketplaceLinks}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
                 <div>
                     <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111', margin: 0 }}>Marketplace</h2>

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import { goAfterLogin } from '../../lib/afterLogin';
+import { requestQuotes, enableLeadAlerts, QUOTES_CONSENT, ALERTS_CONSENT } from '../../lib/marketplace';
 
 // ============ SEEKER FORM DATA ============
 const SEEKER_STEPS = [
@@ -108,6 +109,7 @@ export default function ProfileSetup() {
         rooms: [],
         budget: '',
         timeline: '',
+        marketplaceQuotes: false, // free quotes from up to 3 verified firms (Marketplace) — asked once, here
     });
 
     // Company form data
@@ -127,6 +129,7 @@ export default function ProfileSetup() {
         portfolioDescription: '',
         projectsCompleted: '',
         minBudget: '',
+        leadAlertsWhatsApp: false, // new homeowner leads near me on WhatsApp (Marketplace) — asked once, here
     });
 
     const ADMIN_PHONES = ['+918465834152'];
@@ -273,6 +276,9 @@ export default function ProfileSetup() {
                 const result = await completeProfile(profileData);
 
                 if (result && result.success) {
+                    // One platform: the Marketplace uses this same profile — no second form or sign-in.
+                    if (isCompany && profileData.leadAlertsWhatsApp) await enableLeadAlerts().catch(() => {});
+                    if (!isCompany && profileData.marketplaceQuotes) await requestQuotes().catch(() => {});
                     setSaveStage('done');
                     console.log('✅ Profile saved to Firebase, navigating to home');
                     // Let the success animation play briefly
@@ -942,6 +948,14 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
                 </div>
                 {errors?.timeline && <p style={errorTextStyle}>{errors.timeline}</p>}
             </div>
+            <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 28, padding: 16, borderRadius: 16, border: data.marketplaceQuotes ? '1.5px solid #16A34A' : '1px solid var(--border)', background: data.marketplaceQuotes ? '#F0FDF4' : 'var(--bg-secondary)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!data.marketplaceQuotes} onChange={(e) => setData({ ...data, marketplaceQuotes: e.target.checked })} style={{ width: 22, height: 22, marginTop: 2, accentColor: '#16A34A', flexShrink: 0 }} />
+                <span>
+                    <span style={{ display: 'block', fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Also get free quotes from up to 3 verified interior firms near me</span>
+                    <span style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>Optional and free. Firms near you call with quotes — no extra form.</span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>{QUOTES_CONSENT}</span>
+                </span>
+            </label>
         </div>
     );
 }
@@ -1274,6 +1288,14 @@ function CompanyPortfolio({ data, setData, errors }) {
                 </div>
                 {errors?.minBudget && <p style={errorTextStyle}>{errors.minBudget}</p>}
             </div>
+            <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 28, padding: 16, borderRadius: 16, border: data.leadAlertsWhatsApp ? '1.5px solid #16A34A' : '1px solid var(--border)', background: data.leadAlertsWhatsApp ? '#F0FDF4' : 'var(--bg-secondary)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!data.leadAlertsWhatsApp} onChange={(e) => setData({ ...data, leadAlertsWhatsApp: e.target.checked })} style={{ width: 22, height: 22, marginTop: 2, accentColor: '#16A34A', flexShrink: 0 }} />
+                <span>
+                    <span style={{ display: 'block', fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Send me new homeowner leads near me on WhatsApp</span>
+                    <span style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>Optional. See each requirement free; pay only for the leads you want on PlyShip Marketplace.</span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>{ALERTS_CONSENT}</span>
+                </span>
+            </label>
         </div>
     );
 }
