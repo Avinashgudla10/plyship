@@ -12,6 +12,13 @@ service cloud.firestore {
     function isAdmin() {
       return isAuth() && request.auth.token.phone_number == '+918465834152';
     }
+    // Chat ids are the two user ids, sorted and joined with "_" (getChatId) — so membership is in the id itself.
+    function isChatMember(chatId) {
+      return isAuth() && request.auth.uid in chatId.split('_');
+    }
+    function isParty(data) {
+      return isAuth() && (request.auth.uid == data.companyId || request.auth.uid == data.seekerId);
+    }
 
     // ── User profiles ───────────────────────────────────────
     match /seekers/{userId} {
@@ -81,17 +88,17 @@ service cloud.firestore {
     // chats via `where('participants','array-contains', uid)`, so this is safe.
     match /chats/{chatId} {
       allow read: if isAdmin() || (isAuth() && request.auth.uid in resource.data.participants);
-      allow create: if isAuth();
-      allow update: if isAuth();
-      allow delete: if isAuth();
+      allow create, update: if isAdmin() || isChatMember(chatId);
+      allow delete: if isAdmin() || isChatMember(chatId);
 
       match /messages/{messageId} {
         // A message is readable only by participants of its parent chat (or admin).
         allow read: if isAdmin() || (isAuth() &&
           request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
-        allow create: if isAuth();
-        allow update: if isAuth();
-        allow delete: if isAuth();
+        allow create: if isAdmin() || (isChatMember(chatId) &&
+          (request.resource.data.senderId == request.auth.uid || request.resource.data.senderId == 'system'));
+        allow update: if isAdmin() || isChatMember(chatId);   // read receipts
+        allow delete: if isAdmin() || isChatMember(chatId);   // account deletion clears the user's chats
       }
     }
 
@@ -102,9 +109,12 @@ service cloud.firestore {
     // once that query is moved server-side or reworked to be owner-scoped.
     match /meetings/{meetingId} {
       allow read: if isAuth();
-      allow create: if isAuth();
-      allow update: if isAuth();
-      allow delete: if isAuth();
+      allow create: if isAdmin() || isParty(request.resource.data);
+      allow update: if isAdmin() || (isParty(resource.data)
+                      && request.resource.data.companyId == resource.data.companyId
+                      && request.resource.data.seekerId == resource.data.seekerId
+                      && request.resource.data.get('meetingFee', 0) == resource.data.get('meetingFee', 0));
+      allow delete: if isAdmin() || isParty(resource.data);
     }
 
     // ── Wallets ─────────────────────────────────────────────
@@ -129,17 +139,16 @@ service cloud.firestore {
     // app queries with `where('userId','==', uid)`, so owner-scoped reads are safe.
     match /transactions/{txId} {
       allow read: if isAdmin() || (isAuth() && resource.data.userId == request.auth.uid);
-      allow create: if isAuth();
-      allow update: if isAuth();
-      allow delete: if isAdmin();
+      allow create, update: if isAdmin();   // money history is written by the server (Admin SDK)
+      allow delete: if isAdmin() || (isAuth() && resource.data.userId == request.auth.uid); // account deletion
     }
 
     // ── Withdrawals ─────────────────────────────────────────
     match /withdrawals/{wId} {
-      allow read: if isAuth();
-      allow create: if isAuth();
-      allow update: if isAuth();
-      allow delete: if isAdmin();
+      allow read: if isAdmin() || (isAuth() && resource.data.userId == request.auth.uid);
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid && request.resource.data.status == 'PENDING';
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (isAuth() && resource.data.userId == request.auth.uid);
     }
 
     // ── Projects ────────────────────────────────────────────
@@ -148,34 +157,39 @@ service cloud.firestore {
     match /projects/{projectId} {
       allow read: if isAdmin() || (isAuth() &&
         (resource.data.companyId == request.auth.uid || resource.data.seekerId == request.auth.uid));
-      allow create: if isAuth();
-      allow update: if isAuth();
-      allow delete: if isAuth();
+      allow create: if isAdmin() || isParty(request.resource.data);
+      allow update: if isAdmin() || (isParty(resource.data)
+                      && request.resource.data.companyId == resource.data.companyId
+                      && request.resource.data.seekerId == resource.data.seekerId);
+      allow delete: if isAdmin() || isParty(resource.data);
     }
 
     // ── Reviews ─────────────────────────────────────────────
     match /reviews/{reviewId} {
       allow read: if isAuth();
-      allow create: if isAuth();
-      allow update: if isAuth();
-      allow delete: if isAdmin();
+      allow create, update: if isAuth()
+                      && request.resource.data.seekerId == request.auth.uid
+                      && reviewId == request.auth.uid + '_' + request.resource.data.companyId
+                      && request.resource.data.rating is number
+                      && request.resource.data.rating >= 1 && request.resource.data.rating <= 5;
+      allow delete: if isAdmin() || (isAuth() && resource.data.seekerId == request.auth.uid);
     }
 
     // ── Notifications ───────────────────────────────────────
     match /notifications/{userId} {
-      allow read, write: if isAuth();
+      allow read, write: if isOwner(userId) || isAdmin();
 
       match /items/{itemId} {
-        allow read: if isAuth();
-        allow create: if isAuth();
-        allow update: if isAuth();
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isAuth();   // the app notifies the other person (meeting requests, messages)
+        allow update: if isOwner(userId) || isAdmin();   // mark as read
         allow delete: if isOwner(userId) || isAdmin();
       }
     }
 
     // ── Delete Requests ─────────────────────────────────────
     match /deleteRequests/{requestId} {
-      allow read: if isAuth();
+      allow read: if isAdmin();
       allow create: if isAuth();
       allow update: if isAdmin();
       allow delete: if isAdmin();
@@ -183,10 +197,15 @@ service cloud.firestore {
 
     // ── FCM Tokens ──────────────────────────────────────────
     match /fcmTokens/{userId} {
-      allow read: if isAuth();
+      allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId);
       allow update: if isOwner(userId);
       allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // ── AI nudge log (server only: /api/ai/platform) ─────────
+    match /aiNudges/{userId} {
+      allow read, write: if isAdmin();
     }
   }
 }

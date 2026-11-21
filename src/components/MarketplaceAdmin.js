@@ -52,6 +52,123 @@ function Stat({ icon: Icon, label, value, sub, color = '#16A34A' }) {
     );
 }
 
+async function adminFetch(path, options = {}) {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('Not signed in');
+    const res = await fetch(`/marketplace/admin-api${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, ...(options.body ? { 'Content-Type': 'application/json' } : {}) }, cache: 'no-store' });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || `Marketplace unavailable (${res.status})`);
+    return json;
+}
+
+/** One user base: Marketplace accounts keyed by phone (last 10 digits), for the Users tab. */
+export function useMarketplacePeople(enabled) {
+    const [people, setPeople] = useState(null);
+    useEffect(() => {
+        if (!enabled) return;
+        adminFetch('/people').then((j) => setPeople(j.people)).catch(() => setPeople([]));
+    }, [enabled]);
+    return people;
+}
+export const phoneKey = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+
+/** Marketplace activity for one app user (Users tab cell). */
+export function MarketplaceCell({ person }) {
+    if (!person) return <span style={{ fontSize: 12, color: '#9CA3AF' }}>—</span>;
+    if (person.kind === 'company') {
+        return <span style={{ fontSize: 12, color: person.leadsBought ? '#15803D' : '#6B7280', fontWeight: 600 }}>{person.leadsBought ? `${person.leadsBought} leads · ${rs(person.spent)}` : 'No leads yet'}{person.whatsappAlerts ? ' · 🔔' : ''}</span>;
+    }
+    return <span style={{ fontSize: 12, color: '#6B7280' }}>{person.enquiry ? `Enquiry → ${person.enquiry.firms} firm${person.enquiry.firms === 1 ? '' : 's'}` : 'No enquiry'}</span>;
+}
+
+/** People who only use the Marketplace so far (came from ads / WhatsApp, not in the app yet). */
+export function MarketplaceOnlyPeople({ people, appPhones }) {
+    if (!people) return null;
+    const only = people.filter((p) => !appPhones.has(phoneKey(p.phone)));
+    if (!only.length) return null;
+    return (
+        <div style={{ ...card, marginTop: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 4px' }}>Marketplace only — {only.length} not in the app yet</h3>
+            <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 10px' }}>Same PlyShip account once they sign in on plyship.com (matched by phone).</p>
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead><tr style={{ background: '#F9FAFB', textAlign: 'left' }}><th style={{ padding: 8 }}>Name</th><th style={{ padding: 8 }}>Phone</th><th style={{ padding: 8 }}>Type</th><th style={{ padding: 8 }}>City</th><th style={{ padding: 8 }}>Marketplace</th><th style={{ padding: 8 }}>Joined</th></tr></thead>
+                    <tbody>
+                        {only.slice(0, 300).map((p) => (
+                            <tr key={p.phone} style={{ borderTop: '1px solid #E5E7EB' }}>
+                                <td style={{ padding: 8 }}>{p.name}</td><td style={{ padding: 8 }}>{p.phone}</td>
+                                <td style={{ padding: 8 }}>{p.kind === 'company' ? 'Interior company' : 'Homeowner'}</td><td style={{ padding: 8 }}>{p.city || '—'}</td>
+                                <td style={{ padding: 8 }}><MarketplaceCell person={p} /></td>
+                                <td style={{ padding: 8 }}>{new Date(p.joined).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+/** PlyShip AI tab: everything about the website AI in one place — switches, what it may change, report history. */
+export function AiTab() {
+    const [data, setData] = useState(null);
+    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const load = useCallback(() => adminFetch('/ai').then(setData).catch((e) => setError(e.message)), []);
+    useEffect(() => { load(); }, [load]);
+    const toggle = async (body) => {
+        setBusy(true);
+        try { const j = await adminFetch('/ai/settings', { method: 'POST', body: JSON.stringify(body) }); setData((d) => ({ ...d, ...j })); }
+        catch (e) { setError(e.message); }
+        setBusy(false);
+    };
+    if (error && !data) return <div style={{ ...card, color: '#B91C1C' }}>{error}</div>;
+    if (!data) return <div style={card}>Loading…</div>;
+    const Switch = ({ on, label, sub, onChange }) => (
+        <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div><div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{sub}</div></div>
+            <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={busy} onClick={() => onChange(!on)}
+                style={{ width: 52, height: 30, borderRadius: 99, border: 'none', cursor: 'pointer', background: on ? '#16A34A' : '#D1D5DB', position: 'relative', flexShrink: 0 }}>
+                <span style={{ position: 'absolute', top: 3, left: on ? 25 : 3, width: 24, height: 24, borderRadius: 99, background: 'white', transition: 'left .15s' }} />
+            </button>
+        </div>
+    );
+    return (
+        <div>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111', margin: '0 0 4px' }}>PlyShip AI</h2>
+            <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 14px' }}>The website AI runs both businesses — meetings and the Marketplace — for profit and happy customers. It never changes meeting fees or moves money; those it recommends to you.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 16 }}>
+                <Switch on={data.autopilot} label="Autopilot" sub="AI adjusts its settings below every morning (within the limits)" onChange={(v) => toggle({ autopilot: v })} />
+                <Switch on={data.nudgesOn} label="App nudges" sub={`Reminders & cross-sell notifications, 9 AM–8 PM · ${data.nudgesSent.count} sent ${data.nudgesSent.day || 'today'}`} onChange={(v) => toggle({ nudges: v })} />
+            </div>
+            <div style={{ ...card, marginBottom: 16 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 10px' }}>What the AI may change (and its limits)</h3>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead><tr style={{ textAlign: 'left', background: '#F9FAFB' }}><th style={{ padding: 8 }}>Setting</th><th style={{ padding: 8 }}>Now</th><th style={{ padding: 8 }}>Allowed</th></tr></thead>
+                        <tbody>{data.levers.map((l) => (
+                            <tr key={l.key} style={{ borderTop: '1px solid #E5E7EB' }}><td style={{ padding: 8 }}>{l.label}</td><td style={{ padding: 8, fontWeight: 700 }}>{l.value ?? 'default'}</td><td style={{ padding: 8, color: '#6B7280' }}>{l.min}–{l.max}</td></tr>
+                        ))}</tbody>
+                    </table>
+                </div>
+                {data.banner && <p style={{ fontSize: 13, color: '#6B7280', margin: '10px 0 0' }}>Marketplace banner: “{data.banner}”</p>}
+            </div>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 10px' }}>Daily reports</h3>
+            {data.reports.length === 0 && <div style={card}>No reports yet — the first one comes after the next 8:30 AM run.</div>}
+            {data.reports.map((r, i) => (
+                <details key={r.day} open={i === 0} style={{ ...card, marginBottom: 10 }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>{new Date(r.day).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}{r.by === 'rules' ? ' · rules only' : ''}</summary>
+                    <p style={{ fontSize: 14, lineHeight: 1.5, margin: '10px 0' }}>{r.summary}</p>
+                    {r.actions.map((a, j) => <div key={j} style={{ fontSize: 13, padding: '8px 10px', borderRadius: 10, background: '#F9FAFB', marginBottom: 6 }}><b>{a.action}</b><div style={{ color: '#6B7280', marginTop: 2 }}>{a.why}</div></div>)}
+                    {r.insights.length > 0 && <ul style={{ fontSize: 13, color: '#374151', paddingLeft: 18 }}>{r.insights.map((x, j) => <li key={j} style={{ marginBottom: 4 }}>{x}</li>)}</ul>}
+                    {Object.keys(r.applied).length > 0 && <p style={{ fontSize: 12, color: '#6B7280' }}>Changed: {Object.entries(r.applied).map(([k, v]) => `${k.replace(/_/g, ' ')} → ${v}`).join(' · ')}</p>}
+                </details>
+            ))}
+            <a href={marketplaceAdminUrl('/admin/ai')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 13, fontWeight: 700, color: '#15803D' }}>Pricing, call list & replacement decisions →</a>
+        </div>
+    );
+}
+
 /** The website AI's daily report for the whole platform (meetings + Marketplace). */
 export function AiReportCard({ summary }) {
     const ai = summary?.ai;

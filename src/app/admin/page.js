@@ -16,8 +16,8 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth, deleteUserStorage } from '../../lib/firebase';
-import { Store } from 'lucide-react';
-import { useMarketplaceSummary, MarketplaceTab, PlatformRevenueCard, AiReportCard } from '../../components/MarketplaceAdmin';
+import { Store, Bot } from 'lucide-react';
+import { useMarketplaceSummary, MarketplaceTab, PlatformRevenueCard, AiReportCard, AiTab, useMarketplacePeople, MarketplaceCell, MarketplaceOnlyPeople, phoneKey } from '../../components/MarketplaceAdmin';
 
 // Admin emails that have access
 const ADMIN_PHONES = ['+918465834152'];
@@ -315,6 +315,7 @@ export default function AdminDashboard() {
 
     const [chats, setChats] = useState([]);
     const marketplace = useMarketplaceSummary(isAdmin);
+    const marketplacePeople = useMarketplacePeople(isAdmin); // one user base: app + Marketplace, matched by phone
     const [searchTerm, setSearchTerm] = useState('');
     const [isLive, setIsLive] = useState(true);
     const [adminWallet, setAdminWallet] = useState({ balance: 0, totalEarnings: 0 });
@@ -914,6 +915,7 @@ export default function AdminDashboard() {
     const tabs = [
         { id: 'overview', label: 'Overview', icon: TrendingUp },
         { id: 'marketplace', label: 'Marketplace', icon: Store, badge: (marketplace.summary?.reviewPending || 0) + (marketplace.summary?.replacementsOpen || 0) },
+        { id: 'ai', label: 'PlyShip AI', icon: Bot },
         { id: 'users', label: 'Users', icon: Users },
         { id: 'meetings', label: 'Meetings', icon: Calendar },
         { id: 'projects', label: 'Projects', icon: Building2 },
@@ -1166,10 +1168,12 @@ export default function AdminDashboard() {
                         <OverviewTab stats={stats} adminWallet={adminWallet} allWallets={allWallets} users={users} transactions={transactions} />
                     </>
                 )}
+                {activeTab === 'ai' && <AiTab />}
                 {activeTab === 'marketplace' && <MarketplaceTab summary={marketplace.summary} error={marketplace.error} reload={marketplace.reload} />}
                 {activeTab === 'users' && (
                     <UsersTab
                         users={users}
+                        marketplacePeople={marketplacePeople}
                         meetings={meetings}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
@@ -1790,7 +1794,10 @@ function OverviewTab({ stats, adminWallet, allWallets, users, transactions }) {
 }
 
 // ============ USERS TAB ============
-function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onDelete, onView, onLoginAs }) {
+function UsersTab({ users, marketplacePeople = null, meetings = [], searchTerm, setSearchTerm, onEdit, onDelete, onView, onLoginAs }) {
+    // One user base: each app user's Marketplace activity, matched by phone.
+    const byPhone = new Map((marketplacePeople || []).map((p) => [phoneKey(p.phone), p]));
+    const appPhones = new Set(users.map((u) => phoneKey(u.profile?.phone || u.phone)).filter(Boolean));
     const filtered = users.filter(u =>
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.profile?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1865,6 +1872,7 @@ function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onD
                             <th style={thStyle}>Phone</th>
                             <th style={thStyle}>Role</th>
                             <th style={thStyle}>Meetings</th>
+                            <th style={thStyle}>Marketplace</th>
                             <th style={thStyle}>City</th>
                             <th style={thStyle}>Profile</th>
                             <th style={thStyle}>Joined</th>
@@ -1917,6 +1925,7 @@ function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onD
                                         )}
                                     </div>
                                 </td>
+                                <td style={tdStyle}><MarketplaceCell person={byPhone.get(phoneKey(user.profile?.phone || user.phone))} /></td>
                                 <td style={tdStyle}>
                                     <span style={{ fontSize: 13, color: '#555' }}>
                                         {user.profile?.city || '—'}
@@ -1968,6 +1977,7 @@ function UsersTab({ users, meetings = [], searchTerm, setSearchTerm, onEdit, onD
             <p style={{ marginTop: 12, fontSize: 13, color: '#888' }}>
                 Showing {filtered.length} of {users.length} users
             </p>
+            <MarketplaceOnlyPeople people={marketplacePeople} appPhones={appPhones} />
         </div>
     );
 }

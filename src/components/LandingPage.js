@@ -9,7 +9,7 @@ import { ArrowRight, Users, Briefcase, Sparkles, Store } from 'lucide-react';
 // ============ SIMPLE MOBILE-FRIENDLY LANDING PAGE ============
 export default function LandingPage() {
     return (
-        <div style={{
+        <main style={{
             minHeight: '100vh',
             display: 'flex',
             flexDirection: 'column',
@@ -202,6 +202,6 @@ export default function LandingPage() {
                 {' '}&{' '}
                 <Link href="/privacy" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'underline' }}>Privacy Policy</Link>
             </motion.p>
-        </div>
+        </main>
     );
 }

@@ -184,7 +184,7 @@ export default function Signup() {
     if (user && user.profileComplete) return null;
 
     return (
-        <div style={{
+        <main style={{
             position: 'absolute',
             inset: 0,
             background: 'linear-gradient(180deg, #D1FAE5 0%, #FFFFFF 100%)',
@@ -522,6 +522,6 @@ export default function Signup() {
                     <RoleSelectionModal onSelect={handleRoleSelect} />
                 )}
             </AnimatePresence>
-        </div>
+        </main>
     );
 }
