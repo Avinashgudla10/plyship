@@ -4,7 +4,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowRight, Users, Briefcase, Sparkles } from 'lucide-react';
+import { ArrowRight, Users, Briefcase, Sparkles, Store } from 'lucide-react';
 
 // ============ SIMPLE MOBILE-FRIENDLY LANDING PAGE ============
 export default function LandingPage() {
@@ -164,6 +164,23 @@ export default function LandingPage() {
                 }}>
                     Sign In
                 </Link>
+
+                {/* Lead marketplace (plyship.com/marketplace, served by src/proxy.js) — a plain link, not a Next route */}
+                <a href="/marketplace" style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    padding: '14px 24px',
+                    borderRadius: 14,
+                    border: '1px dashed rgba(74,222,128,0.45)',
+                    color: '#4ADE80',
+                    textDecoration: 'none',
+                    fontSize: 14,
+                    fontWeight: 600,
+                }}>
+                    <Store size={16} /> Marketplace: homeowner leads for interior firms
+                </a>
             </motion.div>
 
             {/* Footer text */}
