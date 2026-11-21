@@ -8,10 +8,11 @@ import SwipeDeck from '../components/SwipeDeck';
 import MatchOverlay from '../components/MatchOverlay';
 import ProfileDetail from '../components/ProfileDetail';
 import LandingPage from '../components/LandingPage';
-import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut, Store } from 'lucide-react';
+import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut, Store, LayoutDashboard } from 'lucide-react';
 
 // ── Lazy-loaded heavy views (code-split into separate chunks) ──
 const MatchesView = lazy(() => import('../components/MatchesView'));
+const DashboardView = lazy(() => import('../components/DashboardView'));
 const WalletView = lazy(() => import('../components/WalletView'));
 const MeetingsView = lazy(() => import('../components/MeetingsView'));
 const ProjectsView = lazy(() => import('../components/ProjectsView'));
@@ -55,7 +56,7 @@ export default function Home() {
   // window.location.reload()) returns the user to the same tab, not 'explore'.
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('plyship_activeTab') || 'explore';
+      return sessionStorage.getItem('plyship_activeTab') || 'home';
     }
     return 'explore';
   });
@@ -273,8 +274,9 @@ export default function Home() {
   // Will fetch on-demand when user opens messages tab
 
   const navItems = [
+    { id: 'home', icon: LayoutDashboard, label: 'Home', badge: 0 },
     { id: 'explore', icon: Compass, label: 'Explore', badge: 0 },
-    { id: 'matches', icon: Users, label: 'Find Connections', badge: 0 },
+    { id: 'matches', icon: Users, label: 'Connections', badge: 0 },
     { id: 'messages', icon: MessageCircle, label: 'Chat', badge: 0 },
     // Opens the lead marketplace (plyship.com/marketplace, a separate app served through src/proxy.js).
     // Via its /login hand-off page, so the PlyShip login carries over (one sign-in for plyship.com).
@@ -334,6 +336,12 @@ export default function Home() {
     }
 
     switch (activeTab) {
+      case 'home':
+        return <DashboardView onNavigate={(tab, sub) => {
+          setActiveTab(tab);
+          if (tab !== 'messages') setSelectedChat(null);
+          setProfileSubPage(tab === 'profile' ? sub : null);
+        }} />;
       case 'explore':
         return profiles.length > 0 ? (
           <SwipeDeck profiles={profiles} onMatch={handleMatch} userRole={user?.role} />
@@ -554,6 +562,7 @@ export default function Home() {
             left: '50%',
             transform: 'translateX(-50%)',
           }}>
+            {activeTab === 'home' && 'Home'}
             {activeTab === 'explore' && 'Explore'}
             {activeTab === 'matches' && 'Find Connections'}
             {activeTab === 'messages' && 'Messages'}
@@ -623,7 +632,7 @@ export default function Home() {
       {/* Bottom Navigation */}
       {!isFullScreen && (
         <nav style={{
-          padding: '12px 24px calc(env(safe-area-inset-bottom, 0px) + 12px)',
+          padding: '10px 6px calc(env(safe-area-inset-bottom, 0px) + 10px)',
           background: 'white',
           borderTop: '1px solid var(--border-light)',
           display: 'flex',
@@ -647,7 +656,8 @@ export default function Home() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: 4,
-                padding: '8px 12px',
+                padding: '8px 6px',
+                minWidth: 0,
                 borderRadius: 12,
                 background: activeTab === item.id ? 'var(--pastel-green)' : 'transparent',
                 border: 'none',
