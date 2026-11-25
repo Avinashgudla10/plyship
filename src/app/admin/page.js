@@ -303,9 +303,14 @@ export default function AdminDashboard() {
     const [isAdmin, setIsAdmin] = useState(false);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview');
+    const [mpStart, setMpStart] = useState('/leads');
     useEffect(() => {
-        const t = new URLSearchParams(window.location.search).get('tab');
+        const q = new URLSearchParams(window.location.search);
+        const t = q.get('tab');
         if (t) setActiveTab(t);
+        // Old Marketplace admin links (plyship.com/marketplace/admin/…) land here: ?tab=marketplace&mp=/leads
+        const mp = q.get('mp');
+        if (mp && mp.startsWith('/') && !mp.startsWith('//')) setMpStart(mp);
     }, []);
     const [seekers, setSeekers] = useState([]);
     const [companies, setCompanies] = useState([]);
@@ -1186,7 +1191,7 @@ export default function AdminDashboard() {
                     </>
                 )}
                 {activeTab === 'ai' && <AiTab />}
-                {activeTab === 'marketplace' && <MarketplaceTab summary={marketplace.summary} error={marketplace.error} reload={marketplace.reload} />}
+                {activeTab === 'marketplace' && <MarketplaceTab summary={marketplace.summary} error={marketplace.error} reload={marketplace.reload} start={mpStart} />}
                 {activeTab === 'users' && (
                     <UsersTab
                         users={users}

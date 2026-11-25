@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Store, IndianRupee, ShoppingBag, Home, Building2, ClipboardCheck, RefreshCw, MessageCircle, Bot, Megaphone, Settings, ListChecks, ExternalLink, AlertTriangle } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { openMarketplace } from '../lib/marketplace';
+import MarketplaceConsole from './MarketplaceConsole';
 
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 /** Link into the Marketplace admin, through its sign-in hand-off (reuses the PlyShip login). */
@@ -172,7 +173,8 @@ export function AiTab() {
                     {Object.keys(r.applied).length > 0 && <p style={{ fontSize: 12, color: '#6B7280' }}>Changed: {Object.entries(r.applied).map(([k, v]) => `${k.replace(/_/g, ' ')} → ${v}`).join(' · ')}</p>}
                 </details>
             ))}
-            <a href={marketplaceAdminUrl('/admin/ai')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 13, fontWeight: 700, color: '#15803D' }}>Pricing, call list & replacement decisions →</a>
+            <h3 style={{ fontSize: 16, fontWeight: 800, margin: '22px 0 10px' }}>Marketplace: profit, pricing, replacements, ratings & call list</h3>
+            <MarketplaceConsole start="/ai" only />
         </div>
     );
 }
@@ -238,20 +240,9 @@ export function PlatformRevenueCard({ meetingsRevenue, summary, error, onOpen })
     );
 }
 
-const TOOLS = [
-    { path: '/admin', label: 'Marketplace dashboard', icon: Store },
-    { path: '/admin/leads', label: 'Leads', icon: ListChecks },
-    { path: '/admin/review', label: 'Review queue', icon: ClipboardCheck, badge: 'reviewPending' },
-    { path: '/admin/orders', label: 'Orders & refunds', icon: ShoppingBag },
-    { path: '/admin/customers', label: 'Firms (buyers)', icon: Building2 },
-    { path: '/admin/ai', label: 'AI, profit & replacements', icon: Bot, badge: 'replacementsOpen' },
-    { path: '/admin/facebook', label: 'Facebook lead ads', icon: Megaphone },
-    { path: '/admin/whatsapp', label: 'WhatsApp alerts', icon: MessageCircle },
-    { path: '/admin/settings', label: 'Marketplace settings', icon: Settings },
-];
 
 /** The Marketplace tab of this admin dashboard. */
-export function MarketplaceTab({ summary, error, reload }) {
+export function MarketplaceTab({ summary, error, reload, start = '/leads' }) {
     const s = summary;
     return (
         <div onClickCapture={openMarketplaceLinks}>
@@ -298,19 +289,8 @@ export function MarketplaceTab({ summary, error, reload }) {
                 </>
             )}
 
-            <h3 style={{ fontSize: 15, fontWeight: 700, margin: '6px 0 10px' }}>Marketplace tools</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-                {TOOLS.map((t) => {
-                    const n = t.badge && s ? s[t.badge] : 0;
-                    return (
-                        <a key={t.path} href={marketplaceAdminUrl(t.path)} style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: '#111', fontWeight: 600, fontSize: 14 }}>
-                            <t.icon size={18} color="#16A34A" />
-                            <span style={{ flex: 1 }}>{t.label}</span>
-                            {n > 0 && <span style={{ minWidth: 22, padding: '2px 7px', borderRadius: 99, background: '#F97316', color: 'white', fontSize: 12, textAlign: 'center' }}>{n}</span>}
-                        </a>
-                    );
-                })}
-            </div>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: '6px 0 10px' }}>Manage the Marketplace</h3>
+            <MarketplaceConsole summary={s} start={start} />
         </div>
     );
 }
