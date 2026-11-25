@@ -12,7 +12,7 @@ import { motion } from 'framer-motion';
 import { CalendarClock, Wallet, Store, MessageCircle, Star, ArrowRight, MapPin, IndianRupee, Bell, Image as ImageIcon, CheckCircle2, Sparkles, Home } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
-import { getMeetingFee, getSeekerShare } from '../lib/meetingFee';
+import { getMeetingFee } from '../lib/meetingFee';
 import { openMarketplace, requestQuotes, enableLeadAlerts, QUOTES_CONSENT, ALERTS_CONSENT, QUOTE_CHOICES } from '../lib/marketplace';
 
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
@@ -163,7 +163,7 @@ export default function DashboardView({ onNavigate }) {
         const e = market?.enquiry;
         if (e?.toRate) actions.push({ icon: Star, tone: 'orange', title: `Rate the firm${e.toRate === 1 ? '' : 's'} that contacted you`, text: 'Not happy with any of them? We find you more.', cta: 'Rate', href: mk('/my-enquiry') });
         if (market && !e) actions.push({ icon: Sparkles, title: 'Get free quotes from verified firms near you', text: 'One tap — we use your PlyShip profile, no form.', cta: 'See', onClick: () => document.getElementById('free-quotes')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) });
-        if (!upcoming.length && !waiting.length) actions.push({ icon: Home, tone: 'blue', title: 'Meet interior companies near you', text: `Earn ${rs(getSeekerShare(getMeetingFee(p.propertyType)))} for each meeting you attend.`, cta: 'Explore', onClick: () => go('explore') });
+        if (!upcoming.length && !waiting.length) actions.push({ icon: Home, tone: 'blue', title: 'Meet interior companies near you', text: 'Free for homeowners — companies pay, not you.', cta: 'Explore', onClick: () => go('explore') });
         if (!p.avatar) actions.push({ icon: ImageIcon, title: 'Add a profile photo', text: 'Companies respond more to complete profiles.', cta: 'Add', onClick: () => go('profile', 'edit') });
     }
 
@@ -193,7 +193,7 @@ export default function DashboardView({ onNavigate }) {
                     ) : (
                         <>
                             <Tile label="Meetings" value={upcoming.length} sub="upcoming" onClick={() => go('profile', 'meetings')} />
-                            <Tile label="Earned" value={rs(wallet?.totalEarnings)} sub={`${rs(balance)} to withdraw`} onClick={() => go('profile', 'wallet')} />
+                            <Tile label="Chats" value={unread} sub="unread" onClick={() => go('messages')} />
                             <Tile label="Projects" value={activeProjects} sub="active" onClick={() => go('profile', 'projects')} />
                         </>
                     )}

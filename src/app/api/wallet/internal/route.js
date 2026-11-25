@@ -28,8 +28,9 @@ import { getMeetingFee, getSeekerShare, getAdminShare, DEFAULT_MEETING_FEE } fro
 
 const DATABASE_ID = 'plyshipdatabase';
 const ADMIN_WALLET_ID = 'admin_wallet';
-const PROJECT_COMMISSION_RATE = 0.04;
-const ADMIN_COMMISSION_RATE = 0.01;
+// PlyShip charges only for leads and meetings — never for projects.
+const PROJECT_COMMISSION_RATE = 0;
+const ADMIN_COMMISSION_RATE = 0;
 
 function getAdminApp() {
     if (admin.apps.length > 0) return admin.apps[0];
@@ -133,7 +134,9 @@ async function settleMeeting(db, uid, { meetingId, otp }) {
             const adminWallet = adminWalletSnap.exists ? adminWalletSnap.data() : null;
             const nowIso = new Date().toISOString();
 
-            if (!seekerWallet) {
+            if (seekerShare <= 0) {
+                // Seekers are not paid: nothing to add to their wallet.
+            } else if (!seekerWallet) {
                 t.set(seekerWalletRef, {
                     userId: seekerId, type: 'SEEKER', balance: 0,
                     lockedBalance: seekerShare, totalEarnings: seekerShare,
@@ -182,7 +185,7 @@ async function settleMeeting(db, uid, { meetingId, otp }) {
     try {
         await Promise.all([
             db.collection('transactions').add({ userId: companyId, type: 'DEBIT', amount: fee, reason: 'MEETING_FEE', relatedMeetingId: meetingId, relatedUserId: seekerId, status: 'COMPLETED', createdAt: now }),
-            db.collection('transactions').add({ userId: seekerId, type: 'LOCK', amount: seekerShare, reason: 'MEETING_EARNINGS', relatedMeetingId: meetingId, relatedUserId: companyId, status: 'COMPLETED', createdAt: now }),
+            ...(seekerShare > 0 ? [db.collection('transactions').add({ userId: seekerId, type: 'LOCK', amount: seekerShare, reason: 'MEETING_EARNINGS', relatedMeetingId: meetingId, relatedUserId: companyId, status: 'COMPLETED', createdAt: now })] : []),
             db.collection('transactions').add({ userId: ADMIN_WALLET_ID, type: 'CREDIT', amount: adminShare, reason: 'ADMIN_COMMISSION', relatedMeetingId: meetingId, relatedUserId: companyId, status: 'COMPLETED', createdAt: now }),
         ]);
         const chatId = getChatId(companyId, seekerId);
@@ -193,7 +196,7 @@ async function settleMeeting(db, uid, { meetingId, otp }) {
             type: 'meeting_update', createdAt: FieldValue.serverTimestamp(),
         });
         await db.collection('notifications').doc(companyId).collection('items').add({ type: 'wallet_debit', title: '💳 Meeting Payment', message: `₹${fee} debited for confirmed meeting`, data: { meetingId }, read: false, createdAt: now });
-        await db.collection('notifications').doc(seekerId).collection('items').add({ type: 'wallet_credit', title: '💰 Earnings Received!', message: `₹${seekerShare} added to your locked balance for the meeting`, data: { meetingId }, read: false, createdAt: now });
+        await db.collection('notifications').doc(seekerId).collection('items').add({ type: 'meeting_confirmed', title: '✅ Meeting confirmed', message: 'Your meeting is confirmed. Hope it goes well!', data: { meetingId }, read: false, createdAt: now });
     } catch (e) {
         console.error('settle-meeting post-write failed:', e);
     }
@@ -223,19 +226,7 @@ async function unlockProject(db, uid, { projectId }) {
     const nowIso = new Date().toISOString();
     await projectRef.update({ status: 'ACCEPTED', acceptedBy: uid, acceptedAt: nowIso, updatedAt: nowIso });
 
-    const seekerWalletRef = db.collection('wallets').doc(project.seekerId);
-    const seekerWalletSnap = await seekerWalletRef.get();
-    if (seekerWalletSnap.exists) {
-        const w = seekerWalletSnap.data();
-        await seekerWalletRef.update({
-            isLocked: false,
-            balance: (w.balance || 0) + (w.lockedBalance || 0),
-            lockedBalance: 0,
-            unlockedAt: nowIso,
-            unlockedBy: projectId,
-        });
-    }
-
+    // Seekers aren't paid, so accepting a project changes no wallet.
     return Response.json({ success: true });
 }
 
@@ -282,14 +273,6 @@ async function confirmAdvance(db, uid, { projectId, projectValue }) {
             updatedAt: nowIso,
         });
 
-        if (seekerWalletSnap.exists) {
-            const seekerWallet = seekerWalletSnap.data();
-            t.update(seekerWalletRef, {
-                balance: (seekerWallet.balance || 0) + (seekerWallet.lockedBalance || 0),
-                lockedBalance: 0,
-                updatedAt: nowIso,
-            });
-        }
 
         if (commission > 0 && companyWalletSnap.exists) {
             const companyWallet = companyWalletSnap.data();

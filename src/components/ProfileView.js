@@ -257,7 +257,7 @@ export default function ProfileView({ onNavigate }) {
         : `${profile.propertyType || ''} • ${profile.city || ''}`;
 
     const menuItems = [
-        { id: 'wallet', icon: Wallet, label: isCompany ? 'Company Wallet' : 'My Earnings', badge: null },
+        ...(isCompany ? [{ id: 'wallet', icon: Wallet, label: 'Company Wallet', badge: null }] : []), // homeowners have no wallet
         { id: 'meetings', icon: Calendar, label: 'Meetings', badge: null },
         { id: 'projects', icon: Home, label: 'My Projects', badge: null },
         { id: 'edit', icon: Edit2, label: 'Edit Profile', badge: null },
@@ -1527,8 +1527,8 @@ export function SettingsView({ onBack }) {
 export function HelpView({ onBack }) {
     const faqs = [
         { q: 'How do I get more connections?', a: 'Swipe right on profiles you like! Complete your profile fully to get more visibility.' },
-        { q: 'How does the meeting payment work?', a: 'When a meeting is confirmed via OTP, ₹500 is deducted from the company\'s wallet. The seeker receives ₹250 as locked earnings.' },
-        { q: 'How do I withdraw my earnings?', a: 'Go to your Wallet page and tap "Withdraw". Withdrawals are processed within 3-5 business days.' },
+        { q: 'How does the meeting payment work?', a: 'Interior companies pay a meeting fee (₹500–₹3,000 by home size) from their wallet, only when the meeting is confirmed with the OTP. Meetings and quotes are always free for homeowners.' },
+        { q: 'What does PlyShip charge?', a: 'Only interior companies pay — for homeowner leads (Marketplace) or meetings, whichever they choose. Projects are never charged, and homeowners never pay.' },
         { q: 'What is the OTP for meetings?', a: 'When a meeting is accepted, the seeker receives a 6-digit OTP. When you meet in person, the seeker shares this OTP with the company, and the company enters it to confirm the meeting happened.' },
         { q: 'Is my data secure?', a: 'Yes! We use industry-standard encryption to protect your data.' },
     ];

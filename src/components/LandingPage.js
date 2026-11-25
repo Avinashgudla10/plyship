@@ -100,7 +100,7 @@ export default function LandingPage() {
                 {[
                     { icon: Users, text: 'Verified Profiles' },
                     { icon: Briefcase, text: 'Easy Meetings' },
-                    { icon: Sparkles, text: 'Earn Rewards' },
+                    { icon: Sparkles, text: 'Free for Homeowners' },
                 ].map((item, i) => (
                     <div key={i} style={{
                         display: 'flex',

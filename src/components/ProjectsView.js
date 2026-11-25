@@ -142,8 +142,8 @@ export default function ProjectsView({ onBack }) {
                     <Home size={20} color="#2563EB" />
                     <span style={{ fontSize: 13, color: '#1E40AF' }}>
                         {isCompany
-                            ? 'Accept projects and confirm advance payments to help seekers unlock their earnings'
-                            : 'Start a project with a company to unlock your meeting earnings'
+                            ? 'Track projects you start with homeowners. PlyShip never charges for projects.'
+                            : 'Track your interior project with the company you chose. Free for homeowners.'
                         }
                     </span>
                 </div>
@@ -273,8 +273,7 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
     const [loading, setLoading] = useState(false);
     const [showPaymentForm, setShowPaymentForm] = useState(false);
     const [projectValue, setProjectValue] = useState('');
-    const commissionPreview = Math.round((Number(projectValue) || 0) * 0.04);      // 4% total the company pays
-    const seekerRewardPreview = Math.round((Number(projectValue) || 0) * 0.03);    // 3% of it goes to the seeker
+    // PlyShip charges only for leads and meetings — no commission on projects.
 
     const handleAccept = async () => {
         setLoading(true);
@@ -301,7 +300,7 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
         setLoading(false);
 
         if (result.success) {
-            showToast('Advance confirmed! Seeker\'s earnings have been unlocked.', 'success');
+            showToast('Advance confirmed!', 'success');
             onRefresh();
             onClose();
         } else {
@@ -493,7 +492,7 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
                                 />
                             </div>
                             <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
-                                4% commission: <strong style={{ color: 'var(--primary)' }}>₹{commissionPreview.toLocaleString('en-IN')}</strong> (1% platform + 3% <strong>₹{seekerRewardPreview.toLocaleString('en-IN')}</strong> to the seeker) — added to your commission due and collected on your next wallet top-up.
+                                No commission — PlyShip never charges for projects.
                             </p>
                         </div>
 
@@ -517,7 +516,7 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
                             {loading ? 'Confirming...' : 'Confirm Advance Received'}
                         </motion.button>
                         <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 10 }}>
-                            This will unlock the seeker&apos;s meeting earnings
+                            This just records the project — there is no charge
                         </p>
                     </div>
                 )}
@@ -534,7 +533,7 @@ function ProjectDetailModal({ project, isCompany, onClose, onRefresh, getStatusC
                             Project Confirmed!
                         </p>
                         <p style={{ fontSize: 12, color: '#15803D', marginTop: 4 }}>
-                            {isCompany ? 'Thank you for confirming the advance payment' : 'Your earnings have been unlocked!'}
+                            {isCompany ? 'Thank you for confirming the advance payment' : 'Advance payment confirmed'}
                         </p>
                     </div>
                 )}
@@ -842,7 +841,7 @@ export function StartProjectModal({ match, onClose, onSuccess }) {
                     marginBottom: 20,
                 }}>
                     <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        Starting a project will send a request to the company. Once they accept and you record your advance payment, your meeting earnings will be unlocked.
+                        Starting a project sends a request to the company so you can both track it here. It's free — PlyShip never charges for projects.
                     </p>
                 </div>
 

@@ -64,13 +64,15 @@ export function getMeetingFee(propertyType) {
     return FEE_TABLE[key] ?? DEFAULT_MEETING_FEE;
 }
 
-/** Seeker's 50% share of a fee (rounded down; admin gets the remainder). */
-export function getSeekerShare(fee) {
-    const f = Number(fee) || DEFAULT_MEETING_FEE;
-    return Math.floor(f / 2);
+/**
+ * Seekers (homeowners) are not paid anything: PlyShip keeps the whole meeting fee the company pays.
+ * Kept as a function so older code paths that ask for "the seeker's share" get 0.
+ */
+export function getSeekerShare() {
+    return 0;
 }
 
-/** Admin's share = fee minus the seeker's share (keeps the split exact). */
+/** PlyShip's share = the whole fee. */
 export function getAdminShare(fee) {
     const f = Number(fee) || DEFAULT_MEETING_FEE;
     return f - getSeekerShare(f);

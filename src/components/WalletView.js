@@ -19,7 +19,20 @@ export default function WalletView({ onBack }) {
     return isCompany ? (
         <CompanyWalletView onBack={onBack} />
     ) : (
-        <SeekerWalletView onBack={onBack} />
+        <NoWalletForHomeowners onBack={onBack} />
+    );
+}
+
+// Homeowners never pay and are never paid — PlyShip earns only from interior companies (leads and meetings).
+function NoWalletForHomeowners({ onBack }) {
+    return (
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
+            <Header title="PlyShip is free for you" onBack={onBack} />
+            <div style={{ padding: 24, textAlign: 'center' }}>
+                <p style={{ fontSize: 15, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 8 }}>Homeowners don't need a wallet.</p>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Meetings and free quotes cost you nothing — interior companies pay PlyShip, never you.</p>
+            </div>
+        </div>
     );
 }
 

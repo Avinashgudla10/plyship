@@ -115,7 +115,7 @@ export async function GET(request) {
                 cancelledOrDeclined: recent.filter((m) => ['CANCELLED', 'DECLINED'].includes(m.status)).length,
                 disputes: recent.filter((m) => m.status === 'DISPUTE').length,
                 feesCollected: completed30.reduce((a, m) => a + (Number(m.meetingFee) || getMeetingFee(m.propertyType)), 0),
-                plyshipShare: completed30.reduce((a, m) => a + Math.round((Number(m.meetingFee) || getMeetingFee(m.propertyType)) / 2), 0),
+                plyshipShare: completed30.reduce((a, m) => a + (Number(m.meetingFee) || getMeetingFee(m.propertyType)), 0), // PlyShip keeps the whole fee
                 openNow: statusCount,
             },
             reviews30: { count: reviews30.length, avg: reviews30.length ? Math.round((reviews30.reduce((a, r) => a + Number(r.rating || 0), 0) / reviews30.length) * 10) / 10 : null },

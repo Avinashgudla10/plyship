@@ -2717,6 +2717,7 @@ export const AuthProvider = ({ children }) => {
 
     // Request a withdrawal (creates a record for admin tracking)
     const requestWithdrawal = useCallback(async (amount) => {
+        if (user?.role === 'SEEKER') return { success: false, error: 'Homeowners have no wallet — PlyShip is free for you.' };
         if (!user || !user.id) {
             return { success: false, error: 'Not logged in' };
         }

@@ -2614,7 +2614,7 @@ export function ChatView({ chat, onBack, onNavigate, showMeetingOnOpen, onMeetin
                                             setActionLoading('acceptProject');
                                             const result = await acceptProject(activeProject.id);
                                             if (result.success) {
-                                                showToast('Project accepted! Wallet unlocked for withdrawals.', 'success');
+                                                showToast('Project accepted!', 'success');
                                                 await refreshProjects();
                                             } else {
                                                 showToast(result.error, 'error');

@@ -424,7 +424,7 @@ export default function MeetingsView({ onBack }) {
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {isCompany
                             ? 'The meeting fee (₹500–₹3,000, based on the home size) is charged only when both parties confirm the offline meeting happened'
-                            : `₹${mySeekerShare} is paid to you when both confirm the offline meeting happened`
+                            : 'Free for you — interior companies pay PlyShip for meetings, never homeowners'
                         }
                     </span>
                 </div>
@@ -649,7 +649,7 @@ function MeetingCard({
                         fontWeight: 600,
                     }}>
                         <CheckCircle size={14} />
-                        ₹{isCompany ? (meeting.meetingFee || 500) : Math.floor((meeting.meetingFee || 500) / 2)} {isCompany ? 'paid' : 'earned'}
+                        {isCompany ? `₹${meeting.meetingFee || 500} paid` : 'Confirmed'}
                     </span>
                 )}
             </div>
@@ -1573,7 +1573,7 @@ export function ScheduleMeetingModal({ match, fee, propertyType, onClose, onSche
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
                     {isCompany
                         ? `Payment is required only for confirmed interior consultation. ₹${MEETING_COST} will be charged when both parties confirm the offline meeting.`
-                        : `You'll earn ₹${mySeekerShare} when both parties confirm the offline interior consultation meeting.`
+                        : 'Meetings are free for homeowners — the interior company pays PlyShip.'
                     }
                 </p>
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
@@ -2030,7 +2030,7 @@ export function AcceptAndScheduleModal({ meeting, onClose, onScheduled }) {
                         The company will review your proposal and can accept or suggest changes.
                     </p>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
-                        You'll earn ₹{mySeekerShare} when both parties confirm the offline meeting happened.
+                        Free for you — the interior company pays for the meeting.
                     </p>
 
                     {/* Submit */}

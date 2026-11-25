@@ -59,7 +59,7 @@ export default function HowItWorksPage() {
                             { step: 1, icon: Users, title: 'Create Your Company Profile', desc: "Sign up and tell us about your company, the services you offer, and the type of interior projects you handle." },
                             { step: 2, icon: Heart, title: 'Browse & Match with Seekers', desc: "Swipe through seeker profiles. When you like someone, swipe right. If they like you back, it's a match!" },
                             { step: 3, icon: MessageCircle, title: 'Chat & Schedule Meetings', desc: 'Start a conversation with your matches. Schedule meetings directly in the app to discuss projects.' },
-                            { step: 4, icon: Wallet, title: 'Pay Per Meeting (₹500–₹3,000)', desc: "Add funds to your wallet. The meeting fee is based on the seeker's home size (₹500 for 1 BHK up to ₹3,000 for a villa or office) and is deducted only when both parties confirm the meeting took place." },
+                            { step: 4, icon: Wallet, title: 'Pay Only for Meetings or Leads', desc: "Your choice, whenever you want: pay per meeting (₹500 for 1 BHK up to ₹3,000 for a villa or office, deducted only when both confirm it happened) or buy homeowner leads on PlyShip Marketplace. No charge on projects." },
                             { step: 5, icon: CheckCircle, title: 'Start Your Project', desc: 'Found the right client? Start working together on their home interior project!' },
                         ].map((item, i) => (
                             <motion.div
@@ -113,8 +113,8 @@ export default function HowItWorksPage() {
                             { step: 1, icon: Users, title: 'Create Your Profile', desc: 'Sign up and tell us about your home interior needs, preferred styles, budget, and location.' },
                             { step: 2, icon: Heart, title: 'Get Discovered by Companies', desc: 'Companies browse seeker profiles. When you both like each other, you match and can start chatting.' },
                             { step: 3, icon: Calendar, title: 'Attend Meetings', desc: 'Schedule and attend meetings with companies. Discuss your project requirements and get proposals.' },
-                            { step: 4, icon: Wallet, title: 'Earn ₹250 Per Meeting', desc: 'For every confirmed meeting, you earn ₹250. Money is added to your wallet automatically.' },
-                            { step: 5, icon: CheckCircle, title: 'Withdraw Your Earnings', desc: 'Once you have ₹250+, withdraw to your bank account anytime via WhatsApp request.' },
+                            { step: 4, icon: Wallet, title: 'Always Free for You', desc: 'Meetings and quotes cost homeowners nothing — interior companies pay PlyShip, never you.' },
+                            { step: 5, icon: CheckCircle, title: 'Get Free Quotes Too', desc: 'Want more options? Choose how many verified firms near you should call with quotes (nearest first).' },
                         ].map((item, i) => (
                             <motion.div
                                 key={i}

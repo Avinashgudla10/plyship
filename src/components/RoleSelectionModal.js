@@ -10,7 +10,7 @@ export default function RoleSelectionModal({ onSelect }) {
             id: 'SEEKER',
             icon: Home,
             title: 'I need Home Interior',
-            description: 'Find verified companies & get exclusive rewards',
+            description: 'Find verified interior companies & get free quotes',
             bgColor: '#ECFDF5',
             borderColor: '#A7F3D0',
             iconColor: '#22C55E'
