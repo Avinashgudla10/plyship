@@ -7,6 +7,7 @@ import { useToast } from '../context/ToastContext';
 import { TopUpModal } from './WalletView';
 import { buildRazorpayOptions, openRazorpayCheckout } from '../utils/razorpayHelper';
 import { getMeetingFee, DEFAULT_MEETING_FEE, FEE_TIERS } from '../lib/meetingFee';
+import { auth } from '../lib/firebase';
 import {
     Calendar, ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle,
     User, Building2, MapPin, ChevronRight, Plus, X, IndianRupee,
@@ -24,6 +25,70 @@ const isPastDateTime = (dateStr, timeStr) => {
     const dt = new Date(`${dateStr}T${timeStr}`);
     return !isNaN(dt.getTime()) && dt.getTime() < Date.now();
 };
+
+// ── Rate a meeting (both sides, optional): homeowner → company (their review), company → homeowner (private) ──
+function RateMeeting({ meeting, isCompany }) {
+    const already = isCompany ? meeting.companyRated : meeting.seekerRated;
+    const [open, setOpen] = useState(false);
+    const [stars, setStars] = useState(0);
+    const [comment, setComment] = useState('');
+    const [state, setState] = useState(already ? 'done' : 'idle'); // idle | saving | done | skipped
+    const [error, setError] = useState('');
+    const other = isCompany ? (meeting.seekerName || 'the homeowner') : (meeting.companyName || 'the company');
+
+    const load = async () => {
+        setOpen(true);
+        try {
+            const token = await auth.currentUser?.getIdToken();
+            const r = await fetch(`/api/meeting-feedback?meetingId=${encodeURIComponent(meeting.id)}`, { headers: { Authorization: `Bearer ${token}` } }).then((x) => x.json());
+            if (r?.feedback) { setStars(r.feedback.rating || 0); setComment(r.feedback.comment || ''); }
+        } catch { /* start empty */ }
+    };
+    const save = async () => {
+        if (!stars) { setError('Choose 1 to 5 stars'); return; }
+        setState('saving'); setError('');
+        try {
+            const token = await auth.currentUser?.getIdToken();
+            const r = await fetch('/api/meeting-feedback', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: meeting.id, stars, comment }) }).then((x) => x.json());
+            if (!r.ok) throw new Error(r.error || 'Could not save');
+            setState('done'); setOpen(false);
+        } catch (e) { setError(e.message); setState('idle'); }
+    };
+
+    if (state === 'skipped') return null;
+    if (!open) {
+        return (
+            <button type="button" onClick={load} style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid var(--border-light)', background: state === 'done' ? '#F0FDF4' : '#FFFBEB', color: state === 'done' ? '#166534' : '#92400E', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                {state === 'done' ? '✓ Rated — edit your rating' : `★ Rate your meeting with ${other}`}
+            </button>
+        );
+    }
+    return (
+        <div style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid var(--border-light)', background: '#FFFBEB' }} role="group" aria-label={`Rate your meeting with ${other}`}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>How was your meeting with {other}?</p>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                    <button key={n} type="button" onClick={() => setStars(n)} aria-label={`${n} star${n > 1 ? 's' : ''}`} aria-pressed={stars === n}
+                        style={{ fontSize: 26, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', color: n <= stars ? '#F59E0B' : '#D1D5DB', padding: 2 }}>★</button>
+                ))}
+            </div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }} htmlFor={`fb-${meeting.id}`}>
+                Feedback (optional){isCompany ? ' — only PlyShip sees this' : ' — shown on their profile'}
+            </label>
+            <textarea id={`fb-${meeting.id}`} value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} rows={3}
+                style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid var(--border-light)', fontSize: 13, resize: 'vertical', marginBottom: 8 }} />
+            {error && <p role="alert" style={{ fontSize: 12, color: '#B91C1C', marginBottom: 6 }}>{error}</p>}
+            <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={save} disabled={state === 'saving'} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'white', fontWeight: 600, cursor: 'pointer' }}>
+                    {state === 'saving' ? 'Saving…' : 'Submit'}
+                </button>
+                <button type="button" onClick={() => (already ? setOpen(false) : setState('skipped'))} style={{ padding: 10, borderRadius: 8, border: '1px solid var(--border-light)', background: 'white', cursor: 'pointer' }}>
+                    {already ? 'Close' : 'Skip'}
+                </button>
+            </div>
+        </div>
+    );
+}
 
 // Meetings View - Shows all meetings for current user
 export default function MeetingsView({ onBack }) {
@@ -1107,6 +1172,9 @@ function MeetingCard({
                     </div>
                 )}
                 {/* Dispute state - no actions available */}
+                {['CONFIRMED', 'COMPLETED'].includes(meeting.status) && (
+                    <RateMeeting meeting={meeting} isCompany={isCompany} />
+                )}
                 {isDispute && (
                     <div style={{
                         width: '100%',

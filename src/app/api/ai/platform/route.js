@@ -51,6 +51,7 @@ export async function GET(request) {
             db.collection('withdrawals').where('status', '==', 'PENDING').get(), db.collection('deleteRequests').where('status', '==', 'PENDING').get(),
             db.collection('reviews').get(),
         ]);
+        const companyFeedback30 = (await db.collection('meetingFeedback').get()).docs.map((d) => d.data()).filter((r) => now - ms(r.createdAt) < 30 * DAY);
         const privatePhone = Object.fromEntries((await db.collection('contacts').get()).docs.map((d) => [d.id, d.data().phone]));
         const seekers = seekersSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.profileComplete !== false);
         const companies = companiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.profileComplete !== false);
@@ -60,7 +61,8 @@ export async function GET(request) {
 
         const in30 = (m) => now - ms(m.createdAt) < 30 * DAY;
         const recent = meetings.filter(in30);
-        const completed30 = meetings.filter((m) => m.status === 'COMPLETED' && now - ms(m.updatedAt || m.scheduledAt) < 30 * DAY);
+        // A meeting is done once the code was entered and the fee taken (status CONFIRMED, payment PROCESSED).
+        const completed30 = meetings.filter((m) => (m.status === 'COMPLETED' || (m.status === 'CONFIRMED' && m.paymentStatus === 'PROCESSED')) && now - ms(m.confirmedAt || m.updatedAt || m.scheduledAt) < 30 * DAY);
         const statusCount = {};
         for (const m of meetings) statusCount[m.status] = (statusCount[m.status] || 0) + 1;
 
@@ -119,6 +121,9 @@ export async function GET(request) {
                 openNow: statusCount,
             },
             reviews30: { count: reviews30.length, avg: reviews30.length ? Math.round((reviews30.reduce((a, r) => a + Number(r.rating || 0), 0) / reviews30.length) * 10) / 10 : null },
+            // Companies rating the homeowners they met (private feedback, after every meeting).
+            companyFeedback30: { count: companyFeedback30.length, avg: companyFeedback30.length ? Math.round((companyFeedback30.reduce((a, r) => a + Number(r.rating || 0), 0) / companyFeedback30.length) * 10) / 10 : null, low: companyFeedback30.filter((r) => Number(r.rating) <= 2).map((r) => ({ meetingId: r.meetingId, rating: r.rating, comment: String(r.comment || '').slice(0, 200) })).slice(0, 10) },
+            meetingsRated30: { completed: completed30.length, bySeeker: completed30.filter((m) => m.seekerRated).length, byCompany: completed30.filter((m) => m.companyRated).length },
             withdrawalsPending: { count: withdrawalsSnap.size, oldestDays: withdrawalsSnap.size ? Math.round((now - oldestWithdrawal) / DAY) : 0 },
             deleteRequestsPending: deleteSnap.size,
             waitingReply, upcoming24h, lowBalance, seekersIdle, companies: companiesList,
