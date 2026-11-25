@@ -65,10 +65,11 @@ export async function POST(request) {
                 t.set(txRef, { userId: uid, type: 'DEBIT', amount, reason: 'LEAD_PURCHASE', ref, note: String(b.note || '').slice(0, 200), status: 'COMPLETED', createdAt: now });
                 return { ok: true, balance: balance - amount };
             }
-            // credit (refund of a Marketplace purchase)
+            // credit: refund of a Marketplace purchase, or a paid WhatsApp top-up (Razorpay payment link, verified by the Marketplace)
+            const reason = b.reason === 'TOP_UP' ? 'TOP_UP' : 'LEAD_REFUND';
             if (w) t.update(walletRef, { balance: balance + amount, updatedAt: now });
             else t.set(walletRef, { userId: uid, type: 'COMPANY', balance: amount, totalSpent: 0, createdAt: now, updatedAt: now });
-            t.set(txRef, { userId: uid, type: 'CREDIT', amount, reason: 'LEAD_REFUND', ref, note: String(b.note || '').slice(0, 200), status: 'COMPLETED', createdAt: now });
+            t.set(txRef, { userId: uid, type: 'CREDIT', amount, reason, ref, note: String(b.note || '').slice(0, 200), status: 'COMPLETED', createdAt: now });
             return { ok: true, balance: balance + amount };
         });
         return Response.json(out, { status: out.ok || out.insufficient ? 200 : 400 });
