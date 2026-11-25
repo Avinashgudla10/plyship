@@ -34,7 +34,7 @@ export async function GET(request) {
     const now = Date.now();
     return Response.json({
         ok: true,
-        waiting: all.filter((m) => OPEN.includes(m.status) && waitingOn(m) === uid).map((m) => ({ id: m.id, with: other(m), status: m.status, scheduledAt: m.scheduledAt || null })),
+        waiting: all.filter((m) => OPEN.includes(m.status) && waitingOn(m) === uid).map((m) => ({ id: m.id, with: other(m), status: m.status, scheduledAt: m.scheduledAt || null, iAmCompany: m.companyId === uid, fee: Number(m.meetingFee) || 500 })),
         upcoming: all.filter((m) => ['SCHEDULED', 'CONFIRMED', 'ACCEPTED'].includes(m.status) && m.scheduledAt && new Date(m.scheduledAt).getTime() > now - 2 * 3600000)
             .sort((x, y) => new Date(x.scheduledAt) - new Date(y.scheduledAt)).slice(0, 5)
             .map((m) => ({ id: m.id, with: other(m), scheduledAt: m.scheduledAt, place: String(m.location || '').split('||')[0] })),
