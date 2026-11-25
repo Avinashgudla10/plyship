@@ -39,7 +39,13 @@ function NoWalletForHomeowners({ onBack }) {
 // ============ TOP UP MODAL ============
 export function TopUpModal({ onClose, onSuccess }) {
     const { user, topUpWallet, recoverPendingPayments, getWallet } = useAuth();
-    const [amount, setAmount] = useState('');
+    // Sent here from a Marketplace checkout ("Top up ₹X"): start with that amount (minimum ₹500).
+    const [amount, setAmount] = useState(() => {
+        if (typeof window === 'undefined') return '';
+        const a = Number(sessionStorage.getItem('plyship_topup_amount') || 0);
+        sessionStorage.removeItem('plyship_topup_amount');
+        return a > 0 ? String(Math.max(500, Math.ceil(a))) : '';
+    });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [commissionOwed, setCommissionOwed] = useState(0);
@@ -421,7 +427,12 @@ function CompanyWalletView({ onBack }) {
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [showTopUp, setShowTopUp] = useState(false);
+    const [showTopUp, setShowTopUp] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        const open = sessionStorage.getItem('plyship_open_topup') === '1';
+        sessionStorage.removeItem('plyship_open_topup');
+        return open;
+    });
     const [hasPendingWithdrawal, setHasPendingWithdrawal] = useState(false);
     const [withdrawRequesting, setWithdrawRequesting] = useState(false);
 
@@ -966,6 +977,9 @@ function TransactionItem({ transaction }) {
         switch (reason) {
             case 'MEETING_FEE': return 'Consultation Meeting Fee';
             case 'MEETING_EARNINGS': return 'Meeting Earnings';
+            case 'LEAD_PURCHASE': return 'Marketplace Lead';
+            case 'LEAD_REFUND': return 'Marketplace Lead Refund';
+            case 'HOMEOWNERS_NOT_PAID': return 'Balance Adjustment';
             case 'TOP_UP': return 'Service Deposit';
             case 'WITHDRAWAL': return 'Balance Withdrawal';
             case 'REFUND': return 'Deposit Refund';

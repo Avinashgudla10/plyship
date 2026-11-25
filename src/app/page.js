@@ -57,6 +57,14 @@ export default function Home() {
   // window.location.reload()) returns the user to the same tab, not 'explore'.
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get('open') === 'wallet') {
+        sessionStorage.setItem('plyship_open_wallet', '1');
+        sessionStorage.setItem('plyship_open_topup', '1');
+        if (q.get('amount')) sessionStorage.setItem('plyship_topup_amount', q.get('amount'));
+        window.history.replaceState(null, '', '/');
+        return 'profile';
+      }
       return sessionStorage.getItem('plyship_activeTab') || 'home';
     }
     return 'explore';
@@ -67,7 +75,11 @@ export default function Home() {
   const [chats, setChats] = useState([]);
   const [likedProfiles, setLikedProfiles] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
-  const [profileSubPage, setProfileSubPage] = useState(null);
+  const [profileSubPage, setProfileSubPage] = useState(() => {
+    if (typeof window === 'undefined' || sessionStorage.getItem('plyship_open_wallet') !== '1') return null;
+    sessionStorage.removeItem('plyship_open_wallet');
+    return 'wallet'; // opened from a Marketplace "Top up" link
+  });
   const [allUsers, setAllUsers] = useState([]);
   const [showMeetingOnOpen, setShowMeetingOnOpen] = useState(false);
   const [userMeetings, setUserMeetings] = useState([]);
