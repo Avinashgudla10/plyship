@@ -43,6 +43,7 @@ export default function AboutPage() {
                     <p style={{ fontSize: 18, color: '#666', lineHeight: 1.7 }}>
                         We're building the future of home interior collaboration in India
                     </p>
+                    <p style={{ fontSize: 14, color: '#888', marginTop: 12 }}>PlyShip is a brand owned and operated by Ag X Factor.</p>
                 </motion.div>
             </section>
 

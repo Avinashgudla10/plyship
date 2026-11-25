@@ -45,7 +45,7 @@ export default function TermsPage() {
                     </div>
                     <p style={{ fontSize: 14, color: '#888', marginBottom: 8 }}>Last Updated: March 13, 2026</p>
                     <p style={{ fontSize: 15, color: '#555', lineHeight: 1.8, marginBottom: 24 }}>
-                        Welcome to <strong>Plyship</strong>. These Terms of Service govern your use of the Plyship website and mobile application (collectively referred to as the <strong>"Platform"</strong>).
+                        Welcome to <strong>Plyship</strong>. These Terms of Service govern your use of the Plyship website and mobile application (collectively referred to as the <strong>"Platform"</strong>). PlyShip is a brand owned and operated by <strong>Ag X Factor</strong>.
                         By accessing or using Plyship, you agree to be bound by these terms.
                     </p>
 
@@ -118,6 +118,7 @@ export default function TermsPage() {
                         <h2 style={sectionStyle}>9. Contact Us</h2>
                         <p>If you have questions regarding these terms, please contact us:</p>
                         <ul style={{ marginLeft: 20, marginTop: 8 }}>
+                            <li>Business: PlyShip, a brand of Ag X Factor</li>
                             <li>Email: <a href="mailto:agxfactor@gmail.com" style={{ color: '#16A34A' }}>agxfactor@gmail.com</a></li>
                             <li>Phone: +91 8465834152</li>
                             <li>Website: <a href="https://plyship.com" style={{ color: '#16A34A' }}>plyship.com</a></li>

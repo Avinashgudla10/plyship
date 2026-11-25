@@ -51,6 +51,9 @@ export default function ContactPage() {
                     <p style={{ fontSize: 18, color: '#666', lineHeight: 1.7 }}>
                         Have questions? We'd love to hear from you. Reach out via WhatsApp or call us directly.
                     </p>
+                    <p style={{ fontSize: 14, color: '#888', marginTop: 12 }}>
+                        PlyShip is a brand of Ag X Factor · <a href="mailto:agxfactor@gmail.com" style={{ color: '#16A34A' }}>agxfactor@gmail.com</a>
+                    </p>
                 </motion.div>
             </section>
 
