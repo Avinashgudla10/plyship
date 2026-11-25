@@ -801,7 +801,7 @@ function Ai({ data, go, act, currency }) {
                                 <span style={{ flex: '1 1 220px' }}><b>{p.name}</b> <span style={muted}>{p.distance_km != null ? Math.round(p.distance_km * 10) / 10 + ' km · ' : ''}{p.rating ? `★ ${p.rating} (${p.reviews || 0})` : ''} · {p.status}</span></span>
                                 <a href={tel(p.phone)} style={{ fontWeight: 600 }}>📞 {p.phone}</a>
                                 {d.length === 10 && <a href={`https://wa.me/91${d}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener" style={{ fontSize: 13 }}>Message from my phone ↗</a>}
-                                <Btn kind="primary" onClick={() => act(`/prospects/${p.id}/optin`, { agreed: '1', back: 'calls' })}>Agreed</Btn>
+                                <Btn kind="primary" onClick={() => act(`/prospects/${p.id}/optin`, { agreed: '1', back: 'calls' }, { confirm: `Did ${p.name} agree on the call to get WhatsApp messages from PlyShip? They may get an invite right away.` })}>Agreed</Btn>
                                 <Btn onClick={() => act(`/prospects/${p.id}`, { status: 'not_interested' })}>Not interested</Btn>
                             </div>
                         );
@@ -837,7 +837,7 @@ function Ai({ data, go, act, currency }) {
                     return [
                         <div key="n"><b>{p.name}</b>{p.website && <div><a href={p.website} target="_blank" rel="noopener noreferrer" style={muted}>website ↗</a></div>}</div>,
                         <a key="t" href={tel(p.phone)}>{p.phone}</a>, p.city, p.rating ? `${p.rating} ★ (${p.reviews || 0})` : '—',
-                        <div key="w"><label style={{ display: 'flex', gap: 6, fontSize: 13 }} title="Tick only if they agreed to WhatsApp messages"><input type="checkbox" checked={!!p.wa_opt_in} onChange={(e) => act(`/prospects/${p.id}/optin`, e.target.checked ? { agreed: '1' } : {})} /> Agreed</label>{p.wa_opt_out_at && <div style={muted}>opted out</div>}</div>,
+                        <div key="w"><label style={{ display: 'flex', gap: 6, fontSize: 13 }} title="Tick only if they agreed to WhatsApp messages"><input type="checkbox" checked={!!p.wa_opt_in} onChange={(e) => act(`/prospects/${p.id}/optin`, e.target.checked ? { agreed: '1' } : {}, e.target.checked ? { confirm: `Did ${p.name} agree to get WhatsApp messages from PlyShip? They may get an invite right away.` } : {})} /> Agreed</label>{p.wa_opt_out_at && <div style={muted}>opted out</div>}</div>,
                         <form key="s" onSubmit={(e) => { e.preventDefault(); act(`/prospects/${p.id}`, n); }} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             <select aria-label="Status" value={n.status} onChange={(e) => setNotes((x) => ({ ...x, [p.id]: { ...n, status: e.target.value } }))} style={{ ...input, width: 'auto' }}>{['new', 'contacted', 'interested', 'joined', 'not_interested'].map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select>
                             <input aria-label="Notes" value={n.notes} onChange={(e) => setNotes((x) => ({ ...x, [p.id]: { ...n, notes: e.target.value } }))} placeholder="Notes" style={{ ...input, width: 160 }} />
