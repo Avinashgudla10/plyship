@@ -52,7 +52,7 @@ export default function ContactPage() {
                         Have questions? We'd love to hear from you. Reach out via WhatsApp or call us directly.
                     </p>
                     <p style={{ fontSize: 14, color: '#888', marginTop: 12 }}>
-                        PlyShip is a brand of Ag X Factor · <a href="mailto:agxfactor@gmail.com" style={{ color: '#16A34A' }}>agxfactor@gmail.com</a>
+                        PlyShip is a brand of AG X FACTOR PRIVATE LIMITED (CIN U73100TS2024PTC189827) · Plot No 108/P, Sriven Enclave, Gajularamaram, Near Usha Mullapudi Hospital, Hyderabad, Telangana 500055, India · <a href="mailto:agxfactor@gmail.com" style={{ color: '#16A34A' }}>agxfactor@gmail.com</a>
                     </p>
                 </motion.div>
             </section>

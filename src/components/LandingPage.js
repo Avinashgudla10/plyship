@@ -201,7 +201,7 @@ export default function LandingPage() {
                 <Link href="/terms" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'underline' }}>Terms of Service</Link>
                 {' '}&{' '}
                 <Link href="/privacy" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'underline' }}>Privacy Policy</Link>
-                <br />PlyShip is a brand of Ag X Factor
+                <br />PlyShip is a brand of AG X FACTOR PRIVATE LIMITED
             </motion.p>
         </main>
     );

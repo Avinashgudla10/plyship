@@ -15,8 +15,20 @@ async function call(path, body) {
     return json;
 }
 
-/** Opens a Marketplace page already signed in (the session starts first, invisibly). */
+/** Starts the Marketplace session for the signed-in PlyShip user (no sign-in page). */
+export async function startMarketplaceSession() {
+    try { return await call('session'); } catch { return {}; }
+}
+
+/**
+ * Opens a Marketplace page already signed in. Inside the PlyShip app it opens in the Marketplace tab (the app's
+ * header and bottom bar stay); elsewhere (e.g. admin) the page opens on its own.
+ */
 export async function openMarketplace(path = '/') {
+    if (typeof window !== 'undefined' && window.__plyshipApp) {
+        window.dispatchEvent(new CustomEvent('plyship:marketplace', { detail: { path } }));
+        return;
+    }
     try {
         const j = await call('session');
         if (j.needsProfile) { window.location.href = '/profile-setup'; return; }

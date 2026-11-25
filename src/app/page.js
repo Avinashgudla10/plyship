@@ -13,7 +13,7 @@ import { Leaf, Compass, Heart, MessageCircle, User, Users, RefreshCw, LogOut, St
 // ── Lazy-loaded heavy views (code-split into separate chunks) ──
 const MatchesView = lazy(() => import('../components/MatchesView'));
 const DashboardView = lazy(() => import('../components/DashboardView'));
-import { openMarketplace } from '../lib/marketplace';
+import MarketplaceFrame from '../components/MarketplaceFrame';
 const WalletView = lazy(() => import('../components/WalletView'));
 const MeetingsView = lazy(() => import('../components/MeetingsView'));
 const ProjectsView = lazy(() => import('../components/ProjectsView'));
@@ -90,6 +90,21 @@ export default function Home() {
       sessionStorage.setItem('plyship_activeTab', activeTab);
     }
   }, [activeTab]);
+
+  // The Marketplace is a tab of the app: other parts of the app open it at a page (e.g. "Get quotes").
+  const [marketplacePath, setMarketplacePath] = useState('/');
+  useEffect(() => {
+    window.__plyshipApp = true;
+    const open = (e) => {
+      setMarketplacePath(e.detail?.path || '/');
+      setActiveTab('marketplace');
+      setSelectedChat(null);
+      setProfileSubPage(null);
+    };
+    window.addEventListener('plyship:marketplace', open);
+    return () => { window.__plyshipApp = false; window.removeEventListener('plyship:marketplace', open); };
+  }, []);
+
 
   // Redirect logic for admin and incomplete profiles
   useEffect(() => {
@@ -349,6 +364,9 @@ export default function Home() {
     }
 
     switch (activeTab) {
+      case 'marketplace':
+        return <MarketplaceFrame path={marketplacePath} />;
+
       case 'home':
         return <DashboardView onNavigate={(tab, sub) => {
           setActiveTab(tab);
@@ -580,6 +598,7 @@ export default function Home() {
             {activeTab === 'matches' && 'Find Connections'}
             {activeTab === 'messages' && 'Messages'}
             {activeTab === 'profile' && 'Profile'}
+            {activeTab === 'marketplace' && 'Marketplace'}
           </span>
 
           {/* Clickable Avatar → Profile/Settings */}
@@ -657,7 +676,7 @@ export default function Home() {
             <motion.button
               key={item.id}
               onClick={() => {
-                if (item.id === 'marketplace') { openMarketplace('/'); return; } // signed in already — no sign-in page
+                if (item.id === 'marketplace') setMarketplacePath('/'); // a tab of the app — same login, bar stays
                 setActiveTab(item.id);
                 if (item.id !== 'messages') setSelectedChat(null);
                 if (item.id !== 'profile') setProfileSubPage(null);
