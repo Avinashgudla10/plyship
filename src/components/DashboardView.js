@@ -13,7 +13,7 @@ import { CalendarClock, Wallet, Store, MessageCircle, Star, ArrowRight, MapPin, 
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
 import { getMeetingFee, getSeekerShare } from '../lib/meetingFee';
-import { openMarketplace, requestQuotes, enableLeadAlerts, QUOTES_CONSENT, ALERTS_CONSENT } from '../lib/marketplace';
+import { openMarketplace, requestQuotes, enableLeadAlerts, QUOTES_CONSENT, ALERTS_CONSENT, QUOTE_CHOICES } from '../lib/marketplace';
 
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 const mk = (path) => '/marketplace' + (path === '/' ? '' : path); // opened via openMarketplace (already signed in)
@@ -107,10 +107,11 @@ export default function DashboardView({ onNavigate }) {
     const [unread, setUnread] = useState(0);
     const [market, reloadMarket] = useMarketplaceMe(user);
     const [busy, setBusy] = useState('');
+    const [firms, setFirms] = useState(3); // how many free quotes (nearest firms first)
     const [note, setNote] = useState('');
     const quotes = async () => {
         setBusy('quotes'); setNote('');
-        try { await requestQuotes(); setNote('Done — verified firms near you will call with quotes.'); reloadMarket(); }
+        try { await requestQuotes(firms); setNote(`Done — the ${firms} nearest verified firm${firms === 1 ? '' : 's'} will call you with quotes.`); reloadMarket(); }
         catch (e) { setNote(e.message); }
         setBusy('');
     };
@@ -161,7 +162,7 @@ export default function DashboardView({ onNavigate }) {
     } else {
         const e = market?.enquiry;
         if (e?.toRate) actions.push({ icon: Star, tone: 'orange', title: `Rate the firm${e.toRate === 1 ? '' : 's'} that contacted you`, text: 'Not happy with any of them? We find you more.', cta: 'Rate', href: mk('/my-enquiry') });
-        if (market && !e) actions.push({ icon: Sparkles, title: 'Get free quotes from 3 verified firms', text: 'One tap — we use your PlyShip profile, no form.', cta: 'See', onClick: () => document.getElementById('free-quotes')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) });
+        if (market && !e) actions.push({ icon: Sparkles, title: 'Get free quotes from verified firms near you', text: 'One tap — we use your PlyShip profile, no form.', cta: 'See', onClick: () => document.getElementById('free-quotes')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) });
         if (!upcoming.length && !waiting.length) actions.push({ icon: Home, tone: 'blue', title: 'Meet interior companies near you', text: `Earn ${rs(getSeekerShare(getMeetingFee(p.propertyType)))} for each meeting you attend.`, cta: 'Explore', onClick: () => go('explore') });
         if (!p.avatar) actions.push({ icon: ImageIcon, title: 'Add a profile photo', text: 'Companies respond more to complete profiles.', cta: 'Add', onClick: () => go('profile', 'edit') });
     }
@@ -237,9 +238,17 @@ export default function DashboardView({ onNavigate }) {
                         <h3 style={h3}><Store size={16} color="#16A34A" /> Your free quotes</h3>
                         {!market ? <p style={muted}>Loading…</p> : !market.enquiry ? (
                             <div id="free-quotes">
-                                <p style={muted}>Up to 3 verified interior firms near you call with quotes — free for homeowners. We use the details in your PlyShip profile; no form to fill.</p>
+                                <p style={muted}>Verified interior firms near you call with quotes — free for homeowners. We use the details in your PlyShip profile; no form to fill.</p>
+                                <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: 'var(--text-primary, #111)' }}>How many quotes?</div>
+                                <div role="radiogroup" aria-label="How many free quotes" style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                    {QUOTE_CHOICES.map((n) => (
+                                        <button key={n} type="button" role="radio" aria-checked={firms === n} onClick={() => setFirms(n)}
+                                            style={{ flex: 1, padding: '9px 0', borderRadius: 10, fontWeight: 700, cursor: 'pointer', border: firms === n ? '2px solid #16A34A' : '1px solid var(--border-light, #E5E7EB)', background: firms === n ? '#F0FDF4' : 'white' }}>{n}</button>
+                                    ))}
+                                </div>
+                                <p style={{ fontSize: 12, color: 'var(--text-muted, #6B7280)', margin: '6px 0 0' }}>Nearest interior companies first.</p>
                                 <button type="button" onClick={quotes} disabled={busy === 'quotes'} style={{ marginTop: 10, width: '100%', padding: '12px 16px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)', color: 'white', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
-                                    {busy === 'quotes' ? 'Sending…' : 'Get free quotes'}
+                                    {busy === 'quotes' ? 'Sending…' : `Get ${firms} free quote${firms === 1 ? '' : 's'}`}
                                 </button>
                                 <p style={{ fontSize: 11, color: 'var(--text-muted, #6B7280)', margin: '8px 0 0', lineHeight: 1.4 }}>{QUOTES_CONSENT}</p>
                             </div>

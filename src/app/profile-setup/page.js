@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import { goAfterLogin } from '../../lib/afterLogin';
-import { requestQuotes, enableLeadAlerts, QUOTES_CONSENT, ALERTS_CONSENT } from '../../lib/marketplace';
+import { requestQuotes, enableLeadAlerts, QUOTES_CONSENT, ALERTS_CONSENT, QUOTE_CHOICES } from '../../lib/marketplace';
 
 // ============ SEEKER FORM DATA ============
 const SEEKER_STEPS = [
@@ -109,7 +109,8 @@ export default function ProfileSetup() {
         rooms: [],
         budget: '',
         timeline: '',
-        marketplaceQuotes: false, // free quotes from up to 3 verified firms (Marketplace) — asked once, here
+        marketplaceQuotes: false, // free quotes from verified firms (Marketplace) — asked once, here
+        quotesWanted: 3,          // how many firms (1–5); the nearest get it first
     });
 
     // Company form data
@@ -278,7 +279,7 @@ export default function ProfileSetup() {
                 if (result && result.success) {
                     // One platform: the Marketplace uses this same profile — no second form or sign-in.
                     if (isCompany && profileData.leadAlertsWhatsApp) await enableLeadAlerts().catch(() => {});
-                    if (!isCompany && profileData.marketplaceQuotes) await requestQuotes().catch(() => {});
+                    if (!isCompany && profileData.marketplaceQuotes) await requestQuotes(profileData.quotesWanted).catch(() => {});
                     setSaveStage('done');
                     console.log('✅ Profile saved to Firebase, navigating to home');
                     // Let the success animation play briefly
@@ -951,11 +952,28 @@ function SeekerPreferences({ data, setData, toggleSelection, errors }) {
             <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 28, padding: 16, borderRadius: 16, border: data.marketplaceQuotes ? '1.5px solid #16A34A' : '1px solid var(--border)', background: data.marketplaceQuotes ? '#F0FDF4' : 'var(--bg-secondary)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!data.marketplaceQuotes} onChange={(e) => setData({ ...data, marketplaceQuotes: e.target.checked })} style={{ width: 22, height: 22, marginTop: 2, accentColor: '#16A34A', flexShrink: 0 }} />
                 <span>
-                    <span style={{ display: 'block', fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Also get free quotes from up to 3 verified interior firms near me</span>
+                    <span style={{ display: 'block', fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Also get free quotes from verified interior firms near me</span>
                     <span style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>Optional and free. Firms near you call with quotes — no extra form.</span>
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>{QUOTES_CONSENT}</span>
                 </span>
             </label>
+            {data.marketplaceQuotes && (
+                <div style={{ marginTop: 14 }}>
+                    <label style={labelStyle}>How many free quotes do you want?</label>
+                    <div role="radiogroup" aria-label="How many free quotes" style={{ display: 'flex', gap: 8 }}>
+                        {QUOTE_CHOICES.map((n) => (
+                            <button key={n} type="button" role="radio" aria-checked={Number(data.quotesWanted || 3) === n}
+                                onClick={() => setData({ ...data, quotesWanted: n })}
+                                style={{ flex: 1, padding: '12px 0', borderRadius: 12, fontSize: 16, fontWeight: 700, cursor: 'pointer',
+                                    border: Number(data.quotesWanted || 3) === n ? '2px solid #16A34A' : '1px solid var(--border)',
+                                    background: Number(data.quotesWanted || 3) === n ? '#F0FDF4' : 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                                {n}
+                            </button>
+                        ))}
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 2px 0' }}>The interior companies nearest to your home get it first. 3 is a good balance.</p>
+                </div>
+            )}
         </div>
     );
 }

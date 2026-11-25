@@ -24,12 +24,15 @@ export async function openMarketplace(path = '/') {
     window.location.href = '/marketplace' + (path === '/' ? '' : path);
 }
 
-/** Homeowner: free quotes from up to 3 verified firms — the enquiry is built from the PlyShip profile. */
-export const requestQuotes = () => call('enquiry', { consent: true });
+/** Homeowner: free quotes from the number of verified firms they choose (1–5, nearest first) — built from the PlyShip profile. */
+export const requestQuotes = (firms) => call('enquiry', { consent: true, ...(firms ? { firms } : {}) });
+
+/** How many free quotes a homeowner can ask for. */
+export const QUOTE_CHOICES = [1, 2, 3, 4, 5];
 
 /** Interior company: new homeowner leads near them on WhatsApp. */
 export const enableLeadAlerts = () => call('alerts', { on: true });
 
 /** Shown wherever a homeowner agrees to share their requirement (same words as the Marketplace forms). */
-export const QUOTES_CONSENT = 'Your name, phone number and project details will be shared with up to 3 verified interior design firms through PlyShip so they can send you quotes. PlyShip and these firms may contact you by call or WhatsApp about this enquiry. Reply STOP on WhatsApp at any time.';
+export const QUOTES_CONSENT = 'Your name, phone number and project details will be shared with the number of verified interior design firms you choose (nearest to you first) through PlyShip so they can send you quotes. PlyShip and these firms may contact you by call or WhatsApp about this enquiry. Reply STOP on WhatsApp at any time.';
 export const ALERTS_CONSENT = 'PlyShip will WhatsApp you new homeowner leads near your office. Reply STOP at any time.';
